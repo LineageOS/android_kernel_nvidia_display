@@ -86,6 +86,8 @@
 
 #include "displayport/dpcd.h"
 
+#define NVKMS_SYNCPT_ID_INVALID     (0xFFFFFFFF)
+
 static NvU32 GetLegacyConnectorType(NVDispEvoPtr pDispEvo, NVDpyId dpyId);
 
 static void RmFreeEvoChannel(NVDevEvoPtr pDevEvo, NVEvoChannelPtr pChannel);
@@ -3015,6 +3017,9 @@ static NvBool AllocSyncpt(NVDevEvoPtr pDevEvo, NVEvoChannelPtr pChannel,
         return FALSE;
     }
 
+    /*! Set syncpt id to invalid to avoid un-intended Free */
+    pEvoSyncptOut->id = NVKMS_SYNCPT_ID_INVALID;
+
     /*
      * HW engine on Orin is called HOST1X, all syncpts are in internal RAM of
      * HOST1X.
@@ -3026,13 +3031,18 @@ static NvBool AllocSyncpt(NVDevEvoPtr pDevEvo, NVEvoChannelPtr pChannel,
         return FALSE;
     }
     id = params.alloc.id;
-    result = nvRmEvoAllocAndBindSyncpt(
-        pDevEvo, pChannel, id, &hSyncpt, &hSyncptCtxDma);
+
+    /* Post syncpt max val is tracked locally. Init the value here. */
+    params.read_minval.id = id;
+    result = nvkms_syncpt_op(NVKMS_SYNCPT_OP_READ_MINVAL, &params);
     if (!result) {
-        /*! put back syncpt as register failed */
-        params.put.id = id;
-        nvkms_syncpt_op(NVKMS_SYNCPT_OP_PUT, &params);
-        return FALSE;
+        goto failed;
+    }
+
+    result = nvRmEvoAllocAndBindSyncpt(pDevEvo, pChannel, id,
+                                       &hSyncpt, &hSyncptCtxDma);
+    if (!result) {
+        goto failed;
     }
 
     /*! Populate syncpt values to return. */
@@ -3040,7 +3050,15 @@ static NvBool AllocSyncpt(NVDevEvoPtr pDevEvo, NVEvoChannelPtr pChannel,
     pEvoSyncptOut->hCtxDma = hSyncptCtxDma;
     pEvoSyncptOut->hSyncpt = hSyncpt;
     pEvoSyncptOut->channelMask = pChannel->channelMask;
+    pEvoSyncptOut->syncptMaxVal = params.read_minval.minval;
+
     return TRUE;
+
+failed:
+    /*! put back syncpt as operation failed */
+    params.put.id = id;
+    nvkms_syncpt_op(NVKMS_SYNCPT_OP_PUT, &params);
+    return FALSE;
 }
 
 static NvBool AllocPostSyncptPerChannel(NVDevEvoPtr pDevEvo,
@@ -3699,7 +3717,8 @@ void nvRmEvoFreeSyncpt(
     NVDevEvoRec *pDevEvo,
     NVEvoSyncpt *pEvoSyncpt)
 {
-    if ((pEvoSyncpt == NULL) || !pDevEvo->supportsSyncpts) {
+    if ((pEvoSyncpt == NULL) || !pDevEvo->supportsSyncpts ||
+        (pEvoSyncpt->id == NVKMS_SYNCPT_ID_INVALID)) {
         return;
     }
 

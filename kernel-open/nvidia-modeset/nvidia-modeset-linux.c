@@ -97,23 +97,8 @@ NvBool nvkms_syncpt_op(
                                 pdev, params->alloc.syncpt_name);
         break;
 
-    case NVKMS_SYNCPT_OP_GET:
-        nvhost_syncpt_get_ref_ext(pdev, params->get.id);
-        break;
-
     case NVKMS_SYNCPT_OP_PUT:
         nvhost_syncpt_put_ref_ext(pdev, params->put.id);
-        break;
-
-    case NVKMS_SYNCPT_OP_INCR_MAX:
-        params->incr_max.value =
-                nvhost_syncpt_incr_max_ext(pdev,
-                                              params->incr_max.id,
-                                              params->incr_max.incr);
-        break;
-
-    case NVKMS_SYNCPT_OP_CPU_INCR:
-        nvhost_syncpt_cpu_incr_ext(pdev, params->cpu_incr.id);
         break;
 
     case NVKMS_SYNCPT_OP_FD_TO_ID_AND_THRESH: {
@@ -157,21 +142,6 @@ NvBool nvkms_syncpt_op(
     case NVKMS_SYNCPT_OP_READ_MINVAL:
         params->read_minval.minval =
                 nvhost_syncpt_read_minval(pdev, params->read_minval.id);
-        break;
-
-    case NVKMS_SYNCPT_OP_READ_MAXVAL:
-        params->read_maxval.maxval =
-                nvhost_syncpt_read_maxval(pdev, params->read_maxval.id);
-        break;
-
-    case NVKMS_SYNCPT_OP_SET_MIN_EQ_MAX:
-        nvhost_syncpt_set_min_eq_max_ext(pdev, params->set_min_eq_max.id);
-        break;
-
-    case NVKMS_SYNCPT_OP_SET_MAXVAL:
-        nvhost_syncpt_set_maxval(pdev,
-                                 params->set_maxval.id,
-                                 params->set_maxval.val);
         break;
 
     }

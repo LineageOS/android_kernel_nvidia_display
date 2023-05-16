@@ -5470,22 +5470,6 @@ compile_test() {
             compile_check_conftest "$CODE" "NV_PLATFORM_IRQ_COUNT_PRESENT" "" "functions"
         ;;
 
-        acpi_bus_get_device)
-            #
-            # Determine if the acpi_bus_get_device() function is present
-            #
-            # acpi_bus_get_device() was removed by commit ac2a3feefad5
-            # ("ACPI: bus: Eliminate acpi_bus_get_device()") in
-            # v5.18-rc2 (2022-04-05).
-            #
-            CODE="
-            #include <linux/acpi.h>
-            int conftest_acpi_bus_get_device(void) {
-                return acpi_bus_get_device();
-            }"
-            compile_check_conftest "$CODE" "NV_ACPI_BUS_GET_DEVICE_PRESENT" "" "functions"
-        ;;
-
         devm_clk_bulk_get_all)
             #
             # Determine if devm_clk_bulk_get_all() function is present
@@ -5526,6 +5510,84 @@ compile_test() {
             }"
 
             compile_check_conftest "$CODE" "NV_MMGET_NOT_ZERO_PRESENT" "" "functions"
+        ;;
+
+        dma_resv_add_fence)
+            #
+            # Determine if the dma_resv_add_fence() function is present.
+            #
+            # dma_resv_add_excl_fence() and dma_resv_add_shared_fence() were
+            # removed and replaced with dma_resv_add_fence() by commit
+            # 73511edf8b19 ("dma-buf: specify usage while adding fences to
+            # dma_resv obj v7") in linux-next, expected in v5.19-rc1.
+            #
+            CODE="
+            #if defined(NV_LINUX_DMA_RESV_H_PRESENT)
+            #include <linux/dma-resv.h>
+            #endif
+            void conftest_dma_resv_add_fence(void) {
+                dma_resv_add_fence();
+            }"
+
+            compile_check_conftest "$CODE" "NV_DMA_RESV_ADD_FENCE_PRESENT" "" "functions"
+        ;;
+
+        dma_resv_reserve_fences)
+            #
+            # Determine if the dma_resv_reserve_fences() function is present.
+            #
+            # dma_resv_reserve_shared() was removed and replaced with
+            # dma_resv_reserve_fences() by commit c8d4c18bfbc4
+            # ("dma-buf/drivers: make reserving a shared slot mandatory v4") in
+            # linux-next, expected in v5.19-rc1.
+            #
+            CODE="
+            #if defined(NV_LINUX_DMA_RESV_H_PRESENT)
+            #include <linux/dma-resv.h>
+            #endif
+            void conftest_dma_resv_reserve_fences(void) {
+                dma_resv_reserve_fences();
+            }"
+
+            compile_check_conftest "$CODE" "NV_DMA_RESV_RESERVE_FENCES_PRESENT" "" "functions"
+        ;;
+
+        reservation_object_reserve_shared_has_num_fences_arg)
+            #
+            # Determine if reservation_object_reserve_shared() has 'num_fences'
+            # argument.
+            #
+            # reservation_object_reserve_shared() function prototype was updated
+            # to take 'num_fences' argument by commit ca05359f1e64 ("dma-buf:
+            # allow reserving more than one shared fence slot") in v4.21-rc1
+            # (2018-12-14).
+            #
+            CODE="
+            #include <linux/reservation.h>
+            void conftest_reservation_object_reserve_shared_has_num_fences_arg(
+                    struct reservation_object *obj,
+                    unsigned int num_fences) {
+                (void) reservation_object_reserve_shared(obj, num_fences);
+            }"
+
+            compile_check_conftest "$CODE" "NV_RESERVATION_OBJECT_RESERVE_SHARED_HAS_NUM_FENCES_ARG" "" "types"
+        ;;
+
+        num_registered_fb)
+            #
+            # Determine if 'num_registered_fb' variable is present.
+            #
+            # 'num_registered_fb' was removed by commit 5727dcfd8486
+            # ("fbdev: Make registered_fb[] private to fbmem.c) for
+            # v5.20 linux-next (2022-07-27).
+            #
+            CODE="
+            #include <linux/fb.h>
+            int conftest_num_registered_fb(void) {
+                return num_registered_fb;
+            }"
+
+            compile_check_conftest "$CODE" "NV_NUM_REGISTERED_FB_PRESENT" "" "types"
         ;;
 
         # When adding a new conftest entry, please use the correct format for

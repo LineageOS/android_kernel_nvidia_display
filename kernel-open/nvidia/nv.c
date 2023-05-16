@@ -2692,7 +2692,6 @@ nvidia_ctl_open(
     nv_linux_state_t *nvl = &nv_ctl_device;
     nv_state_t *nv = NV_STATE_PTR(nvl);
     nv_linux_file_private_t *nvlfp = NV_GET_LINUX_FILE_PRIVATE(file);
-    static int count = 0;
 
     nv_printf(NV_DBG_INFO, "NVRM: nvidia_ctl_open\n");
 
@@ -2704,13 +2703,6 @@ nvidia_ctl_open(
     if (NV_ATOMIC_READ(nvl->usage_count) == 0)
     {
         nv->flags |= (NV_FLAG_OPEN | NV_FLAG_CONTROL);
-
-        if ((nv_acpi_init() < 0) &&
-            (count++ < NV_MAX_RECURRING_WARNING_MESSAGES))
-        {
-            nv_printf(NV_DBG_ERRORS,
-                "NVRM: failed to register with the ACPI subsystem!\n");
-        }
     }
 
     NV_ATOMIC_INC(nvl->usage_count);
@@ -2734,7 +2726,6 @@ nvidia_ctl_close(
     nv_state_t *nv = NV_STATE_PTR(nvl);
     nv_linux_file_private_t *nvlfp = NV_GET_LINUX_FILE_PRIVATE(file);
     nvidia_stack_t *sp = nvlfp->sp;
-    static int count = 0;
     unsigned int i;
 
     nv_printf(NV_DBG_INFO, "NVRM: nvidia_ctl_close\n");
@@ -2743,13 +2734,6 @@ nvidia_ctl_close(
     if (NV_ATOMIC_DEC_AND_TEST(nvl->usage_count))
     {
         nv->flags &= ~NV_FLAG_OPEN;
-
-        if ((nv_acpi_uninit() < 0) &&
-            (count++ < NV_MAX_RECURRING_WARNING_MESSAGES))
-        {
-            nv_printf(NV_DBG_ERRORS,
-                "NVRM: failed to unregister from the ACPI subsystem!\n");
-        }
     }
     up(&nvl->ldata_lock);
 

@@ -199,7 +199,6 @@ NV_CONFTEST_FUNCTION_COMPILE_TESTS += dma_buf_ops_has_map_atomic
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += dma_buf_has_dynamic_attachment
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += dma_buf_attachment_has_peer2peer
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += dma_set_mask_and_coherent
-NV_CONFTEST_FUNCTION_COMPILE_TESTS += acpi_bus_get_device
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += devm_clk_bulk_get_all
 
 NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_gpl_of_node_to_nid
@@ -220,6 +219,7 @@ NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_dram_clk_to_mc_clk
 NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_get_dram_num_channels
 NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_tegra_dram_types
 NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_pxm_to_node
+NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_screen_info
 NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_i2c_bus_status
 NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_tegra_fuse_control_read
 NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_tegra_get_platform
@@ -249,6 +249,7 @@ NV_CONFTEST_TYPE_COMPILE_TESTS += pci_dev_has_ats_enabled
 NV_CONFTEST_TYPE_COMPILE_TESTS += mt_device_gre
 NV_CONFTEST_TYPE_COMPILE_TESTS += remove_memory_has_nid_arg
 NV_CONFTEST_TYPE_COMPILE_TESTS += add_memory_driver_managed_has_mhp_flags_arg
+NV_CONFTEST_TYPE_COMPILE_TESTS += num_registered_fb
 
 NV_CONFTEST_GENERIC_COMPILE_TESTS += dom0_kernel_present
 NV_CONFTEST_GENERIC_COMPILE_TESTS += nvidia_vgpu_kvm_build

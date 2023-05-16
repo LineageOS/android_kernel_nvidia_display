@@ -64,6 +64,7 @@ CFLAGS += -Wwrite-strings
 #CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -Wformat-truncation=0)
 CFLAGS += -fno-common
 CFLAGS += -ffreestanding
+CFLAGS += -fno-stack-protector
 
 ifeq ($(TARGET_ARCH),x86_64)
   CFLAGS += -msoft-float
@@ -79,6 +80,7 @@ ifeq ($(TARGET_ARCH),aarch64)
   CFLAGS += -mgeneral-regs-only
   CFLAGS += -march=armv8-a
   CFLAGS += -mstrict-align
+  CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -mno-outline-atomics)
 endif
 
 #CFLAGS += -ffunction-sections

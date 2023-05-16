@@ -1120,7 +1120,7 @@ void NV_API_CALL os_get_screen_info(
     NvU64 consoleBar2Address
 )
 {
-#if defined(CONFIG_FB)
+#if defined(CONFIG_FB) && defined(NV_NUM_REGISTERED_FB_PRESENT)
     int i;
     *pPhysicalAddress = 0;
     *pFbWidth = *pFbHeight = *pFbDepth = *pFbPitch = 0;
@@ -1142,6 +1142,29 @@ void NV_API_CALL os_get_screen_info(
             break;
         }
     }
+#elif NV_IS_EXPORT_SYMBOL_PRESENT_screen_info
+    /*
+     * If there is not a framebuffer console, return 0 size.
+     *
+     * orig_video_isVGA is set to 1 during early Linux kernel
+     * initialization, and then will be set to a value, such as
+     * VIDEO_TYPE_VLFB or VIDEO_TYPE_EFI if an fbdev console is used.
+     */
+    if (screen_info.orig_video_isVGA <= 1)
+    {
+        *pPhysicalAddress = 0;
+        *pFbWidth = *pFbHeight = *pFbDepth = *pFbPitch = 0;
+        return;
+    }
+
+    *pPhysicalAddress = screen_info.lfb_base;
+#if defined(VIDEO_CAPABILITY_64BIT_BASE)
+    *pPhysicalAddress |= (NvU64)screen_info.ext_lfb_base << 32;
+#endif
+    *pFbWidth = screen_info.lfb_width;
+    *pFbHeight = screen_info.lfb_height;
+    *pFbDepth = screen_info.lfb_depth;
+    *pFbPitch = screen_info.lfb_linelength;
 #else
     *pPhysicalAddress = 0;
     *pFbWidth = *pFbHeight = *pFbDepth = *pFbPitch = 0;

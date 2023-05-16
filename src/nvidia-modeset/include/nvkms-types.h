@@ -413,6 +413,8 @@ typedef struct _NVEvoSyncpt {
     NvU32 hCtxDma;
     /*! handle of syncpt object */
     NvU32 hSyncpt;
+    /*! stores syncpt max value */
+    NvU32 syncptMaxVal;
 } NVEvoSyncpt;
 
 /* Tracks internal state of a vblank sync object. */

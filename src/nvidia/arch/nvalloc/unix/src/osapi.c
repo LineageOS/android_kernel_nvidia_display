@@ -1077,10 +1077,6 @@ NV_STATUS RmSystemEvent(
 
     switch (event_type)
     {
-        case NV_SYSTEM_ACPI_DISPLAY_SWITCH_EVENT:
-            // Legacy kepler case, do nothing.
-            break;
-
         case NV_SYSTEM_ACPI_BATTERY_POWER_EVENT:
         {
             Nv2080PowerEventNotification powerParams;

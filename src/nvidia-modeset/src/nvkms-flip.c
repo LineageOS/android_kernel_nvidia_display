@@ -409,8 +409,6 @@ static NvBool AssignPostSyncptEvoHwState(
 {
     enum NvKmsSyncptType postType;
     NvU32 threshold;
-    NvKmsSyncPtOpParams params = { };
-    NvBool ret = TRUE;
 
     nvAssert(pChannelSyncObjects->useSyncpt);
 
@@ -424,17 +422,8 @@ static NvBool AssignPostSyncptEvoHwState(
         return TRUE;
     }
 
-
-    /*! read max value of current syncpt id */
-    params.read_maxval.id = pChannel->postSyncpt.id;
-    ret = nvkms_syncpt_op(NVKMS_SYNCPT_OP_READ_MAXVAL, &params);
-    if (!ret) {
-        nvAssert(!"Failed syncpt op READ_MAXVAL");
-        return FALSE;
-    }
-
     /*! return threshold to caller but increase only when programming hw */
-    threshold = params.read_maxval.maxval + 1;
+    threshold = pChannel->postSyncpt.syncptMaxVal + 1;
 
     /*! each channel associated with one post-syncpt */
     pFlipSyncObject->u.syncpts.postCtxDma = pChannel->postSyncpt.hCtxDma;

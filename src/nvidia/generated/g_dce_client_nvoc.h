@@ -7,7 +7,7 @@ extern "C" {
 #endif
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -49,6 +49,7 @@ extern "C" {
 #include "class/cl0073.h"
 #include "class/cl0005.h"
 #include "class/clc372sw.h"
+#include "ctrl/ctrl0073/ctrl0073dp.h"
 
 typedef struct
 {
@@ -117,6 +118,14 @@ typedef struct
     NV2080_CTRL_EVENT_SET_NOTIFICATION_PARAMS setEventParams;
     NvBool valid;
 } DISPLAY_HPD_CTRL;
+
+typedef struct
+{
+    NvHandle hClient;
+    NvHandle hObject;
+    NV0073_CTRL_CMD_DP_SET_MANUAL_DISPLAYPORT_PARAMS setManualParams;
+    NvBool valid;
+} DISPLAY_DP_SET_MANUAL;
 
 /*!
  * Max no of RM clients

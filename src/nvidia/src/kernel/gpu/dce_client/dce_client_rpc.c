@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -63,6 +63,7 @@ extern DISPLAY_SW_EVENT displaySWEventHotplug;
 extern DISPLAY_SW_EVENT displaySWEventDPIRQ;
 extern DISPLAY_HPD_CTRL displayCtrlHotplug;
 extern DISPLAY_HPD_CTRL displayCtrlDPIRQ;
+extern DISPLAY_DP_SET_MANUAL displayCtrlDPSetManual;
 
 NV_STATUS
 dceclientInitRpcInfra_IMPL
@@ -418,6 +419,7 @@ NV_STATUS rpcRmApiControl_dce
     rpc_gsp_rm_control_v *rpc_params = NULL;
     NV_STATUS status = NV_ERR_NOT_SUPPORTED;
     NV2080_CTRL_EVENT_SET_NOTIFICATION_PARAMS setEventParams = { };
+    NV0073_CTRL_CMD_DP_SET_MANUAL_DISPLAYPORT_PARAMS setManualParams = {0};
 
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE : Prepare and send RmApiControl RPC\n");
 
@@ -466,6 +468,14 @@ NV_STATUS rpcRmApiControl_dce
                 portMemCopy(&displayCtrlDPIRQ.setEventParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
                 displayCtrlDPIRQ.valid = NV_TRUE;
             }
+        }
+        if (cmd == NV0073_CTRL_CMD_DP_SET_MANUAL_DISPLAYPORT)
+        {
+            portMemCopy(&setManualParams, paramsSize,pParamStructPtr, paramsSize);
+            displayCtrlDPSetManual.hClient = rpc_params->hClient;
+            displayCtrlDPSetManual.hObject = rpc_params->hObject;
+            portMemCopy(&displayCtrlDPSetManual.setManualParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
+            displayCtrlDPSetManual.valid = NV_TRUE;
         }
     }
 

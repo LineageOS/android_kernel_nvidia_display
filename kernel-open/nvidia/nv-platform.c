@@ -407,6 +407,18 @@ NV_STATUS NV_API_CALL nv_soc_device_reset(nv_state_t *nv)
     bool skip_clk_rsts = of_property_read_bool(nvl->dev->of_node, "nvidia,skip-clk-rsts");
     if (!skip_clk_rsts)
     {
+        // Resetting the Display
+        if (nvl->nvdisplay_reset != NULL)
+        {
+            rc = reset_control_reset(nvl->nvdisplay_reset);
+            if (rc != 0)
+            {
+                status = NV_ERR_GENERIC;
+                nv_printf(NV_DBG_ERRORS, "NVRM: reset_control_reset failed, rc: %d\n", rc);
+                goto out;
+            }
+        }
+
         // Resetting the dpaux
         if (nvl->dpaux0_reset != NULL)
         {
@@ -415,6 +427,7 @@ NV_STATUS NV_API_CALL nv_soc_device_reset(nv_state_t *nv)
             {
                 status = NV_ERR_GENERIC;
                 nv_printf(NV_DBG_ERRORS, "NVRM: reset_control_reset failed, rc: %d\n", rc);
+                goto out;
             }
         }
 
@@ -424,12 +437,14 @@ NV_STATUS NV_API_CALL nv_soc_device_reset(nv_state_t *nv)
             rc = reset_control_reset(nvl->dsi_core_reset);
             if (rc != 0)
             {
-                 status = NV_ERR_GENERIC;
-                 nv_printf(NV_DBG_ERRORS, "NVRM: reset_control_reset failed, rc: %d\n", rc);
+                status = NV_ERR_GENERIC;
+                nv_printf(NV_DBG_ERRORS, "NVRM: reset_control_reset failed, rc: %d\n", rc);
+                goto out;
             }
         }
     }
 
+out:
     return status;
 }
 

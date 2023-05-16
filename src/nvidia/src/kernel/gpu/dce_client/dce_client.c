@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -32,6 +32,7 @@ DISPLAY_SW_EVENT displaySWEventHotplug;
 DISPLAY_SW_EVENT displaySWEventDPIRQ;
 DISPLAY_HPD_CTRL displayCtrlHotplug;
 DISPLAY_HPD_CTRL displayCtrlDPIRQ;
+DISPLAY_DP_SET_MANUAL displayCtrlDPSetManual;
 
 NV_STATUS
 dceclientConstructEngine_IMPL
@@ -187,6 +188,17 @@ dceclientStateLoad_IMPL
                 }
             }
         }
+        if (displayCtrlDPSetManual.valid)
+        {
+            nvStatus = rpcRmApiControl_dce(pRmApi, displayCtrlDPSetManual.hClient, displayCtrlDPSetManual.hObject, NV0073_CTRL_CMD_DP_SET_MANUAL_DISPLAYPORT,
+                    &displayCtrlDPSetManual.setManualParams, sizeof(displayCtrlDPSetManual.setManualParams));
+            if (nvStatus != NV_OK)
+            {
+                NV_PRINTF(LEVEL_ERROR, "rpcRmApiControl_dce displayCtrlDPSetManual object failed\n");
+                nvStatus = NV_ERR_GENERIC;
+                goto out;
+            }
+        }
     }
 
 out:
@@ -243,4 +255,5 @@ dceclientStateDestroy_IMPL
     displaySWEventDPIRQ.valid = NV_FALSE;
     displayCtrlHotplug.valid = NV_FALSE;
     displayCtrlDPIRQ.valid = NV_FALSE;
+    displayCtrlDPSetManual.valid = NV_FALSE;
 }

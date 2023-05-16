@@ -3057,12 +3057,9 @@ EvoProgramSemaphore6(NVDevEvoPtr pDevEvo,
         acqMode = DRF_DEF(C67E, _SET_SEMAPHORE_CONTROL, _SKIP_ACQ, _TRUE);
         relMode = DRF_DEF(C67E, _SET_SEMAPHORE_CONTROL, _REL_MODE, _WRITE);
         value = pHwState->syncObject.u.syncpts.postValue;
-        /*! increase value in host1x hardware as well */
+        /*! increase local max val as well */
         if (hCtxDma != 0) {
-            NvKmsSyncPtOpParams params = { };
-            params.incr_max.id = pChannel->postSyncpt.id;
-            params.incr_max.incr = 1;
-            nvkms_syncpt_op(NVKMS_SYNCPT_OP_INCR_MAX, &params);
+            pChannel->postSyncpt.syncptMaxVal++;
         }
     } else {
         if (pHwState->syncObject.u.semaphores.releaseSurface.pSurfaceEvo != NULL) {
