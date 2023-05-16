@@ -1954,7 +1954,7 @@ NV_STATUS NV_API_CALL os_get_tegra_platform
     NvU32 *mode
 )
 {
-#if defined(NV_TEGRA_GET_PLATFORM_PRESENT)
+#if defined(NV_TEGRA_GET_PLATFORM_PRESENT) && NV_IS_EXPORT_SYMBOL_PRESENT_tegra_get_platform
     NvU8 platform;
 
     platform = tegra_get_platform();

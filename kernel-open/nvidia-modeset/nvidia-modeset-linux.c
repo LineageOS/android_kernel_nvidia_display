@@ -179,6 +179,153 @@ NvBool nvkms_syncpt_op(
     return NV_TRUE;
 }
 
+#elif defined(NV_LINUX_HOST1X_NEXT_H_PRESENT) && defined(NV_LINUX_NVHOST_H_PRESENT)
+
+#include <linux/dma-fence.h>
+#include <linux/file.h>
+#include <linux/host1x-next.h>
+#include <linux/sync_file.h>
+
+/*
+ * If the host1x.h header is present, then we are using the upstream
+ * host1x driver and so make sure CONFIG_TEGRA_HOST1X is defined to pick
+ * up the correct prototypes/definitions in nvhost.h.
+ */
+#define CONFIG_TEGRA_HOST1X
+
+#include <linux/nvhost.h>
+
+#undef NVKMS_SYNCPT_STUBS_NEEDED
+
+NvBool nvkms_syncpt_op(
+    enum NvKmsSyncPtOp op,
+    NvKmsSyncPtOpParams *params)
+{
+    struct host1x_syncpt *host1x_sp;
+    struct platform_device *pdev;
+    struct host1x *host1x;
+
+    pdev = nvhost_get_default_device();
+    if (pdev == NULL) {
+        nvkms_log(NVKMS_LOG_LEVEL_ERROR, NVKMS_LOG_PREFIX,
+                  "Failed to get nvhost default pdev");
+         return NV_FALSE;
+    }
+
+    host1x = nvhost_get_host1x(pdev);
+    if (host1x == NULL) {
+        nvkms_log(NVKMS_LOG_LEVEL_ERROR, NVKMS_LOG_PREFIX,
+                  "Failed to get host1x");
+        return  NV_FALSE;
+    }
+
+    switch (op) {
+
+    case NVKMS_SYNCPT_OP_ALLOC:
+        host1x_sp = host1x_syncpt_alloc(host1x,
+                                        HOST1X_SYNCPT_CLIENT_MANAGED,
+                                        params->alloc.syncpt_name);
+        if (host1x_sp == NULL) {
+            return NV_FALSE;
+        }
+
+        params->alloc.id = host1x_syncpt_id(host1x_sp);
+        break;
+
+    case NVKMS_SYNCPT_OP_PUT:
+        host1x_sp = host1x_syncpt_get_by_id_noref(host1x, params->put.id);
+        if (host1x_sp == NULL) {
+            return NV_FALSE;
+        }
+
+        host1x_syncpt_put(host1x_sp);
+        break;
+
+    case NVKMS_SYNCPT_OP_FD_TO_ID_AND_THRESH: {
+
+        struct dma_fence *f;
+        NvU32 id, thresh;
+        int err;
+
+        f = sync_file_get_fence(params->fd_to_id_and_thresh.fd);
+        if (f == NULL) {
+            return NV_FALSE;
+        }
+
+        if (dma_fence_is_array(f)) {
+            struct dma_fence_array *array = to_dma_fence_array(f);
+
+            if (array->num_fences > 1) {
+                /* Syncpoint fence fd contains more than one syncpoint */
+                dma_fence_put(f);
+                return NV_FALSE;
+            }
+
+            f = array->fences[0];
+        }
+
+        err = host1x_fence_extract(f, &id, &thresh);
+        dma_fence_put(f);
+
+        if (err < 0) {
+            return NV_FALSE;
+        }
+
+        params->fd_to_id_and_thresh.id = id;
+        params->fd_to_id_and_thresh.thresh = thresh;
+
+        break;
+    }
+
+    case NVKMS_SYNCPT_OP_ID_AND_THRESH_TO_FD: {
+
+        struct sync_file *file;
+        struct dma_fence *f;
+        int fd;
+
+        host1x_sp = host1x_syncpt_get_by_id_noref(host1x,
+                                params->id_and_thresh_to_fd.id);
+        if (host1x_sp == NULL) {
+            return NV_FALSE;
+        }
+
+        f = host1x_fence_create(host1x_sp,
+                                params->id_and_thresh_to_fd.thresh, true);
+        if (IS_ERR(f)) {
+            return NV_FALSE;
+        }
+
+        fd = get_unused_fd_flags(O_CLOEXEC);
+        if (fd < 0) {
+            dma_fence_put(f);
+            return NV_FALSE;
+        }
+
+        file = sync_file_create(f);
+        dma_fence_put(f);
+
+        if (!file) {
+            return NV_FALSE;
+        }
+
+        fd_install(fd, file->file);
+
+        params->id_and_thresh_to_fd.fd = fd;
+        break;
+    }
+
+    case NVKMS_SYNCPT_OP_READ_MINVAL:
+        host1x_sp = host1x_syncpt_get_by_id_noref(host1x, params->read_minval.id);
+        if (host1x_sp == NULL) {
+            return NV_FALSE;
+        }
+
+        params->read_minval.minval = host1x_syncpt_read(host1x_sp);
+        break;
+    }
+
+    return NV_TRUE;
+}
 #endif
 
 

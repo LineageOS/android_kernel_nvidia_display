@@ -59,6 +59,10 @@ extern DEVICE devices[MAX_RM_CLIENTS];
 extern SUBDEVICE subdevices[MAX_RM_CLIENTS];
 extern DISPLAY_COMMON display;
 extern DISPLAY_SW displaySW;
+extern DISPLAY_SW_EVENT displaySWEventHotplug;
+extern DISPLAY_SW_EVENT displaySWEventDPIRQ;
+extern DISPLAY_HPD_CTRL displayCtrlHotplug;
+extern DISPLAY_HPD_CTRL displayCtrlDPIRQ;
 
 NV_STATUS
 dceclientInitRpcInfra_IMPL
@@ -413,6 +417,7 @@ NV_STATUS rpcRmApiControl_dce
     rpc_generic_union *msg_data;
     rpc_gsp_rm_control_v *rpc_params = NULL;
     NV_STATUS status = NV_ERR_NOT_SUPPORTED;
+    NV2080_CTRL_EVENT_SET_NOTIFICATION_PARAMS setEventParams = { };
 
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE : Prepare and send RmApiControl RPC\n");
 
@@ -441,6 +446,28 @@ NV_STATUS rpcRmApiControl_dce
     rpc_params->cmd        = cmd;
     rpc_params->paramsSize = paramsSize;
     portMemCopy(rpc_params->params, paramsSize,pParamStructPtr, paramsSize);
+
+    if (!pGpu->getProperty(pGpu, PDB_PROP_GPU_IN_PM_RESUME_CODEPATH))
+    {
+        if (cmd == NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION)
+        {
+            portMemCopy(&setEventParams, paramsSize,pParamStructPtr, paramsSize);
+            if (setEventParams.event == NV2080_NOTIFIERS_HOTPLUG)
+            {
+                displayCtrlHotplug.hClient = rpc_params->hClient;
+                displayCtrlHotplug.hObject = rpc_params->hObject;
+                portMemCopy(&displayCtrlHotplug.setEventParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
+                displayCtrlHotplug.valid = NV_TRUE;
+            }
+            if (setEventParams.event == NV2080_NOTIFIERS_DP_IRQ)
+            {
+                displayCtrlDPIRQ.hClient = rpc_params->hClient;
+                displayCtrlDPIRQ.hObject = rpc_params->hObject;
+                portMemCopy(&displayCtrlDPIRQ.setEventParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
+                displayCtrlDPIRQ.valid = NV_TRUE;
+            }
+        }
+    }
 
     status = _dceRpcIssueAndWait(pRmApi);
     if (status != NV_OK)
@@ -482,6 +509,7 @@ NV_STATUS rpcRmApiAlloc_dce
     NV_STATUS status;
     NvU32 paramsSize;
     NvBool bNullAllowed;
+    NV0005_ALLOC_PARAMETERS displaySWEventAllocParams;
 
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE: Prepare and send RmApiAlloc RPC\n");
 
@@ -597,6 +625,30 @@ NV_STATUS rpcRmApiAlloc_dce
             displaySW.hClass  = rpc_params->hClass;
             portMemCopy(&displaySW.displaySWAllocParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
             displaySW.valid   = NV_TRUE;
+        }
+
+        if (hClass == NV01_EVENT_KERNEL_CALLBACK_EX)
+        {
+            portMemCopy(&displaySWEventAllocParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
+            if (0x4000001 == displaySWEventAllocParams.notifyIndex)
+            {
+                displaySWEventHotplug.hClient = rpc_params->hClient;
+                displaySWEventHotplug.hParent = rpc_params->hParent;
+                displaySWEventHotplug.hObject = rpc_params->hObject;
+                displaySWEventHotplug.hClass  = rpc_params->hClass;
+                portMemCopy(&displaySWEventHotplug.displaySWEventAllocParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
+                displaySWEventHotplug.valid   = NV_TRUE;
+            }
+
+            if (0x4000007 == displaySWEventAllocParams.notifyIndex)
+            {
+                displaySWEventDPIRQ.hClient = rpc_params->hClient;
+                displaySWEventDPIRQ.hParent = rpc_params->hParent;
+                displaySWEventDPIRQ.hObject = rpc_params->hObject;
+                displaySWEventDPIRQ.hClass  = rpc_params->hClass;
+                portMemCopy(&displaySWEventDPIRQ.displaySWEventAllocParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
+                displaySWEventDPIRQ.valid   = NV_TRUE;
+            }
         }
     }
 

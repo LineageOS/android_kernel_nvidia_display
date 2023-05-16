@@ -175,7 +175,7 @@ static NvBool
 GetHwModeTimings(const NVDispEvoRec *pDispEvo,
                  const struct NvKmsSetModeOneHeadRequest *pRequestHead,
                  NVHwModeTimingsEvo *pTimings,
-                 NVT_VIDEO_INFOFRAME_CTRL *pInfoFrameCtrl)
+                 NVDispHeadInfoFrameStateEvoRec *pInfoFrameState)
 {
     NVDpyEvoPtr pDpyEvo;
 
@@ -196,7 +196,7 @@ GetHwModeTimings(const NVDispEvoRec *pDispEvo,
                                     pRequestHead->viewPortOutSpecified ?
                                               &pRequestHead->viewPortOut : NULL,
                                     pTimings,
-                                    pInfoFrameCtrl);
+                                    pInfoFrameState);
 }
 
 static NvBool ApplySyncptRegistration(
@@ -503,8 +503,8 @@ AssignProposedModeSetHwState(NVDevEvoRec *pDevEvo,
              * head so that if additional heads fail, we can report
              * more complete failure information to the client.
              */
-            if (!GetHwModeTimings(pDispEvo, pRequestHead, &pProposedHead->timings,
-                        &pProposedHead->infoFrame.ctrl)) {
+            if (!GetHwModeTimings(pDispEvo, pRequestHead,
+                    &pProposedHead->timings, &pProposedHead->infoFrame)) {
                 pReply->disp[sd].head[head].status =
                     NVKMS_SET_MODE_ONE_HEAD_STATUS_INVALID_MODE;
                 ret = FALSE;

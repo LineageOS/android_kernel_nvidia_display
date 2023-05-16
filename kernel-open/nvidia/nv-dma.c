@@ -1098,7 +1098,6 @@ NV_STATUS NV_API_CALL nv_dma_import_dma_buf
     nv_dma_device_t *dma_dev,
     struct dma_buf *dma_buf,
     NvU32 *size,
-    void **user_pages,
     struct sg_table **sgt,
     nv_dma_buf_t **import_priv
 )
@@ -1106,12 +1105,7 @@ NV_STATUS NV_API_CALL nv_dma_import_dma_buf
     nv_dma_buf_t *nv_dma_buf = NULL;
     struct dma_buf_attachment *dma_attach = NULL;
     struct sg_table *map_sgt = NULL;
-    struct page **page_array = NULL;
     NV_STATUS status = NV_OK;
-
-    struct sg_page_iter sg_iter;
-    NvU32 page_count = 0, page_idx = 0;
-
 
     if ((dma_dev == NULL) ||
         (dma_buf == NULL) ||
@@ -1154,52 +1148,16 @@ NV_STATUS NV_API_CALL nv_dma_import_dma_buf
         goto dma_buf_map_fail;
     }
 
-
-    page_count = dma_buf->size >> PAGE_SHIFT;
-    status = os_alloc_mem((void **)&page_array,
-                          sizeof(*page_array) * page_count);
-    if (status != NV_OK)
-    {
-        NV_DMA_DEV_PRINTF(NV_DBG_ERRORS, dma_dev,
-                "Can't allocate mem for pages!\n");
-        goto page_array_alloc_fail;
-    }
-
-#if defined(for_each_sgtable_page)
-    for_each_sgtable_page(map_sgt, &sg_iter, 0)
-#else
-    for_each_sg_page(map_sgt->sgl, &sg_iter, map_sgt->orig_nents, 0)
-#endif
-    {
-        if (page_idx >= page_count)
-        {
-            NV_DMA_DEV_PRINTF(NV_DBG_ERRORS, dma_dev,
-                    "Page iterator exceeded max page count (%u)!\n",
-                    page_count);
-            status = NV_ERR_INVALID_REQUEST;
-
-            goto page_count_fail;
-        }
-
-        page_array[page_idx++] = sg_page_iter_page(&sg_iter);
-    }
-
-
     nv_dma_buf->dma_buf = dma_buf;
     nv_dma_buf->dma_attach = dma_attach;
     nv_dma_buf->sgt = map_sgt;
 
     *size = dma_buf->size;
-    *user_pages = page_array;
     *import_priv = nv_dma_buf;
     *sgt = map_sgt;
 
     return NV_OK;
 
-page_count_fail:
-    os_free_mem(page_array);
-page_array_alloc_fail:
-    dma_buf_unmap_attachment(dma_attach, map_sgt, DMA_BIDIRECTIONAL);
 dma_buf_map_fail:
     dma_buf_detach(dma_buf, dma_attach);
 dma_buf_attach_fail:
@@ -1214,7 +1172,6 @@ NV_STATUS NV_API_CALL nv_dma_import_from_fd
     nv_dma_device_t *dma_dev,
     NvS32 fd,
     NvU32 *size,
-    void **user_pages,
     struct sg_table **sgt,
     nv_dma_buf_t **import_priv
 )
@@ -1230,7 +1187,7 @@ NV_STATUS NV_API_CALL nv_dma_import_from_fd
     }
 
     status = nv_dma_import_dma_buf(dma_dev,
-                                   dma_buf, size, user_pages, sgt, import_priv);
+                                   dma_buf, size, sgt, import_priv);
     dma_buf_put(dma_buf);
 
     return status;
@@ -1238,7 +1195,6 @@ NV_STATUS NV_API_CALL nv_dma_import_from_fd
 
 void NV_API_CALL nv_dma_release_dma_buf
 (
-    void *user_pages,
     nv_dma_buf_t *import_priv
 )
 {
@@ -1249,15 +1205,6 @@ void NV_API_CALL nv_dma_release_dma_buf
         return;
     }
 
-
-    if (user_pages == NULL)
-    {
-        return;
-    }
-
-
-
-
     nv_dma_buf = (nv_dma_buf_t *)import_priv;
     dma_buf_unmap_attachment(nv_dma_buf->dma_attach, nv_dma_buf->sgt,
                                 DMA_BIDIRECTIONAL);
@@ -1265,9 +1212,6 @@ void NV_API_CALL nv_dma_release_dma_buf
     dma_buf_put(nv_dma_buf->dma_buf);
 
     os_free_mem(nv_dma_buf);
-
-    os_free_mem(user_pages);
-
 }
 
 #endif /* NV_LINUX_DMA_BUF_H_PRESENT */
@@ -1279,7 +1223,6 @@ NV_STATUS NV_API_CALL nv_dma_import_dma_buf
     nv_dma_device_t *dma_dev,
     struct dma_buf *dma_buf,
     NvU32 *size,
-    void **user_pages,
     struct sg_table **sgt,
     nv_dma_buf_t **import_priv
 )
@@ -1292,7 +1235,6 @@ NV_STATUS NV_API_CALL nv_dma_import_from_fd
     nv_dma_device_t *dma_dev,
     NvS32 fd,
     NvU32 *size,
-    void **user_pages,
     struct sg_table **sgt,
     nv_dma_buf_t **import_priv
 )
@@ -1302,7 +1244,6 @@ NV_STATUS NV_API_CALL nv_dma_import_from_fd
 
 void NV_API_CALL nv_dma_release_dma_buf
 (
-    void *user_pages,
     nv_dma_buf_t *import_priv
 )
 {

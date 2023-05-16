@@ -32,6 +32,7 @@ typedef struct
     OS_THREAD_HANDLE    threadId;  //<! ID of thread owning the lock, ~0 if none
     NvU64               timestamp; //<! Timestamp of last lock acquire
     LOCK_TRACE_INFO     traceInfo; //<! Lock acquire/release trace info
+    NvBool              bValid;    //<! If ready to acquire/release the lock 
 } GPULOCK;
 
 static GPULOCK rmGpuLock;
@@ -51,6 +52,7 @@ NV_STATUS rmGpuLockInfoInit(void)
     OS_THREAD_HANDLE threadId;
     osGetCurrentThread(&threadId);
     osGetCurrentTick(&timestamp);
+    rmGpuLock.bValid = NV_FALSE;
 
     INSERT_LOCK_TRACE(&rmGpuLock.traceInfo, NV_RETURN_ADDRESS(),
                       lockTraceAlloc, 0, 0, threadId,
@@ -75,18 +77,30 @@ NV_STATUS rmGpuLockAlloc(NvU32 gpuInst)
 {
     NV_ASSERT_OR_RETURN(gpuInst == 0, NV_ERR_INVALID_ARGUMENT);
     NV_ASSERT_OR_RETURN(rmGpuLock.pLock != NULL, NV_ERR_INVALID_STATE);
+
+    rmGpuLock.bValid = NV_TRUE;
+
     return NV_OK;
 }
 
 void rmGpuLockFree(NvU32 gpuInst)
 {
     NV_ASSERT_OR_RETURN_VOID(gpuInst == 0);
+    rmGpuLock.bValid = NV_FALSE;
 }
 
 static NV_STATUS _rmGpuLockAcquire(NvU32 flags, void *ra)
 {
     NvBool bCondAcquire = !!(flags & GPUS_LOCK_FLAGS_COND_ACQUIRE);
     NvBool bHighIrql = (portSyncExSafeToSleep() == NV_FALSE);
+
+    //
+    // We may get a bValid as NV_FALSE before GPU is attached.
+    //
+    if (rmGpuLock.bValid == NV_FALSE)
+    {
+        return NV_OK;
+    }
 
     NV_ASSERT_OR_RETURN(rmGpuLock.pLock != NULL, NV_ERR_INVALID_STATE);
     NV_ASSERT_OR_RETURN(!rmGpuLockIsOwner(), NV_ERR_CYCLE_DETECTED);
@@ -102,6 +116,7 @@ static NV_STATUS _rmGpuLockAcquire(NvU32 flags, void *ra)
         portSyncSemaphoreAcquire(rmGpuLock.pLock);
         portAtomicDecrementU32(&rmGpuLock.waiting);
     }
+
     osGetCurrentThread(&rmGpuLock.threadId);
     osGetCurrentTick(&rmGpuLock.timestamp);
 
@@ -112,6 +127,7 @@ static NV_STATUS _rmGpuLockAcquire(NvU32 flags, void *ra)
     INSERT_LOCK_TRACE(&rmGpuLock.traceInfo, ra,
                       lockTraceAcquire, 0, 0, rmGpuLock.threadId,
                       bHighIrql, 0, rmGpuLock.timestamp);
+
     return NV_OK;
 }
 
@@ -119,6 +135,14 @@ static NV_STATUS _rmGpuLockRelease(void *ra)
 {
     OS_THREAD_HANDLE threadId;
     NvU64 timestamp;
+
+    //
+    // We may get a bValid as NV_FALSE before GPU is attached.
+    //
+    if (rmGpuLock.bValid == NV_FALSE)
+    {
+        return NV_OK;
+    }
 
     osGetCurrentThread(&threadId);
     osGetCurrentTick(&timestamp);

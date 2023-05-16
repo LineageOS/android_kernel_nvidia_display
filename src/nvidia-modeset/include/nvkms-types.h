@@ -1533,7 +1533,8 @@ typedef struct _NVDispHeadAudioStateEvoRec {
 } NVDispHeadAudioStateEvoRec;
 
 typedef struct _NVDispHeadInfoFrameStateEvoRec {
-    NVT_VIDEO_INFOFRAME_CTRL ctrl;
+    NVT_VIDEO_INFOFRAME_CTRL videoCtrl;
+    NVT_VENDOR_SPECIFIC_INFOFRAME_CTRL vendorCtrl;
     NvBool hdTimings;
 } NVDispHeadInfoFrameStateEvoRec;
 

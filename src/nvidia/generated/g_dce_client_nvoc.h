@@ -47,6 +47,7 @@ extern "C" {
 #include "class/cl0080.h"
 #include "class/cl2080.h"
 #include "class/cl0073.h"
+#include "class/cl0005.h"
 #include "class/clc372sw.h"
 
 typedef struct
@@ -98,6 +99,24 @@ typedef struct
     NVOS21_PARAMETERS displaySWAllocParams;
     NvBool valid;
 } DISPLAY_SW;
+
+typedef struct
+{
+    NvHandle hClient;
+    NvHandle hParent;
+    NvHandle hObject;
+    NvU32 hClass;
+    NV0005_ALLOC_PARAMETERS displaySWEventAllocParams;
+    NvBool valid;
+} DISPLAY_SW_EVENT;
+
+typedef struct
+{
+    NvHandle hClient;
+    NvHandle hObject;
+    NV2080_CTRL_EVENT_SET_NOTIFICATION_PARAMS setEventParams;
+    NvBool valid;
+} DISPLAY_HPD_CTRL;
 
 /*!
  * Max no of RM clients

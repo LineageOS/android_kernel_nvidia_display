@@ -67,7 +67,7 @@ static NvBool ConstructModeTimingsMetaData(
     const struct NvKmsModeValidationParams *pParams,
     struct NvKmsMode *pKmsMode,
     EvoValidateModeFlags *pFlags,
-    NVT_VIDEO_INFOFRAME_CTRL *pInfoFrameCtrl);
+    NVDispHeadInfoFrameStateEvoRec *pInfoFrameState);
 
 static NvBool ValidateMode(NVDpyEvoPtr pDpyEvo,
                            const struct NvKmsMode *pKmsMode,
@@ -139,7 +139,7 @@ nvValidateModeEvo(NVDpyEvoPtr pDpyEvo,
         .timings = pRequest->mode.timings,
     };
     EvoValidateModeFlags evoFlags;
-    NVT_VIDEO_INFOFRAME_CTRL dummyInfoFrameCtrl;
+    NVDispHeadInfoFrameStateEvoRec dummyInfoFrameState;
 
     nvkms_memset(pReply, 0, sizeof(*pReply));
 
@@ -147,7 +147,7 @@ nvValidateModeEvo(NVDpyEvoPtr pDpyEvo,
                                       &pRequest->modeValidation,
                                       &kmsMode,
                                       &evoFlags,
-                                      &dummyInfoFrameCtrl)) {
+                                      &dummyInfoFrameState)) {
         pReply->valid = FALSE;
         return;
     }
@@ -1801,16 +1801,25 @@ static NvBool ConstructModeTimingsMetaData(
     const struct NvKmsModeValidationParams *pParams,
     struct NvKmsMode *pKmsMode,
     EvoValidateModeFlags *pFlags,
-    NVT_VIDEO_INFOFRAME_CTRL *pInfoFrameCtrl)
+    NVDispHeadInfoFrameStateEvoRec *pInfoFrameState)
 {
     const NVDispEvoRec *pDispEvo = pDpyEvo->pDispEvo;
     EvoValidateModeFlags flags = { 0 };
-    NVT_VIDEO_INFOFRAME_CTRL infoFrameCtrl;
+    NVT_VIDEO_INFOFRAME_CTRL *pVideoInfoFrameCtrl = NULL;
+    NVT_VENDOR_SPECIFIC_INFOFRAME_CTRL *pVendorInfoFrameCtrl = NULL;
     NvModeTimings modeTimings = pKmsMode->timings;
     const NVT_TIMING *pTiming;
 
-    nvkms_memset(&infoFrameCtrl, NVT_INFOFRAME_CTRL_DONTCARE,
-                 sizeof(infoFrameCtrl));
+    if (pInfoFrameState != NULL) {
+        pVideoInfoFrameCtrl = &pInfoFrameState->videoCtrl;
+        pVendorInfoFrameCtrl = &pInfoFrameState->vendorCtrl;
+
+        nvkms_memset(pVideoInfoFrameCtrl, NVT_INFOFRAME_CTRL_DONTCARE,
+                     sizeof(*pVideoInfoFrameCtrl));
+
+        nvkms_memset(pVendorInfoFrameCtrl, NVT_INFOFRAME_CTRL_DONTCARE,
+                     sizeof(*pVendorInfoFrameCtrl));
+    }
 
     flags.source = NvKmsModeSourceUnknown;
 
@@ -1881,7 +1890,22 @@ static NvBool ConstructModeTimingsMetaData(
          * pTimingsEvo after ValidateMode has written to it.
          */
         if (nvDpyIsHdmiEvo(pDpyEvo)) {
-            NvTiming_ConstructVideoInfoframeCtrl(&timing, &infoFrameCtrl);
+            NvTiming_ConstructVideoInfoframeCtrl(&timing, pVideoInfoFrameCtrl);
+
+            if (pVendorInfoFrameCtrl != NULL) {
+                // Currently hardcoded to send infoframe necessary for HDMI 1.4a 4kx2k extended modes.
+                if (NVT_GET_TIMING_STATUS_TYPE(timing.etc.status) == NVT_TYPE_HDMI_EXT) {
+                    pVendorInfoFrameCtrl->Enable = 1;
+                    pVendorInfoFrameCtrl->HDMIFormat = NVT_HDMI_VS_BYTE4_HDMI_VID_FMT_EXT;
+                    pVendorInfoFrameCtrl->HDMI_VIC = NVT_GET_TIMING_STATUS_SEQ(timing.etc.status);
+                    pVendorInfoFrameCtrl->ThreeDStruc  = NVT_HDMI_VS_BYTE5_HDMI_3DS_NA;
+                    pVendorInfoFrameCtrl->ThreeDDetail = NVT_HDMI_VS_BYTE_OPT1_HDMI_3DEX_NA;
+                    pVendorInfoFrameCtrl->MetadataPresent = 0;
+                    pVendorInfoFrameCtrl->MetadataType = NVT_HDMI_VS_BYTE_OPT2_HDMI_METADATA_TYPE_NA;
+                } else {
+                    pVendorInfoFrameCtrl->Enable = 0;
+                }
+            }
         }
 
         goto done;
@@ -1901,7 +1925,6 @@ static NvBool ConstructModeTimingsMetaData(
 
 done:
     *pFlags = flags;
-    *pInfoFrameCtrl = infoFrameCtrl;
     pKmsMode->timings = modeTimings;
 
     return TRUE;
@@ -1924,11 +1947,10 @@ NvBool nvValidateModeForModeset(NVDpyEvoRec *pDpyEvo,
                                 const struct NvKmsSize *pViewPortSizeIn,
                                 const struct NvKmsRect *pViewPortOut,
                                 NVHwModeTimingsEvo *pTimingsEvo,
-                                NVT_VIDEO_INFOFRAME_CTRL *pInfoFrameCtrl)
+                                NVDispHeadInfoFrameStateEvoRec *pInfoFrameState)
 {
     EvoValidateModeFlags flags;
     struct NvKmsMode kmsMode = *pKmsMode;
-    NVT_VIDEO_INFOFRAME_CTRL infoFrameCtrl;
     struct NvKmsModeValidationValidSyncs dummyValidSyncs;
 
     nvkms_memset(pTimingsEvo, 0, sizeof(*pTimingsEvo));
@@ -1937,7 +1959,7 @@ NvBool nvValidateModeForModeset(NVDpyEvoRec *pDpyEvo,
                                       pParams,
                                       &kmsMode,
                                       &flags,
-                                      &infoFrameCtrl)) {
+                                      pInfoFrameState)) {
         return FALSE;
     }
 
@@ -1959,8 +1981,6 @@ NvBool nvValidateModeForModeset(NVDpyEvoRec *pDpyEvo,
                                      &dummyInfoString)) {
         return FALSE;
     }
-
-    *pInfoFrameCtrl = infoFrameCtrl;
 
     return TRUE;
 }

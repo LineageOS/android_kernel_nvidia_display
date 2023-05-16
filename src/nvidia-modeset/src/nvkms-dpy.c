@@ -1395,6 +1395,12 @@ static void LogEdid(NVDpyEvoPtr pDpyEvo, NVEvoInfoStringPtr pInfoString)
         { NVT_TYPE_CUST_AUTO,        "Customized Auto Timings" },
         { NVT_TYPE_CUST_MANUAL,      "Customized Manual Timings" },
         { NVT_TYPE_CVT_RB_2,"Reduced Blanking Coordinated Video Timings, v2" },
+        { NVT_TYPE_DMT_RB_2,         "Display Monitor Timings, V2" },
+        { NVT_TYPE_DISPLAYID_7,      "DisplayID Type 7 Timings" },
+        { NVT_TYPE_DISPLAYID_8,      "DisplayID Type 8 Timings" },
+        { NVT_TYPE_DISPLAYID_9,      "DisplayID Type 9 Timings" },
+        { NVT_TYPE_DISPLAYID_10,     "DisplayID Type 10 Timings" },
+        { NVT_TYPE_CVT_RB_3,         "Reduced Blanking Coordinated Video Timings, v3" },
     };
 
     /*
@@ -1441,6 +1447,12 @@ static void LogEdid(NVDpyEvoPtr pDpyEvo, NVEvoInfoStringPtr pInfoString)
                 case NVT_TYPE_CUST_AUTO:
                 case NVT_TYPE_CUST_MANUAL:
                 case NVT_TYPE_CVT_RB_2:
+                case NVT_TYPE_DMT_RB_2:
+                case NVT_TYPE_DISPLAYID_7:
+                case NVT_TYPE_DISPLAYID_8:
+                case NVT_TYPE_DISPLAYID_9:
+                case NVT_TYPE_DISPLAYID_10:
+                case NVT_TYPE_CVT_RB_3:
                 default:
                     break;
             }

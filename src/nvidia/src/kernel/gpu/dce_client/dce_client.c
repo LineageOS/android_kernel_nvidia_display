@@ -28,6 +28,10 @@ DEVICE devices[MAX_RM_CLIENTS];
 SUBDEVICE subdevices[MAX_RM_CLIENTS];
 DISPLAY_COMMON display;
 DISPLAY_SW displaySW;
+DISPLAY_SW_EVENT displaySWEventHotplug;
+DISPLAY_SW_EVENT displaySWEventDPIRQ;
+DISPLAY_HPD_CTRL displayCtrlHotplug;
+DISPLAY_HPD_CTRL displayCtrlDPIRQ;
 
 NV_STATUS
 dceclientConstructEngine_IMPL
@@ -139,6 +143,50 @@ dceclientStateLoad_IMPL
                 goto out;
             }
         }
+        if (displaySWEventHotplug.valid)
+        {
+            nvStatus = rpcRmApiAlloc_dce(pRmApi, displaySWEventHotplug.hClient, displaySWEventHotplug.hParent,
+                                         displaySWEventHotplug.hObject, displaySWEventHotplug.hClass, &displaySWEventHotplug.displaySWEventAllocParams);
+            if (nvStatus != NV_OK)
+            {
+                NV_PRINTF(LEVEL_ERROR, "Cannot alloc displaySWEventHotplug object during resume\n");
+                nvStatus = NV_ERR_GENERIC;
+                goto out;
+            }
+            else if(displayCtrlHotplug.valid)
+            {
+                nvStatus = rpcRmApiControl_dce(pRmApi, displayCtrlHotplug.hClient, displayCtrlHotplug.hObject, NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
+                        &displayCtrlHotplug.setEventParams,sizeof(displayCtrlHotplug.setEventParams));
+                if (nvStatus != NV_OK)
+                {
+                    NV_PRINTF(LEVEL_ERROR, "rpcRmApiControl_dce for displayCtrlHotplug failed during resume\n");
+                    nvStatus = NV_ERR_GENERIC;
+                    goto out;
+                }
+            }
+        }
+        if (displaySWEventDPIRQ.valid)
+        {
+            nvStatus = rpcRmApiAlloc_dce(pRmApi, displaySWEventDPIRQ.hClient, displaySWEventDPIRQ.hParent,
+                                         displaySWEventDPIRQ.hObject, displaySWEventDPIRQ.hClass, &displaySWEventDPIRQ.displaySWEventAllocParams);
+            if (nvStatus != NV_OK)
+            {
+                NV_PRINTF(LEVEL_ERROR, "Cannot alloc displaySWEventDPIRQ object during resume\n");
+                nvStatus = NV_ERR_GENERIC;
+                goto out;
+            }
+            else if(displayCtrlDPIRQ.valid)
+            {
+                nvStatus = rpcRmApiControl_dce(pRmApi, displayCtrlDPIRQ.hClient, displayCtrlDPIRQ.hObject, NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
+                        &displayCtrlDPIRQ.setEventParams,sizeof(displayCtrlDPIRQ.setEventParams));
+                if (nvStatus != NV_OK)
+                {
+                    NV_PRINTF(LEVEL_ERROR, "rpcRmApiControl_dce displaySWEventDPIRQ object failed\n");
+                    nvStatus = NV_ERR_GENERIC;
+                    goto out;
+                }
+            }
+        }
     }
 
 out:
@@ -191,4 +239,8 @@ dceclientStateDestroy_IMPL
     }
     display.valid   = NV_FALSE;
     displaySW.valid = NV_FALSE;
+    displaySWEventHotplug.valid = NV_FALSE;
+    displaySWEventDPIRQ.valid = NV_FALSE;
+    displayCtrlHotplug.valid = NV_FALSE;
+    displayCtrlDPIRQ.valid = NV_FALSE;
 }

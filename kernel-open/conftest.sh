@@ -151,6 +151,7 @@ test_headers() {
     FILES="$FILES linux/platform/tegra/dce/dce-client-ipc.h"
     FILES="$FILES linux/nvhost.h"
     FILES="$FILES linux/nvhost_t194.h"
+    FILES="$FILES linux/host1x-next.h"
     FILES="$FILES asm/book3s/64/hash-64k.h"
     FILES="$FILES asm/set_memory.h"
     FILES="$FILES asm/prom.h"

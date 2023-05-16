@@ -1724,6 +1724,13 @@ parseDisplayId20Timing10Descriptor(
                 
                 status = NvTiming_CalcCVT_RB3(width, height, rr, deltaHBlank, p7bytesDescriptor->additional_vblank_timing * 35, p6bytesDescriptor->options.early_vsync, pTiming);
             }
+            else // 6 byte descriptor
+            {
+                if (p6bytesDescriptor->options.rr1000div1001_or_hblank == 1)
+                    deltaHBlank = 80;
+
+                status = NvTiming_CalcCVT_RB3(width, height, rr, deltaHBlank, 0, p6bytesDescriptor->options.early_vsync, pTiming); 
+            }
             break;
         }
     }

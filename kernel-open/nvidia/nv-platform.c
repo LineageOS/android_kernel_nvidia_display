@@ -1521,7 +1521,9 @@ unsigned int NV_API_CALL nv_soc_fuse_register_read (unsigned int addr)
 {
    unsigned int data = 0;
 
+#if NV_IS_EXPORT_SYMBOL_PRESENT_tegra_fuse_control_read
    tegra_fuse_control_read ((unsigned long)(addr), &data);
+#endif
 
    return data;
 }

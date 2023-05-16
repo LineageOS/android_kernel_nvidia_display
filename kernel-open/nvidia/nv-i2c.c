@@ -395,15 +395,23 @@ NV_STATUS NV_API_CALL nv_i2c_transfer(
         return NV_ERR_INVALID_ARGUMENT;
     }
 
-    client = nv_i2c_get_registered_client(nv, linuxI2CSwPort, address);
-    if (client == NULL)
-    {
-        client = nv_i2c_register_client(nv, linuxI2CSwPort, address);
+    for (count = 0; count < num_msgs; count++) {
+        //
+        // RM style slave address is 8-bit addressing, but Linux use 7-bit
+        // addressing, so convert to 7-bit addressing format.
+        //
+        nv_msgs[count].addr = nv_msgs[count].addr >> 1;
+
+        client = nv_i2c_get_registered_client(nv, linuxI2CSwPort, nv_msgs[count].addr);
         if (client == NULL)
         {
-            nv_printf(NV_DBG_ERRORS, "i2c client register failed for addr:0x%x\n",
-                      address);
-            return NV_ERR_GENERIC;
+            client = nv_i2c_register_client(nv, linuxI2CSwPort, nv_msgs[count].addr);
+            if (client == NULL)
+            {
+                nv_printf(NV_DBG_ERRORS, "i2c client register failed for addr:0x%x\n",
+                          nv_msgs[count].addr);
+                return NV_ERR_GENERIC;
+            }
         }
     }
 
@@ -415,7 +423,7 @@ NV_STATUS NV_API_CALL nv_i2c_transfer(
     }
 
     for (count = 0; count < num_msgs; count++) {
-        msgs[count].addr = client->addr;
+        msgs[count].addr = nv_msgs[count].addr;
         msgs[count].flags = nv_msgs[count].flags;
         msgs[count].len = nv_msgs[count].len;
         msgs[count].buf = nv_msgs[count].buf;
@@ -467,6 +475,7 @@ NV_STATUS NV_API_CALL nv_i2c_bus_status(
     NvS32 *scl,
     NvS32 *sda)
 {
+#if NV_IS_EXPORT_SYMBOL_PRESENT_i2c_bus_status
     NvU32 linuxI2CSwPort;
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     struct i2c_adapter *i2c_adapter;
@@ -510,6 +519,9 @@ NV_STATUS NV_API_CALL nv_i2c_bus_status(
     i2c_put_adapter(i2c_adapter);
 
     return NV_OK;
+#else
+    return NV_ERR_NOT_SUPPORTED;
+#endif
 }
 
 

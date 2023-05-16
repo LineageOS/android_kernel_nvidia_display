@@ -66,8 +66,11 @@ static inline const NVT_EDID_CEA861_INFO *GetExt861(const NVParsedEdidEvoRec *pP
 static void CalculateVideoInfoFrameColorFormat(
     const NVAttributesSetEvoRec *pAttributesSet,
     const NvU32 hdTimings,
-    NVT_VIDEO_INFOFRAME_CTRL *pCtrl)
+    NVT_VIDEO_INFOFRAME_CTRL *pCtrl,
+    NVT_EDID_INFO *pEdidInfo)
 {
+    NvBool    sinkSupportsRGBQuantizationOverride = FALSE;
+
     // sets video infoframe colorspace (RGB/YUV).
     switch (pAttributesSet->colorSpace) {
     case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB:
@@ -121,6 +124,21 @@ static void CalculateVideoInfoFrameColorFormat(
     default:
         nvAssert(!"Invalid colorRange value");
         break;
+    }
+
+    if (pEdidInfo != NULL) {
+        sinkSupportsRGBQuantizationOverride = (pEdidInfo->ext861.valid.VCDB &&
+            ((pEdidInfo->ext861.video_capability & NVT_CEA861_VCDB_QS_MASK) >>
+             NVT_CEA861_VCDB_QS_SHIFT) != 0);
+    }
+
+    // For RGB pixel encoding, explicitly set quantization bits in AVI Infoframe only
+    // if sink supports selectable RGB quantization range in VCDB of EDID. Or else
+    // set default range for the transmitted video format.
+    // (HDMI 2.0 spec section 7.3.1)
+    if ((pAttributesSet->colorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB) &&
+            !sinkSupportsRGBQuantizationOverride) {
+        pCtrl->rgb_quantization_range = NVT_VIDEO_INFOFRAME_BYTE3_Q1Q0_DEFAULT;
     }
 
     // Only limited color range is allowed with YUV444 or YUV422 color spaces
@@ -286,34 +304,6 @@ static void HdmiSendEnable(NVDpyEvoPtr pDpyEvo, NvBool hdmiEnable)
     }
 }
 
-/*!
- * Disable sending the vendor specific infoframe on this display.
- */
-static void DisableVendorSpecificInfoFrame(
-    const NVDispEvoRec *pDispEvo,
-    const NvU32 head)
-{
-    const NVDispHeadStateEvoRec *pHeadState = &pDispEvo->headState[head];
-    NV0073_CTRL_SPECIFIC_SET_OD_PACKET_CTRL_PARAMS params = { 0 };
-    NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
-    NvU32 ret;
-
-    params.subDeviceInstance = pDispEvo->displayOwner;
-    params.displayId = pHeadState->activeRmId;
-    params.type = pktType_VendorSpecInfoFrame;
-    params.transmitControl = DRF_DEF(0073_CTRL_SPECIFIC, _SET_OD_PACKET_CTRL_TRANSMIT_CONTROL, _ENABLE, _NO);
-
-    ret = nvRmApiControl(nvEvoGlobal.clientHandle,
-                         pDevEvo->displayCommonHandle,
-                         NV0073_CTRL_CMD_SPECIFIC_SET_OD_PACKET_CTRL,
-                         &params,
-                         sizeof(params));
-
-    if (ret != NVOS_STATUS_SUCCESS) {
-        nvAssert(!"NV0073_CTRL_CMD_SPECIFIC_SET_OD_PACKET_CTRL failed");
-    }
-}
-
 /*
  * SendInfoFrame() - Send infoframe to the hardware through the hdmipkt
  * library.
@@ -438,12 +428,12 @@ static void SendVideoInfoFrame(const NVDispEvoRec *pDispEvo,
                                NVT_EDID_INFO *pEdidInfo)
 {
     NvBool hdTimings = pInfoFrameState->hdTimings;
-    NVT_VIDEO_INFOFRAME_CTRL videoCtrl = pInfoFrameState->ctrl;
+    NVT_VIDEO_INFOFRAME_CTRL videoCtrl = pInfoFrameState->videoCtrl;
     NVT_VIDEO_INFOFRAME VideoInfoFrame;
     NVT_STATUS status;
 
 
-    CalculateVideoInfoFrameColorFormat(pAttributesSet, hdTimings, &videoCtrl);
+    CalculateVideoInfoFrameColorFormat(pAttributesSet, hdTimings, &videoCtrl, pEdidInfo);
 
     status = NvTiming_ConstructVideoInfoframe(pEdidInfo,
                                               &videoCtrl,
@@ -462,40 +452,19 @@ static void SendVideoInfoFrame(const NVDispEvoRec *pDispEvo,
 }
 
 /*
- * SendHDMI3DVendorSpecificInfoFrame() - Construct vendor specific infoframe
- * using provided EDID and call SendInfoFrame() to send it to RM. Currently
- * hardcoded to send the infoframe necessary for HDMI 3D.
+ * SendHDMIVendorSpecificInfoFrame() - Construct vendor specific infoframe
+ * using provided EDID and call SendInfoFrame() to send it to RM.
  */
 
 static void
-SendHDMI3DVendorSpecificInfoFrame(const NVDispEvoRec *pDispEvo,
-                                  const NvU32 head, NVT_EDID_INFO *pEdidInfo)
+SendHDMIVendorSpecificInfoFrame(const NVDispEvoRec *pDispEvo,
+                                const NvU32 head,
+                                const NVDispHeadInfoFrameStateEvoRec *pInfoFrameState,
+                                NVT_EDID_INFO *pEdidInfo)
 {
-    const NVDispHeadStateEvoRec *pHeadState =
-                                 &pDispEvo->headState[head];
-    NVT_VENDOR_SPECIFIC_INFOFRAME_CTRL vendorCtrl = {
-        .Enable          = 1,
-        .HDMIFormat      = NVT_HDMI_VS_BYTE4_HDMI_VID_FMT_3D,
-        .HDMI_VIC        = NVT_HDMI_VS_BYTE5_HDMI_VIC_NA,
-        .ThreeDStruc     = NVT_HDMI_VS_BYTE5_HDMI_3DS_FRAMEPACK,
-        .ThreeDDetail    = NVT_HDMI_VS_BYTE_OPT1_HDMI_3DEX_NA,
-        .MetadataPresent = 0,
-        .MetadataType    = NVT_HDMI_VS_BYTE_OPT2_HDMI_METADATA_TYPE_NA,
-    };
+    NVT_VENDOR_SPECIFIC_INFOFRAME_CTRL vendorCtrl = pInfoFrameState->vendorCtrl;
     NVT_VENDOR_SPECIFIC_INFOFRAME vendorInfoFrame;
     NVT_STATUS status;
-
-    if (!pEdidInfo->HDMI3DSupported) {
-        // Only send the HDMI 3D infoframe if the display supports HDMI 3D
-        return;
-    }
-
-    // Send the infoframe with HDMI 3D configured if we're setting an HDMI 3D
-    // mode.
-    if (!pHeadState->timings.hdmi3D) {
-        DisableVendorSpecificInfoFrame(pDispEvo, head);
-        return;
-    }
 
     status = NvTiming_ConstructVendorSpecificInfoframe(pEdidInfo,
                                                        &vendorCtrl,
@@ -539,9 +508,10 @@ void nvUpdateHdmiInfoFrames(const NVDispEvoRec *pDispEvo,
                        pInfoFrameState,
                        &pDpyEvo->parsedEdid.info);
 
-    SendHDMI3DVendorSpecificInfoFrame(pDispEvo,
-                                      head,
-                                      &pDpyEvo->parsedEdid.info);
+    SendHDMIVendorSpecificInfoFrame(pDispEvo,
+                                    head,
+                                    pInfoFrameState,
+                                    &pDpyEvo->parsedEdid.info);
 }
 
 static void SetDpAudioMute(const NVDispEvoRec *pDispEvo,

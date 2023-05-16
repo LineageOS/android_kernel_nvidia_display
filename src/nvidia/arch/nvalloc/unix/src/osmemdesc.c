@@ -688,63 +688,26 @@ _createMemdescFromDmaBufSgtHelper
     return rmStatus;
 }
 
-/*
- * XXX: Due to bug 200720644, direct SGT-based DMA-BUF importing is disabled for
- * GLOBAL_FEATURE_TEGRA_DISPLAY.
- *
- * Accessing the underlying pages of an SGT is illegal, and will be broken on
- * future kernels:
- * https://cgit.freedesktop.org/drm/drm-misc/commit/?id=84335675f2223cbd25d0de7d38ecc7d40b95bd4a
- *
- * This code should be deleted in favor of the version that uses
- * _createMemdescFromDmaBufSgtHelper() once the underlying cause of bug
- * 200720644 is discovered and resolved. The code handling 'user_pages' in
- * nv_dma_import_dma_buf() and nv_dma_release_dma_buf() should also be removed.
- */
 static NV_STATUS
 _createMemdescFromDmaBuf
 (
     OBJGPU  *pGpu,
     NvU32    flags,
     nv_dma_buf_t *pImportPriv,
-    void *pUserPages,
     struct sg_table *pImportSgt,
     NvU32 size,
     MEMORY_DESCRIPTOR **ppMemDesc,
     void **ppPrivate
 )
 {
-    NV_STATUS rmStatus = NV_OK;
-    NvU32 cacheType = NV_MEMORY_UNCACHED;
-
-    if (FLD_TEST_DRF(OS02, _FLAGS, _COHERENCY, _WRITE_COMBINE, flags))
-    {
-        cacheType = NV_MEMORY_WRITECOMBINED;
-    }
-    else if (!FLD_TEST_DRF(OS02, _FLAGS, _COHERENCY, _UNCACHED, flags))
-    {
-        cacheType = NV_MEMORY_CACHED;
-    }
-
-    *ppPrivate = pUserPages;
-
-    rmStatus = osCreateMemdescFromPages(pGpu, size, flags, cacheType, ppMemDesc,
-                                        pImportPriv, ppPrivate);
+    NV_STATUS rmStatus =
+        _createMemdescFromDmaBufSgtHelper(pGpu, flags, pImportPriv, pImportSgt,
+                                          size, ppMemDesc, ppPrivate,
+                                          osDestroyOsDescriptorFromDmaBuf);
     if (rmStatus != NV_OK)
     {
-        NV_PRINTF(LEVEL_ERROR,
-                  "%s(): Error (%d) while creating memdesc from pages!\n",
-                  __FUNCTION__, rmStatus);
-        goto create_memdesc_fail;
+        nv_dma_release_dma_buf(pImportPriv);
     }
-
-    memdescSetMemData(*ppMemDesc, *ppPrivate,
-                      osDestroyOsDescriptorFromDmaBuf);
-
-    return NV_OK;
-
-create_memdesc_fail:
-    nv_dma_release_dma_buf(pUserPages, pImportPriv);
 
     return rmStatus;
 }
@@ -774,6 +737,23 @@ _createMemdescFromSgt
     return rmStatus;
 }
 
+static nv_dma_device_t *GetDmaDeviceForImport
+(
+    nv_state_t *nv,
+    NvU32 flags
+)
+{
+    if (FLD_TEST_DRF(OS02, _FLAGS, _ALLOC_NISO_DISPLAY, _YES, flags) &&
+        (nv->niso_dma_dev != NULL))
+    {
+        return nv->niso_dma_dev;
+    }
+    else
+    {
+        return nv->dma_dev;
+    }
+}
+
 static NV_STATUS
 osCreateOsDescriptorFromFileHandle
 (
@@ -788,8 +768,8 @@ osCreateOsDescriptorFromFileHandle
 {
     NV_STATUS rmStatus = NV_OK;
     nv_state_t *nv = NV_GET_NV_STATE(pGpu);
+    nv_dma_device_t *dma_dev = NULL;
     NvU32 size = 0;
-    void *pUserPages = NULL;
     nv_dma_buf_t *pImportPriv = NULL;
     struct sg_table *pImportSgt = NULL;
     NvS32 fd;
@@ -803,8 +783,9 @@ osCreateOsDescriptorFromFileHandle
         return NV_ERR_INVALID_ARGUMENT;
     }
 
-    rmStatus = nv_dma_import_from_fd(nv->dma_dev, fd, &size,
-                                     &pUserPages, &pImportSgt, &pImportPriv);
+    dma_dev = GetDmaDeviceForImport(nv, flags);
+    rmStatus = nv_dma_import_from_fd(dma_dev, fd, &size,
+                                     &pImportSgt, &pImportPriv);
     if (rmStatus != NV_OK)
     {
         NV_PRINTF(LEVEL_ERROR,
@@ -814,7 +795,7 @@ osCreateOsDescriptorFromFileHandle
     }
 
     return _createMemdescFromDmaBuf(pGpu, flags, pImportPriv,
-                                    pUserPages, pImportSgt,
+                                    pImportSgt,
                                     size, ppMemDesc, ppPrivate);
 }
 
@@ -865,14 +846,15 @@ osCreateOsDescriptorFromDmaBufPtr
 {
     NV_STATUS rmStatus = NV_OK;
     nv_state_t *nv = NV_GET_NV_STATE(pGpu);
+    nv_dma_device_t *dma_dev = NULL;
     NvU32 size = 0;
-    void *pUserPages = NULL;
     nv_dma_buf_t *pImportPriv = NULL;
     struct sg_table *pImportSgt = NULL;
     void *dmaBuf = (void*)((NvUPtr)pDescriptor);
 
-    rmStatus = nv_dma_import_dma_buf(nv->dma_dev, dmaBuf, &size,
-                                     &pUserPages, &pImportSgt, &pImportPriv);
+    dma_dev = GetDmaDeviceForImport(nv, flags);
+    rmStatus = nv_dma_import_dma_buf(dma_dev, dmaBuf, &size,
+                                     &pImportSgt, &pImportPriv);
     if (rmStatus != NV_OK)
     {
         NV_PRINTF(LEVEL_ERROR,
@@ -882,7 +864,7 @@ osCreateOsDescriptorFromDmaBufPtr
     }
 
     return _createMemdescFromDmaBuf(pGpu, flags, pImportPriv,
-                                    pUserPages, pImportSgt,
+                                    pImportSgt,
                                     size, ppMemDesc, ppPrivate);
 }
 
@@ -963,19 +945,6 @@ osDestroyOsDescriptorPageArray
     }
 }
 
-/*
- * XXX: Due to bug 200720644, direct SGT-based DMA-BUF importing is disabled for
- * GLOBAL_FEATURE_TEGRA_DISPLAY.
- *
- * Accessing the underlying pages of an SGT is illegal, and will be broken on
- * future kernels:
- * https://cgit.freedesktop.org/drm/drm-misc/commit/?id=84335675f2223cbd25d0de7d38ecc7d40b95bd4a
- *
- * This code should be deleted in favor of the version that uses
- * _createMemdescFromDmaBufSgtHelper() once the underlying cause of bug
- * 200720644 is discovered and resolved. The code handling 'user_pages' in
- * nv_dma_import_dma_buf() and nv_dma_release_dma_buf() should also be removed.
- */
 static void
 osDestroyOsDescriptorFromDmaBuf
 (
@@ -983,13 +952,16 @@ osDestroyOsDescriptorFromDmaBuf
 )
 {
     OBJGPU *pGpu = pMemDesc->pGpu;
-    NvU64 osPageCount = NV_RM_PAGES_TO_OS_PAGES(pMemDesc->PageCount);
-    void *pPrivate;
+    void *pPrivate = memdescGetMemData(pMemDesc);
+
+    struct sg_table *pImportSgt;
     void *pImportPriv;
 
-    pPrivate = memdescGetMemData(pMemDesc);
-
-    NV_ASSERT(pPrivate != NULL);
+    /*
+     * Unmap IOMMU now or we will get a kernel crash when it is unmapped after
+     * pImportSgt is freed.
+     */
+    memdescUnmapIommu(pMemDesc, pGpu->busInfo.iovaspaceId);
 
     if ((NV_RM_PAGE_SIZE < os_page_size) &&
         !memdescGetContiguity(pMemDesc, AT_CPU))
@@ -998,10 +970,16 @@ osDestroyOsDescriptorFromDmaBuf
                                  pMemDesc->PageCount);
     }
 
-    nv_unregister_user_pages(NV_GET_NV_STATE(pGpu), osPageCount, &pImportPriv,
-                             &pPrivate);
+    nv_unregister_sgt(NV_GET_NV_STATE(pGpu), &pImportSgt,
+                      &pImportPriv, pPrivate);
 
-    nv_dma_release_dma_buf(pPrivate, pImportPriv);
+    /*
+     * pImportSgt doesn't need to be passed to nv_dma_release_dma_buf() because
+     * the DMA-BUF associated with pImportPriv already has a reference to the
+     * SGT.
+     */
+
+    nv_dma_release_dma_buf(pImportPriv);
 }
 
 static void

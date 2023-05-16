@@ -50,7 +50,7 @@ NvBool nvValidateModeForModeset(NVDpyEvoRec *pDpyEvo,
                                 const struct NvKmsSize *pViewPortSizeIn,
                                 const struct NvKmsRect *pViewPortOut,
                                 NVHwModeTimingsEvo *pTimingsEvo,
-                                NVT_VIDEO_INFOFRAME_CTRL *pInfoFrameCtrl);
+                                NVDispHeadInfoFrameStateEvoRec *pInfoFrameState);
 
 const NVT_TIMING *nvFindEdidNVT_TIMING(
     const NVDpyEvoRec *pDpyEvo,

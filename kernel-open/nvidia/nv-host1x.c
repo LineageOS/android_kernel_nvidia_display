@@ -50,16 +50,16 @@ NV_STATUS nv_get_syncpoint_aperture
     }
 #endif
 
-#if NV_IS_EXPORT_SYMBOL_PRESENT_nvhost_syncpt_unit_interface_get_aperture
+#if NV_IS_EXPORT_SYMBOL_PRESENT_nvhost_syncpt_unit_interface_get_aperture && \
+    NV_IS_EXPORT_SYMBOL_PRESENT_nvhost_syncpt_unit_interface_get_byte_offset
     nvhost_syncpt_unit_interface_get_aperture(
         host1x_pdev, &base, &size);
-#endif
 
     *physAddr = base;
-
-#if NV_IS_EXPORT_SYMBOL_PRESENT_nvhost_syncpt_unit_interface_get_byte_offset
     *limit = nvhost_syncpt_unit_interface_get_byte_offset(1);
     *offset = nvhost_syncpt_unit_interface_get_byte_offset(syncpointId);
+#else
+    return NV_ERR_NOT_SUPPORTED;
 #endif
 
      return NV_OK;

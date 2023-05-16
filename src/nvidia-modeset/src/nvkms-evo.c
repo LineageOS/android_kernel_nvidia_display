@@ -5314,14 +5314,33 @@ NvBool nvConstructHwModeTimingsEvo(const NVDpyEvoRec *pDpyEvo,
             // Start off picking best possible depth based on monitor caps
             // If the monitor doesn't have an EDID version 1.4 or higher, assume
             // it's 8.
+            // For monitor with EDID version 1.4 or higher:
+            //      if bpc >= 10 configure pixel depth to 30bpp
+            //      if bpc is 8 or undefined configure pixel depth to 24bpp
+            //      if bpc is 6 use 18bpp as pixel depth
             if (pDpyEvo->parsedEdid.valid &&
                 pDpyEvo->parsedEdid.info.input.isDigital &&
                 pDpyEvo->parsedEdid.info.version >= NVT_EDID_VER_1_4) {
-                if (pDpyEvo->parsedEdid.info.input.u.digital.bpc >= 10) {
-                    pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_30_444;
-                } else if (pDpyEvo->parsedEdid.info.input.u.digital.bpc < 8) {
-                    pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_18_444;
+                switch (pDpyEvo->parsedEdid.info.input.u.digital.bpc) {
+                    case 16:
+                    case 14:
+                    case 12:
+                    case 10:
+                        pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_30_444;
+                        break;
+                    case 8:
+                    case 0:
+                        pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_24_444;
+                        break;
+                    case 6:
+                        pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_18_444;
+                        break;
+                    default:
+                        nvAssert(!"Invalid EDID bit depth for DP");
+                        return FALSE;
                 }
+            } else {
+                pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_24_444;
             }
         } else {
             /* TMDS default */
