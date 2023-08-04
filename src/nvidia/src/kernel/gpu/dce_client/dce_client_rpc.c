@@ -486,7 +486,11 @@ NV_STATUS rpcRmApiControl_dce
     }
 
     status = _dceRpcGetRpcResult(pRpc);
-    if (status != NV_OK)
+    if (status == NV_ERR_NOT_SUPPORTED)
+    {
+        NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE: RM ctrl call cmd:0x%x not supported\n", cmd);
+    }
+    else if (status != NV_OK)
     {
         NV_PRINTF(LEVEL_ERROR, "NVRM_RPC_DCE: Failed RM ctrl call cmd:0x%x result 0x%x:\n", cmd, status);
     }

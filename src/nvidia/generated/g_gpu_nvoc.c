@@ -138,17 +138,6 @@ void __nvoc_init_dataField_OBJGPU(OBJGPU *pThis) {
         pThis->setProperty(pThis, PDB_PROP_GPU_ATS_SUPPORTED, ((NvBool)(0 != 0)));
     }
 
-    // NVOC Property Hal field -- PDB_PROP_GPU_IS_UEFI
-    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x00010000UL) )) /* ChipHal: T234D */ 
-    {
-        pThis->setProperty(pThis, PDB_PROP_GPU_IS_UEFI, ((NvBool)(0 == 0)));
-    }
-    // default
-    else
-    {
-        pThis->setProperty(pThis, PDB_PROP_GPU_IS_UEFI, ((NvBool)(0 != 0)));
-    }
-
     // NVOC Property Hal field -- PDB_PROP_GPU_ZERO_FB
     if (0)
     {

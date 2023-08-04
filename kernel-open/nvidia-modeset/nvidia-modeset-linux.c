@@ -526,7 +526,7 @@ NvU64 nvkms_get_usec(void)
     struct timespec64 ts;
     NvU64 ns;
 
-    ktime_get_real_ts64(&ts);
+    ktime_get_raw_ts64(&ts);
 
     ns = timespec64_to_ns(&ts);
     return ns / 1000;
