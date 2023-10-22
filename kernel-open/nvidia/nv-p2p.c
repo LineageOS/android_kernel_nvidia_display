@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2011-2019 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -31,6 +31,11 @@
 #include "nv-p2p.h"
 #include "rmp2pdefines.h"
 
+typedef enum nv_p2p_page_table_type {
+    NV_P2P_PAGE_TABLE_TYPE_NON_PERSISTENT = 0,
+    NV_P2P_PAGE_TABLE_TYPE_PERSISTENT,
+} nv_p2p_page_table_type_t;
+
 typedef struct nv_p2p_dma_mapping {
     struct list_head list_node;
     struct nvidia_p2p_dma_mapping *dma_mapping;
@@ -44,12 +49,8 @@ typedef struct nv_p2p_mem_info {
         struct list_head list_head;
         struct semaphore lock;
     } dma_mapping_list;
-    NvBool bPersistent;
     void *private;
 } nv_p2p_mem_info_t;
-
-int nvidia_p2p_cap_persistent_pages = 1;
-EXPORT_SYMBOL(nvidia_p2p_cap_persistent_pages);
 
 // declared and created in nv.c
 extern void *nvidia_p2p_page_t_cache;
@@ -238,6 +239,7 @@ static void nv_p2p_free_page_table(
 }
 
 static NV_STATUS nv_p2p_put_pages(
+    nv_p2p_page_table_type_t pt_type,
     nvidia_stack_t * sp,
     uint64_t p2p_token,
     uint32_t va_space,
@@ -246,9 +248,6 @@ static NV_STATUS nv_p2p_put_pages(
 )
 {
     NV_STATUS status;
-    struct nv_p2p_mem_info *mem_info = NULL;
-
-    mem_info = container_of(*page_table, nv_p2p_mem_info_t, page_table);
 
     /*
      * rm_p2p_put_pages returns NV_OK if the page_table was found and
@@ -258,8 +257,15 @@ static NV_STATUS nv_p2p_put_pages(
      * rm_p2p_put_pages returns NV_ERR_OBJECT_NOT_FOUND if the page_table
      * was already unlinked.
      */
-    if (mem_info->bPersistent)
+    if (pt_type == NV_P2P_PAGE_TABLE_TYPE_PERSISTENT)
     {
+        struct nv_p2p_mem_info *mem_info = NULL;
+
+        /*
+         * It is safe to access persistent page_table as there is no async
+         * callback which can free it unlike non-persistent page_table.
+         */
+        mem_info = container_of(*page_table, nv_p2p_mem_info_t, page_table);
         status = rm_p2p_put_pages_persistent(sp, mem_info->private, *page_table);
     }
     else
@@ -273,7 +279,8 @@ static NV_STATUS nv_p2p_put_pages(
         nv_p2p_free_page_table(*page_table);
         *page_table = NULL;
     }
-    else if (!mem_info->bPersistent && (status == NV_ERR_OBJECT_NOT_FOUND))
+    else if ((pt_type == NV_P2P_PAGE_TABLE_TYPE_NON_PERSISTENT) &&
+             (status == NV_ERR_OBJECT_NOT_FOUND))
     {
         status = NV_OK;
         *page_table = NULL;
@@ -327,449 +334,234 @@ static void nv_p2p_mem_info_free_callback(void *data)
     nv_p2p_free_platform_data(&mem_info->page_table);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+static int nv_p2p_get_pages(
+    nv_p2p_page_table_type_t pt_type,
+    uint64_t p2p_token,
+    uint32_t va_space,
+    uint64_t virtual_address,
+    uint64_t length,
+    struct nvidia_p2p_page_table **page_table,
+    void (*free_callback)(void * data),
+    void *data
+)
+{
+    NV_STATUS status;
+    nvidia_stack_t *sp = NULL;
+    struct nvidia_p2p_page *page;
+    struct nv_p2p_mem_info *mem_info = NULL;
+    NvU32 entries;
+    NvU32 *wreqmb_h = NULL;
+    NvU32 *rreqmb_h = NULL;
+    NvU64 *physical_addresses = NULL;
+    NvU32 page_count;
+    NvU32 i = 0;
+    NvBool bGetPages = NV_FALSE;
+    NvBool bGetUuid = NV_FALSE;
+    NvU32 page_size = NVRM_P2P_PAGESIZE_BIG_64K;
+    NvU32 page_size_index;
+    NvU64 temp_length;
+    NvU8 *gpu_uuid = NULL;
+    NvU8 uuid[NVIDIA_P2P_GPU_UUID_LEN] = {0};
+    int rc;
+
+    rc = nv_kmem_cache_alloc_stack(&sp);
+    if (rc != 0)
+    {
+        return rc;
+    }
+
+    *page_table = NULL;
+    status = os_alloc_mem((void **)&mem_info, sizeof(*mem_info));
+    if (status != NV_OK)
+    {
+        goto failed;
+    }
+
+    memset(mem_info, 0, sizeof(*mem_info));
+
+    INIT_LIST_HEAD(&mem_info->dma_mapping_list.list_head);
+    NV_INIT_MUTEX(&mem_info->dma_mapping_list.lock);
+
+    *page_table = &(mem_info->page_table);
+
+    /*
+     * assign length to temporary variable since do_div macro does in-place
+     * division
+     */
+    temp_length = length;
+    do_div(temp_length, page_size);
+    page_count = temp_length;
+
+    if (length & (page_size - 1))
+    {
+        page_count++;
+    }
+
+    status = os_alloc_mem((void **)&physical_addresses,
+            (page_count * sizeof(NvU64)));
+    if (status != NV_OK)
+    {
+        goto failed;
+    }
+    status = os_alloc_mem((void **)&wreqmb_h, (page_count * sizeof(NvU32)));
+    if (status != NV_OK)
+    {
+        goto failed;
+    }
+    status = os_alloc_mem((void **)&rreqmb_h, (page_count * sizeof(NvU32)));
+    if (status != NV_OK)
+    {
+        goto failed;
+    }
+
+    if (pt_type == NV_P2P_PAGE_TABLE_TYPE_PERSISTENT)
+    {
+        void *gpu_info = NULL;
+
+        if ((p2p_token != 0) || (va_space != 0))
+        {
+            status = -ENOTSUPP;
+            goto failed;
+        }
+
+        status = rm_p2p_get_gpu_info(sp, virtual_address, length,
+                                     &gpu_uuid, &gpu_info);
+        if (status != NV_OK)
+        {
+            goto failed;
+        }
+
+        (*page_table)->gpu_uuid = gpu_uuid;
+
+        rc = nvidia_dev_get_uuid(gpu_uuid, sp);
+        if (rc != 0)
+        {
+            status = NV_ERR_GPU_UUID_NOT_FOUND;
+            goto failed;
+        }
+
+        os_mem_copy(uuid, gpu_uuid, NVIDIA_P2P_GPU_UUID_LEN);
+
+        bGetUuid = NV_TRUE;
+
+        status = rm_p2p_get_pages_persistent(sp, virtual_address, length,
+                                             &mem_info->private,
+                                             physical_addresses, &entries,
+                                             *page_table, gpu_info);
+        if (status != NV_OK)
+        {
+            goto failed;
+        }
+    }
+    else
+    {
+        // Get regular old-style, non-persistent mappings
+        status = rm_p2p_get_pages(sp, p2p_token, va_space,
+                virtual_address, length, physical_addresses, wreqmb_h,
+                rreqmb_h, &entries, &gpu_uuid, *page_table);
+        if (status != NV_OK)
+        {
+            goto failed;
+        }
+
+        (*page_table)->gpu_uuid = gpu_uuid;
+    }
+
+    bGetPages = NV_TRUE;
+
+    status = os_alloc_mem((void *)&(*page_table)->pages,
+             (entries * sizeof(page)));
+    if (status != NV_OK)
+    {
+        goto failed;
+    }
+
+    (*page_table)->version = NVIDIA_P2P_PAGE_TABLE_VERSION;
+
+    for (i = 0; i < entries; i++)
+    {
+        page = NV_KMEM_CACHE_ALLOC(nvidia_p2p_page_t_cache);
+        if (page == NULL)
+        {
+            status = NV_ERR_NO_MEMORY;
+            goto failed;
+        }
+
+        memset(page, 0, sizeof(*page));
+
+        page->physical_address = physical_addresses[i];
+        page->registers.fermi.wreqmb_h = wreqmb_h[i];
+        page->registers.fermi.rreqmb_h = rreqmb_h[i];
+
+        (*page_table)->pages[i] = page;
+        (*page_table)->entries++;
+    }
+
+    status = nvidia_p2p_map_page_size(page_size, &page_size_index);
+    if (status != NV_OK)
+    {
+        goto failed;
+    }
+
+    (*page_table)->page_size = page_size_index;
+
+    os_free_mem(physical_addresses);
+    os_free_mem(wreqmb_h);
+    os_free_mem(rreqmb_h);
+
+    if (free_callback != NULL)
+    {
+        mem_info->free_callback = free_callback;
+        mem_info->data          = data;
+
+        status = rm_p2p_register_callback(sp, p2p_token, virtual_address, length,
+                                          *page_table, nv_p2p_mem_info_free_callback, mem_info);
+        if (status != NV_OK)
+        {
+            goto failed;
+        }
+    }
+
+    nv_kmem_cache_free_stack(sp);
+
+    return nvidia_p2p_map_status(status);
+
+failed:
+    if (physical_addresses != NULL)
+    {
+        os_free_mem(physical_addresses);
+    }
+
+    if (wreqmb_h != NULL)
+    {
+        os_free_mem(wreqmb_h);
+    }
+
+    if (rreqmb_h != NULL)
+    {
+        os_free_mem(rreqmb_h);
+    }
+
+    if (bGetPages)
+    {
+        (void)nv_p2p_put_pages(pt_type, sp, p2p_token, va_space,
+                               virtual_address, page_table);
+    }
+
+    if (bGetUuid)
+    {
+        nvidia_dev_put_uuid(uuid, sp);
+    }
+
+    if (*page_table != NULL)
+    {
+        nv_p2p_free_page_table(*page_table);
+    }
+
+    nv_kmem_cache_free_stack(sp);
+
+    return nvidia_p2p_map_status(status);
+}
 
 int nvidia_p2p_register_rsync_driver(
     nvidia_p2p_rsync_driver_t *driver,

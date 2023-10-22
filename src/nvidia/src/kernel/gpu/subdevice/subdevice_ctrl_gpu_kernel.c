@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2004-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2004-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -36,6 +36,7 @@
 #include "gpu_mgr/gpu_db.h"
 #include "nvrm_registry.h"
 #include "nvVer.h"
+#include "gpu/disp/kern_disp.h"
 #include "objtmr.h"
 #include "vgpu/rpc.h"
 #include "gpu/mem_mgr/mem_mgr.h"
@@ -44,7 +45,6 @@
 #include "rmapi/client.h"
 
 #include "class/cl900e.h"
-
 
 
 
@@ -124,7 +124,7 @@ subdeviceCtrlCmdGpuGetSdm_IMPL
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     pSdmParams->subdeviceMask = gpuGetSubdeviceMask(pGpu);
 
@@ -147,7 +147,7 @@ subdeviceCtrlCmdGpuSetSdm_IMPL
     OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
     NvU32   subdeviceInstance;
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     if (!ONEBITSET(pSdmParams->subdeviceMask))
     {
@@ -187,7 +187,7 @@ subdeviceCtrlCmdGpuGetSimulationInfo_IMPL
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     if (IS_SILICON(pGpu))
     {
@@ -218,7 +218,7 @@ subdeviceCtrlCmdGpuGetEngines_IMPL
     NvU32    *pKernelEngineList = NvP64_VALUE(pParams->engineList);
     NV_STATUS status = NV_OK;
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     portMemSet(&getEngineParamsV2, 0, sizeof(getEngineParamsV2));
 
@@ -256,7 +256,7 @@ subdeviceCtrlCmdGpuGetEnginesV2_IMPL
     OBJGPU   *pGpu = GPU_RES_GET_GPU(pSubdevice);
     NV_STATUS status = NV_OK;
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     // Update the engine Database
     NV_ASSERT_OK_OR_RETURN(gpuUpdateEngineTable(pGpu));
@@ -276,7 +276,7 @@ subdeviceCtrlCmdGpuGetEnginesV2_IMPL
         pEngineParams->engineCount = pGpu->engineDB.size;
         for (i = 0; i < pEngineParams->engineCount; i++)
         {
-            pEngineParams->engineList[i] = pGpu->engineDB.pType[i];
+            pEngineParams->engineList[i] = gpuGetNv2080EngineType(pGpu->engineDB.pType[i]);
         }
     }
 
@@ -299,10 +299,15 @@ subdeviceCtrlCmdGpuGetEngineClasslist_IMPL
     OBJGPU       *pGpu = GPU_RES_GET_GPU(pSubdevice);
     ENGDESCRIPTOR engDesc;
     NV_STATUS     status = NV_OK;
+    RM_ENGINE_TYPE rmEngineType = gpuGetRmEngineType(pClassParams->engineType);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
-    status = gpuXlateClientEngineIdToEngDesc(pGpu, pClassParams->engineType, &engDesc);
+    {
+    }
+
+    status = gpuXlateClientEngineIdToEngDesc(pGpu, rmEngineType, &engDesc);
+
     NV_ASSERT(status == NV_OK);
 
     if (status != NV_OK)
@@ -340,18 +345,21 @@ subdeviceCtrlCmdGpuGetEnginePartnerList_IMPL
 {
     OBJGPU          *pGpu = GPU_RES_GET_GPU(pSubdevice);
     ENGDESCRIPTOR    engDesc;
-    NvU32            localType;
+    NvU32            localNv2080EngineType;
+    RM_ENGINE_TYPE   rmEngineType;
     NvU32            i;
     PCLASSDESCRIPTOR pClass;
     NV_STATUS        status = NV_OK;
 
     pPartnerListParams->numPartners = 0;
 
-    status = gpuXlateClientEngineIdToEngDesc(pGpu, pPartnerListParams->engineType, &engDesc);
+    rmEngineType = gpuGetRmEngineType(pPartnerListParams->engineType);
+
+    status = gpuXlateClientEngineIdToEngDesc(pGpu, rmEngineType, &engDesc);
     if (NV_OK != status)
     {
-        NV_PRINTF(LEVEL_ERROR, "Invalid engine ID 0x%x\n",
-                  pPartnerListParams->engineType);
+        NV_PRINTF(LEVEL_ERROR, "Invalid engine ID 0x%x (0x%x)\n",
+                  pPartnerListParams->engineType, rmEngineType);
         return status;
     }
 
@@ -373,11 +381,12 @@ subdeviceCtrlCmdGpuGetEnginePartnerList_IMPL
         return NV_ERR_NOT_SUPPORTED;
     }
 
+    localNv2080EngineType = pPartnerListParams->engineType;
+
     // Translate the instance-local engine type to the global engine type in MIG mode
-    localType = pPartnerListParams->engineType;
 
     // Restore the client's passed engineType
-    pPartnerListParams->engineType = localType;
+    pPartnerListParams->engineType = localNv2080EngineType;
 
     //
     // For channels that the hal didn't handle, we should just return
@@ -399,10 +408,12 @@ subdeviceCtrlCmdGpuGetEnginePartnerList_IMPL
     // Copy over all of the engines except the target
     for (i = 0; i < pGpu->engineDB.size; i++)
     {
+        localNv2080EngineType = gpuGetNv2080EngineType(pGpu->engineDB.pType[i]);
+
         // Skip the engine handed in
-        if (pGpu->engineDB.pType[i] != pPartnerListParams->engineType )
+        if (localNv2080EngineType != pPartnerListParams->engineType )
         {
-            pPartnerListParams->partnerList[pPartnerListParams->numPartners++] = pGpu->engineDB.pType[i];
+            pPartnerListParams->partnerList[pPartnerListParams->numPartners++] = localNv2080EngineType;
         }
     }
 
@@ -424,7 +435,7 @@ subdeviceCtrlCmdGpuQueryMode_IMPL
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner() && rmGpuLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
 
     switch (gpuGetMode(pGpu))
     {
@@ -478,7 +489,7 @@ subdeviceCtrlCmdGpuGetId_IMPL
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     pIdParams->gpuId = pGpu->gpuId;
 
@@ -505,7 +516,7 @@ subdeviceCtrlCmdGpuGetPids_IMPL
 
     NV_ASSERT_OR_RETURN(RMCFG_FEATURE_KERNEL_RM, NV_ERR_NOT_SUPPORTED);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner() && rmGpuLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
 
     switch (pGetPidsParams->idType)
     {
@@ -525,11 +536,7 @@ subdeviceCtrlCmdGpuGetPids_IMPL
             }
             break;
         }
-        case (NV2080_CTRL_GPU_GET_PIDS_ID_TYPE_VGPU_GUEST):
-        {
-            internalClassId = classId(HostVgpuDeviceApi);
-            break;
-        }
+
         default:
             return NV_ERR_INVALID_ARGUMENT;
     }
@@ -569,7 +576,7 @@ subdeviceCtrlCmdGpuGetPidInfo_IMPL
 
     NV_ASSERT_OR_RETURN(RMCFG_FEATURE_KERNEL_RM, NV_ERR_NOT_SUPPORTED);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner() && rmGpuLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
 
     if ((pGetPidInfoParams->pidInfoListCount <= 0) ||
         (pGetPidInfoParams->pidInfoListCount >
@@ -623,12 +630,13 @@ subdeviceCtrlCmdGpuGetMaxSupportedPageSize_IMPL
     OBJGPU   *pGpu = GPU_RES_GET_GPU(pSubdevice);
     NV_STATUS status  = NV_OK;
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner() && rmDeviceGpuLockIsOwner(pGpu->gpuInstance));
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmDeviceGpuLockIsOwner(pGpu->gpuInstance));
 
     // Default to minimal page size (4k)
     pParams->maxSupportedPageSize = RM_PAGE_SIZE;
 
-    if (gpuIsSriovEnabled(pGpu))
+    if (gpuIsSriovEnabled(pGpu)
+       )
     {
         NvU64 vmmuSegmentSize = gpuGetVmmuSegmentSize(pGpu);
         if (vmmuSegmentSize > 0 &&
@@ -706,7 +714,7 @@ NV_STATUS subdeviceCtrlCmdValidateMemMapRequest_IMPL
     NvU32         bar0MapSize;
     NvU64         bar0MapOffset;
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner() && rmGpuLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmDeviceGpuLockIsOwner(GPU_RES_GET_GPU(pSubdevice)->gpuInstance));
 
     pParams->protection = NV_PROTECT_READ_WRITE;
 
@@ -744,6 +752,169 @@ NV_STATUS subdeviceCtrlCmdValidateMemMapRequest_IMPL
     }
 
     return NV_ERR_PROTECTION_FAULT;
+}
+
+/*!
+ * @brief Computes the GFID (GPU Function ID) for a given SR-IOV
+ *        Virtual Function (VF) of the physical GPU based on the
+ *        BDF parameters provided by the caller.
+ *
+ * Lock Requirements:
+ *      Assert that API and GPUs lock held on entry
+ *
+ * @param[in] pSubdevice
+ * @param[in] pParams    pointer to control parameters
+ *
+ * Possible status values returned are:
+ *     NV_OK                on successful computation of a valid GFID
+ *     NV_ERR_NOT_SUPPORTED if ctrl call is made when
+ *                          SRIOV is not enabled OR
+ *                          caller is not FM from Host RM
+ *     NV_ERR_INVALID_STATE if computed GFID is greater than
+ *                          max GFID that is expected/allowed
+ */
+NV_STATUS
+subdeviceCtrlCmdGpuGetGfid_IMPL
+(
+    Subdevice                           *pSubdevice,
+    NV2080_CTRL_GPU_GET_GFID_PARAMS     *pParams
+)
+{
+    OBJSYS *pSys = SYS_GET_INSTANCE();
+    OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
+    NvU32  pciFunction, gfid;
+
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
+
+    if (!gpuIsSriovEnabled(pGpu))
+        return NV_ERR_NOT_SUPPORTED;
+
+    // Host RM && FM
+    if ((!IS_VIRTUAL(pGpu)) &&
+        (pSys->getProperty(pSys, PDB_PROP_SYS_FABRIC_IS_EXTERNALLY_MANAGED)))
+    {
+        //
+        // In unix based systems, OS uses lspci format which is "ssss:bb:dd.f",
+        // so device is 5 bits and function 3 bits.
+        // for SR-IOV when ARI is enabled, device and function gets combined and
+        // we need to consider 8 bits function.
+        //
+        pciFunction = (pParams->device << 3) | pParams->func;
+        gfid = (pciFunction - pGpu->sriovState.firstVFOffset) + 1;
+
+        if (gfid > pGpu->sriovState.maxGfid)
+        {
+            NV_PRINTF(LEVEL_ERROR, "Computed GFID %d greater than max supported GFID\n", gfid);
+            return NV_ERR_INVALID_STATE;
+        }
+
+        pParams->gfid = gfid;
+        // Also set the mask for max gfid supported currently in the driver
+        pParams->gfidMask = (pGpu->sriovState.maxGfid - 1);
+    }
+    else
+    {
+        return NV_ERR_NOT_SUPPORTED;
+    }
+
+    return NV_OK;
+}
+
+/*!
+ * @brief Sets or unsets the SW state to inform the GPU driver that the GPU instance
+ *        associated with input GFID has been activated or de-activated respectively.
+ *
+ * Lock Requirements:
+ *      Assert that API and GPUs lock held on entry
+ *
+ * @param[in] pSubdevice
+ * @param[in] pParams    pointer to control parameters
+ *
+ * Possible status values returned are:
+ *     NV_OK                    on success
+ *     NV_ERR_INVALID_STATE     if SRIOV state for P2P in driver is not setup
+ *     NV_ERR_INVALID_ARGUMENT  if input GFID is greater than the max GFID allowed
+ *     NV_ERR_NOT_SUPPORTED     if ctrl call is made when
+ *                              SRIOV is not enabled OR
+ *                              caller is not FM from Host RM
+ *     NV_ERR_IN_USE            If MAX_NUM_P2P_GFIDS have already been enabled for P2P
+ */
+NV_STATUS
+subdeviceCtrlCmdUpdateGfidP2pCapability_IMPL
+(
+    Subdevice                                               *pSubdevice,
+    NV2080_CTRL_CMD_GPU_UPDATE_GFID_P2P_CAPABILITY_PARAMS   *pParams
+)
+{
+    OBJSYS *pSys = SYS_GET_INSTANCE();
+    OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
+    PSRIOV_P2P_INFO pP2PInfo = pGpu->sriovState.pP2PInfo;
+    NvBool  bSetP2PAccess = NV_FALSE;
+    NvU32   idx;
+
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
+
+    if (!gpuIsSriovEnabled(pGpu))
+        return NV_ERR_NOT_SUPPORTED;
+
+    NV_ASSERT_OR_RETURN(pP2PInfo != NULL, NV_ERR_INVALID_STATE);
+
+    // Ctrl call should only be called by the FM from Host RM
+    if ((!IS_VIRTUAL(pGpu)) &&
+        (pSys->getProperty(pSys, PDB_PROP_SYS_FABRIC_IS_EXTERNALLY_MANAGED)))
+    {
+        if (pParams->gfid > pGpu->sriovState.maxGfid)
+        {
+            NV_PRINTF(LEVEL_ERROR, "Input GFID %d greater than max allowed GFID\n", pParams->gfid);
+            return NV_ERR_INVALID_ARGUMENT;
+        }
+
+        for (idx = 0; idx < pGpu->sriovState.maxP2pGfid; idx++)
+        {
+            //
+            // Check if Host RM is already using a GFID for P2P,
+            // Since only "MAX_NUM_P2P_GFIDS" GFID(s) is(are) allowed to do P2P at any time,
+            // we should fail here if a GFID greater than supported number is being enabled
+            //
+            if (pParams->bEnable)
+            {
+                if (pP2PInfo[idx].gfid == INVALID_P2P_GFID)
+                {
+                    pP2PInfo[idx].gfid = pParams->gfid;
+                    pGpu->sriovState.p2pFabricPartitionId = pParams->fabricPartitionId;
+                    bSetP2PAccess = NV_TRUE;
+                    break;
+                }
+            }
+            else
+            {
+                if (pP2PInfo[idx].gfid == pParams->gfid)
+                {
+                    pP2PInfo[idx].gfid = INVALID_P2P_GFID;
+                    pGpu->sriovState.p2pFabricPartitionId = INVALID_FABRIC_PARTITION_ID;
+                    bSetP2PAccess = NV_TRUE;
+                    break;
+                }
+            }
+        }
+
+        if (bSetP2PAccess == NV_TRUE)
+        {
+            pP2PInfo[idx].bAllowP2pAccess = pParams->bEnable;
+        }
+        else
+        {
+            // Some other GFID(s) has already been enabled to do P2P
+            // Fail the call
+            return NV_ERR_IN_USE;
+        }
+    }
+    else
+    {
+        return NV_ERR_NOT_SUPPORTED;
+    }
+
+    return NV_OK;
 }
 
 /*!

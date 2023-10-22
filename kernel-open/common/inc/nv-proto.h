@@ -26,9 +26,7 @@
 
 #include "nv-pci.h"
 #include "nv-register-module.h"
-
 #include "nv-platform.h"
-
 
 extern const char *nv_device_name;
 extern nvidia_module_t nv_fops;
@@ -56,8 +54,6 @@ NV_STATUS   nv_alloc_contig_pages       (nv_state_t *, nv_alloc_t *);
 void        nv_free_contig_pages        (nv_alloc_t *);
 NV_STATUS   nv_alloc_system_pages       (nv_state_t *, nv_alloc_t *);
 void        nv_free_system_pages        (nv_alloc_t *);
-
-void        nv_address_space_init_once  (struct address_space *mapping);
 
 int         nv_uvm_init                 (void);
 void        nv_uvm_exit                 (void);

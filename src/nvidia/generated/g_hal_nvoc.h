@@ -120,6 +120,7 @@ NV_STATUS __nvoc_objCreate_OBJHAL(OBJHAL**, Dynamic*, NvU32);
     __nvoc_objCreate_OBJHAL((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
 
 PMODULEDESCRIPTOR objhalGetModuleDescriptor_IMPL(struct OBJHAL *pHal);
+
 #ifdef __nvoc_hal_h_disabled
 static inline PMODULEDESCRIPTOR objhalGetModuleDescriptor(struct OBJHAL *pHal) {
     NV_ASSERT_FAILED_PRECOMP("OBJHAL was disabled!");
@@ -131,12 +132,6 @@ static inline PMODULEDESCRIPTOR objhalGetModuleDescriptor(struct OBJHAL *pHal) {
 
 #undef PRIVATE_FIELD
 
-
-//--------------------------------------------------------------------
-// RM routines.
-//--------------------------------------------------------------------
-
-NV_STATUS ipVersionsSetupHal(struct OBJGPU *, void *pDynamic, IGrp_ipVersions_getInfo getInfoFn);
 
 #endif // _OBJHAL_H_
 

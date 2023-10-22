@@ -84,6 +84,7 @@
 #define MAX_BITS_PER_PIXEL 32
 // Max HBlank pixel count
 #define MAX_HBLANK_PIXELS 7680
+#define MHZ_TO_HZ 1000000
 
 /* ------------------------ Datatypes -------------------------------------- */
 
@@ -1313,14 +1314,14 @@ DSC_PpsCalcSliceParams
     if (!common_slice_count_mask)
     {
         DSC_Print("DSC cannot be supported since no common supported slice count\n");
-        return NVT_STATUS_ERR;
+        return NVT_STATUS_DSC_SLICE_ERROR;
     }
 
     peak_throughput_mps = DSC_GetPeakThroughputMps(peak_throughput);
     if (!peak_throughput_mps)
     {
         DSC_Print("Peak throughput cannot be zero.\n");
-        return NVT_STATUS_ERR;
+        return NVT_STATUS_INVALID_PEAK_THROUGHPUT;
     }
 
     if (max_slice_width > MAX_WIDTH_PER_SLICE)
@@ -1339,7 +1340,7 @@ DSC_PpsCalcSliceParams
         if (max_slice_num < min_slice_num)
         {
             DSC_Print("Requested mode cannot be supported with DSC\n");
-            return NVT_STATUS_ERR;
+            return NVT_STATUS_MIN_SLICE_COUNT_ERROR;
         }
 
         if (!(DSC_SliceCountMaskforSliceNum(min_slice_num) & common_slice_count_mask))
@@ -1347,7 +1348,7 @@ DSC_PpsCalcSliceParams
             if (DSC_GetHigherSliceCount(common_slice_count_mask, min_slice_num, dual_mode, &new_slice_num) == NVT_STATUS_ERR)
             {
                 DSC_Print("DSC cannot be enabled for this mode\n");
-                return NVT_STATUS_ERR;
+                return NVT_STATUS_MIN_SLICE_COUNT_ERROR;
             }
             else
             {
@@ -1366,14 +1367,14 @@ DSC_PpsCalcSliceParams
         if (out->slice_width > max_slice_width)
         {
             DSC_Print("Error! Max Supported Slice Width = %u\n", max_slice_width);
-            return NVT_STATUS_ERR;
+            return NVT_STATUS_PPS_SLICE_WIDTH_ERROR;
         }
 
         out->slice_num = (out->pic_width + out->slice_width - 1) / out->slice_width;
         if (!(DSC_SliceCountMaskforSliceNum(out->slice_num) & common_slice_count_mask))
         {
             DSC_Print("Slice count corresponding to requested slice_width is not supported\n");
-            return NVT_STATUS_ERR;
+            return NVT_STATUS_PPS_SLICE_COUNT_ERROR;
         }
     }
     else if (out->slice_width == 0)
@@ -1381,7 +1382,7 @@ DSC_PpsCalcSliceParams
         if (!(DSC_SliceCountMaskforSliceNum(out->slice_num) & common_slice_count_mask))
         {
             DSC_Print("Slice count requested is not supported\n");
-            return NVT_STATUS_ERR;
+            return NVT_STATUS_PPS_SLICE_COUNT_ERROR;
         }
 
         out->slice_width = (out->pic_width + out->slice_num - 1) / out->slice_num;
@@ -1394,7 +1395,7 @@ DSC_PpsCalcSliceParams
         if (out->slice_width > max_slice_width)
         {
             DSC_Print("Slice width corresponding to the requested slice count is not supported\n");
-            return NVT_STATUS_ERR;
+            return NVT_STATUS_PPS_SLICE_WIDTH_ERROR;
         }
     }
     else
@@ -1402,19 +1403,19 @@ DSC_PpsCalcSliceParams
         if (!(DSC_SliceCountMaskforSliceNum(out->slice_num) & common_slice_count_mask))
         {
             DSC_Print("Requested slice count is not supported\n");
-            return NVT_STATUS_ERR;
+            return NVT_STATUS_PPS_SLICE_COUNT_ERROR;
         }
 
         if (out->slice_width > max_slice_width)
         {
             DSC_Print("Requested slice width cannot be supported\n");
-            return NVT_STATUS_ERR;
+            return NVT_STATUS_PPS_SLICE_WIDTH_ERROR;
         }
 
         if (out->slice_width != (out->pic_width + out->slice_num  - 1) / out->slice_num)
         {
             DSC_Print("slice_width must equal CEIL(pic_width/slice_num) \n");
-            return NVT_STATUS_ERR;
+            return NVT_STATUS_PPS_SLICE_WIDTH_ERROR;
         }
     }
 
@@ -1432,7 +1433,7 @@ DSC_PpsCalcSliceParams
     if (out->slice_width < 32)
     {
         DSC_Print("slice_width must >= 32\n");
-        return NVT_STATUS_ERR;
+        return NVT_STATUS_PPS_SLICE_WIDTH_ERROR;
     }
 
     slicew = out->slice_width >> (out->native_420 || out->native_422);  // /2 in 4:2:0 mode
@@ -1499,7 +1500,7 @@ Dsc_PpsCalcHeight(DSC_OUTPUT_PARAMS *out)
                 return NVT_STATUS_SUCCESS;
         }
         DSC_Print("Error! can't find valid slice_height");
-        return NVT_STATUS_ERR;
+        return NVT_STATUS_PPS_SLICE_HEIGHT_ERROR;
     }
 
     RANGE_CHECK("slice_height", out->slice_height, 8, out->pic_height);
@@ -1507,13 +1508,13 @@ Dsc_PpsCalcHeight(DSC_OUTPUT_PARAMS *out)
     if (out->pic_height % out->slice_height != 0)
     {
         DSC_Print("Error! pic_height %% slice_height must be 0");
-        return NVT_STATUS_ERR;
+        return NVT_STATUS_PPS_SLICE_HEIGHT_ERROR;
     }
 
     if(DSC_PpsCheckSliceHeight(out) != NVT_STATUS_SUCCESS)
     {
         DSC_Print("Error! slice_height not valid");
-        return NVT_STATUS_ERR;
+        return NVT_STATUS_PPS_SLICE_HEIGHT_ERROR;
     }
     return NVT_STATUS_SUCCESS;
 }
@@ -1744,26 +1745,26 @@ _validateInput
     if (pDscInfo->forcedDscParams.sliceCount > pDscInfo->sinkCaps.maxNumHztSlices)
     {
         DSC_Print("ERROR - Client can't specify forced slice count greater than what sink supports.");
-        return NVT_STATUS_INVALID_PARAMETER;
+        return NVT_STATUS_DSC_SLICE_ERROR;
     }
 
     if ((pDscInfo->forcedDscParams.sliceCount / (pModesetInfo->bDualMode ? 2 : 1)) > pDscInfo->gpuCaps.maxNumHztSlices)
     {
         DSC_Print("ERROR - Client can't specify forced slice count greater than what GPU supports.");
-        return NVT_STATUS_INVALID_PARAMETER;
+        return NVT_STATUS_DSC_SLICE_ERROR;
     }
 
     if (pDscInfo->forcedDscParams.sliceWidth > pDscInfo->sinkCaps.maxSliceWidth)
     {
         DSC_Print("ERROR - Client can't specify forced slice width greater than what sink supports.");
-        return NVT_STATUS_INVALID_PARAMETER;
+        return NVT_STATUS_DSC_SLICE_ERROR;
     }
 
     if ((pDscInfo->forcedDscParams.sliceCount > 0) &&
         (pDscInfo->forcedDscParams.sliceWidth != 0))
     {
         DSC_Print("ERROR - Client can't specify both forced slice count and slice width.");
-        return NVT_STATUS_INVALID_PARAMETER;
+        return NVT_STATUS_DSC_SLICE_ERROR;
     }
 
     if ((pDscInfo->forcedDscParams.sliceCount != 0) &&
@@ -1773,19 +1774,19 @@ _validateInput
         (pDscInfo->forcedDscParams.sliceCount != 8))
     {
         DSC_Print("ERROR - Forced Slice Count has to be 1/2/4/8.");
-        return NVT_STATUS_INVALID_PARAMETER;
+        return NVT_STATUS_DSC_SLICE_ERROR;
     }
 
     if (pDscInfo->forcedDscParams.sliceWidth > pModesetInfo->activeWidth)
     {
         DSC_Print("ERROR - Forced Slice Width can't be more than Active Width.");
-        return NVT_STATUS_INVALID_PARAMETER;
+        return NVT_STATUS_DSC_SLICE_ERROR;
     }
 
     if (pDscInfo->forcedDscParams.sliceHeight > pModesetInfo->activeHeight)
     {
         DSC_Print("ERROR - Forced Slice Height can't be more than Active Height.");
-        return NVT_STATUS_INVALID_PARAMETER;
+        return NVT_STATUS_DSC_SLICE_ERROR;
     }
 
     if (pDscInfo->forcedDscParams.dscRevision.versionMinor > 
@@ -1807,10 +1808,24 @@ _validateInput
         return NVT_STATUS_INVALID_PARAMETER;
     }
 
+    if ((pDscInfo->branchCaps.overallThroughputMode0 != 0) && 
+        (pModesetInfo->pixelClockHz > pDscInfo->branchCaps.overallThroughputMode0 * MHZ_TO_HZ))
+    {
+        DSC_Print("ERROR - Pixel clock cannot be greater than Branch DSC Overall Throughput Mode 0");
+        return NVT_STATUS_OVERALL_THROUGHPUT_ERROR;
+    }
+
     if (pModesetInfo->activeWidth == 0)
     {
         DSC_Print("ERROR - Invalid active width for mode.");
         return NVT_STATUS_INVALID_PARAMETER;
+    }
+
+    if (pDscInfo->branchCaps.maxLineBufferWidth != 0 &&
+        pModesetInfo->activeWidth > pDscInfo->branchCaps.maxLineBufferWidth)
+    {
+        DSC_Print("ERROR - Active width cannot be greater than DSC Decompressor max line buffer width");
+        return NVT_STATUS_MAX_LINE_BUFFER_ERROR;
     }
 
     if (pModesetInfo->activeHeight == 0)
@@ -1843,7 +1858,7 @@ _validateInput
                 (pDscInfo->sinkCaps.decoderColorFormatMask & DSC_DECODER_COLOR_FORMAT_Y_CB_CR_NATIVE_422))))
         {
             DSC_Print("ERROR - Can't enable YCbCr422 with current GPU and Sink DSC config.");
-            return NVT_STATUS_INVALID_PARAMETER;
+            return NVT_STATUS_COLOR_FORMAT_NOT_SUPPORTED;
         }
     }
 
@@ -1856,7 +1871,7 @@ _validateInput
             (pDscInfo->sinkCaps.decoderColorFormatMask & DSC_DECODER_COLOR_FORMAT_Y_CB_CR_NATIVE_420)))
         {
             DSC_Print("ERROR - Can't enable YCbCr420 with current GPU and Sink DSC config.");
-            return NVT_STATUS_INVALID_PARAMETER;
+            return NVT_STATUS_COLOR_FORMAT_NOT_SUPPORTED;
         }
     }
 
@@ -1882,21 +1897,21 @@ _validateInput
             if (!(pDscInfo->sinkCaps.decoderColorDepthMask & DSC_DECODER_COLOR_DEPTH_CAPS_12_BITS))
             {
                 DSC_Print("ERROR - Sink DSC Decoder does not support 12 bpc");
-                return NVT_STATUS_INVALID_PARAMETER;
+                return NVT_STATUS_INVALID_BPC;
             }
             break;
         case 10:
             if (!(pDscInfo->sinkCaps.decoderColorDepthMask & DSC_DECODER_COLOR_DEPTH_CAPS_10_BITS))
             {
                 DSC_Print("ERROR - Sink DSC Decoder does not support 10 bpc");
-                return NVT_STATUS_INVALID_PARAMETER;
+                return NVT_STATUS_INVALID_BPC;
             }
             break;
         case 8:
             if (!(pDscInfo->sinkCaps.decoderColorDepthMask & DSC_DECODER_COLOR_DEPTH_CAPS_8_BITS))
             {
                 DSC_Print("ERROR - Sink DSC Decoder does not support 8 bpc");
-                return NVT_STATUS_INVALID_PARAMETER;
+                return NVT_STATUS_INVALID_BPC;
             }
             break;
 
@@ -1936,7 +1951,7 @@ _validateInput
             if (pWARData->dpData.hBlank > MAX_HBLANK_PIXELS)
             {
                 DSC_Print("ERROR - Incorrect DP HBlank info sent with WAR data");
-                return NVT_STATUS_INVALID_PARAMETER;
+                return NVT_STATUS_INVALID_HBLANK;
             }
 
             if ((pWARData->dpData.dpMode != DSC_DP_SST) && (pWARData->dpData.dpMode != DSC_DP_MST))
@@ -2036,7 +2051,7 @@ DSC_GeneratePPS
         else
         {
             DSC_Print("ERROR - YCbCr422 is not possible with current config.");
-            ret = NVT_STATUS_INVALID_PARAMETER;
+            ret = NVT_STATUS_COLOR_FORMAT_NOT_SUPPORTED;
             goto done;
         }
         break;
@@ -2051,14 +2066,14 @@ DSC_GeneratePPS
         else
         {
             DSC_Print("ERROR - YCbCr420 is not possible with current config.");
-            ret = NVT_STATUS_INVALID_PARAMETER;
+            ret = NVT_STATUS_COLOR_FORMAT_NOT_SUPPORTED;
             goto done;
         }
         break;
 
     default:
         DSC_Print("ERROR - Invalid color Format specified.");
-        ret = NVT_STATUS_INVALID_PARAMETER;
+        ret = NVT_STATUS_COLOR_FORMAT_NOT_SUPPORTED;
         goto done;
     }
 
@@ -2165,7 +2180,7 @@ DSC_GeneratePPS
             (*pBitsPerPixelX16 > in->bits_per_pixel))
         {
             DSC_Print("ERROR - Invalid bits per pixel value specified.");
-            ret = NVT_STATUS_INVALID_PARAMETER;
+            ret = NVT_STATUS_INVALID_BPP;
             goto done;
         }
         else
@@ -2177,14 +2192,14 @@ DSC_GeneratePPS
         if (pModesetInfo->bDualMode && (in->bits_per_pixel > 256 /*bits_per_pixel = 16*/))
         {
             DSC_Print("ERROR - DSC Dual Mode, because of architectural limitation we can't use bits_per_pixel more than 16.");
-            ret = NVT_STATUS_INVALID_PARAMETER;
+            ret = NVT_STATUS_INVALID_BPP;
             goto done;
         }
 
         if ((pDscInfo->sinkCaps.maxBitsPerPixelX16 != 0) && (*pBitsPerPixelX16 > pDscInfo->sinkCaps.maxBitsPerPixelX16))
         {
             DSC_Print("ERROR - bits per pixel value specified by user is greater than what DSC decompressor can support.");
-            ret = NVT_STATUS_INVALID_PARAMETER;
+            ret = NVT_STATUS_INVALID_BPP;
             goto done;
         }
     }
@@ -2237,7 +2252,7 @@ DSC_GeneratePPS
         if (in->dsc_version_minor == 1)
         {
             DSC_Print("Error! DSC1.1 can't support native422!\n");
-            ret = NVT_STATUS_INVALID_PARAMETER;
+            ret = NVT_STATUS_COLOR_FORMAT_NOT_SUPPORTED;
             goto done;
         }
         //the bpp in native 422 mode is doubled.
@@ -2246,7 +2261,7 @@ DSC_GeneratePPS
         {
             DSC_Print("bits_per_pixelx16 (=%u) needs to be between %u and %u",
                       in->bits_per_pixel, 2*6*BPP_UNIT, 2*32*BPP_UNIT-1);
-            ret = NVT_STATUS_INVALID_PARAMETER;
+            ret = NVT_STATUS_INVALID_BPP;
             goto done;
         }
     }
@@ -2257,7 +2272,7 @@ DSC_GeneratePPS
         {
             DSC_Print("bits_per_pixelx16 (=%u) needs to be between %u and %u",
                       in->bits_per_pixel, 8*BPP_UNIT, 32*BPP_UNIT);
-            ret = NVT_STATUS_INVALID_PARAMETER;
+            ret = NVT_STATUS_INVALID_BPP;
             goto done;
         }
     }

@@ -169,7 +169,6 @@ void nv_kthread_q_stop(nv_kthread_q_t *q)
 //
 // This function is never invoked when there is no NUMA preference (preferred
 // node is NUMA_NO_NODE).
-#if NV_KTHREAD_Q_SUPPORTS_AFFINITY() == 1
 static struct task_struct *thread_create_on_node(int (*threadfn)(void *data),
                                                  nv_kthread_q_t *q,
                                                  int preferred_node,
@@ -217,7 +216,6 @@ static struct task_struct *thread_create_on_node(int (*threadfn)(void *data),
 
     return thread[i];
 }
-#endif
 
 int nv_kthread_q_init_on_node(nv_kthread_q_t *q, const char *q_name, int preferred_node)
 {
@@ -231,11 +229,7 @@ int nv_kthread_q_init_on_node(nv_kthread_q_t *q, const char *q_name, int preferr
         q->q_kthread = kthread_create(_main_loop, q, q_name);
     }
     else {
-#if NV_KTHREAD_Q_SUPPORTS_AFFINITY() == 1
         q->q_kthread = thread_create_on_node(_main_loop, q, preferred_node, q_name);
-#else
-        return -ENOTSUPP;
-#endif
     }
 
     if (IS_ERR(q->q_kthread)) {
@@ -307,7 +301,7 @@ static void _q_flush_function(void *args)
 static void _raw_q_flush(nv_kthread_q_t *q)
 {
     nv_kthread_q_item_t q_item;
-    DECLARE_COMPLETION(completion);
+    DECLARE_COMPLETION_ONSTACK(completion);
 
     nv_kthread_q_item_init(&q_item, _q_flush_function, &completion);
 

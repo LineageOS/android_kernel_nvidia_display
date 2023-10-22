@@ -197,7 +197,7 @@ typedef struct
         struct
         {
             NvU8 data0;
-            NvU8 data1; 
+            NvU8 data1;
         } sp;
     } sp_len_dly;
     NvU32      *pdata;
@@ -265,19 +265,29 @@ typedef struct
 
     DSI_CMD           *dsi_init_cmd;          /* required */
     NvU16             n_init_cmd;             /* required */
+    NvU32             *dsi_init_cmd_array;
+    NvU32             init_cmd_array_size;
     NvBool            sendInitCmdsEarly;
 
     DSI_CMD           *dsi_early_suspend_cmd;
     NvU16             n_early_suspend_cmd;
+    NvU32             *dsi_early_suspend_cmd_array;
+    NvU32             early_suspend_cmd_array_size;
 
     DSI_CMD           *dsi_late_resume_cmd;
     NvU16             n_late_resume_cmd;
+    NvU32             *dsi_late_resume_cmd_array;
+    NvU32             late_resume_cmd_array_size;
 
     DSI_CMD           *dsi_postvideo_cmd;
     NvU16             n_postvideo_cmd;
+    NvU32             *dsi_postvideo_cmd_array;
+    NvU32             postvideo_cmd_array_size;
 
     DSI_CMD           *dsi_suspend_cmd;               /* required */
     NvU16             n_suspend_cmd;                  /* required */
+    NvU32             *dsi_suspend_cmd_array;
+    NvU32             suspend_cmd_array_size;
 
     NvU8              video_data_type;                /* required */
     NvU8              video_clock_mode;
@@ -300,6 +310,8 @@ typedef struct
                                        * support eot. Don't set it for
                                        * most panels.*/
     const NvU32       *pktSeq;
+    NvU32             *pktSeq_array;
+    NvU32             pktSeq_array_size;
     NvBool            skip_dsi_pkt_header;
     NvBool            power_saving_suspend;
     NvBool            suspend_stop_stream_late;
@@ -346,6 +358,12 @@ typedef struct
     NvU32             refresh_rate_adj;
 
     NvU8              dsiPhyType;
+    NvBool            en_data_scrambling;
+
+    NvU32             dsipll_vco_rate_hz;
+    NvU32             dsipll_clkoutpn_rate_hz;
+    NvU32             dsipll_clkouta_rate_hz;
+    NvU32             vpll0_rate_hz;
 
     DSITIMINGS        dsiTimings;
 
@@ -359,6 +377,11 @@ typedef struct
     NvBool            dsiDscEnDualDsc;
     NvU32             dsiDscDecoderMajorVersion;
     NvU32             dsiDscDecoderMinorVersion;
+    NvBool            dsiDscUseCustomPPS;
+    NvU32             dsiDscCustomPPSData[32];
+
+    // Driver allocates memory for PPS cmd to be sent to Panel
+    NvBool            ppsCmdMemAllocated;
 } DSI_PANEL_INFO;
 
 #endif

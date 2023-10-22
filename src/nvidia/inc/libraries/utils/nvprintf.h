@@ -65,7 +65,7 @@ extern "C" {
 #define NV_PRINTF_LEVEL_ENABLED(level)  ((level) >= NV_PRINTF_LEVEL)
 #endif
 
-#if defined(GSP_PLUGIN_BUILD) || (defined(NVRM) && NVCPU_IS_RISCV64)
+#if defined(GSP_PLUGIN_BUILD) || (defined(NVRM) && NVOS_IS_LIBOS)
 
 /**
  * GSPRM uses a different system for logging.
@@ -146,7 +146,7 @@ void log_rm_log_entry(const NvU64 n_args, const NvU64 * args);
 
 #endif // NVOC
 
-#else // defined(NVRM) && NVCPU_IS_RISCV64
+#else // defined(NVRM) && NVOS_IS_LIBOS
 
 /**
  * @defgroup NV_UTILS_PRINTF Utility Printing Macros
@@ -365,7 +365,7 @@ void NVRM_PRINTF_FUNCTION(const char *file,
 #define NVLOG_PRINTF(...)
 #endif
 
-#endif // defined(NVRM) && NVCPU_IS_RISCV64
+#endif // defined(NVRM) && NVOS_IS_LIBOS
 
 /**
  * @def NV_PRINTF_COND(condition, leveltrue, levelfalse, format, args...)

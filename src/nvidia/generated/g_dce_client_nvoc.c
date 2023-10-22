@@ -82,10 +82,6 @@ static NV_STATUS __nvoc_thunk_OBJDCECLIENTRM_engstateStateUnload(struct OBJGPU *
     return dceclientStateUnload(arg0, (struct OBJDCECLIENTRM *)(((unsigned char *)arg1) - __nvoc_rtti_OBJDCECLIENTRM_OBJENGSTATE.offset), arg2);
 }
 
-static NV_STATUS __nvoc_thunk_OBJENGSTATE_dceclientReconcileTunableState(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, void *pTunableState) {
-    return engstateReconcileTunableState(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_OBJDCECLIENTRM_OBJENGSTATE.offset), pTunableState);
-}
-
 static NV_STATUS __nvoc_thunk_OBJENGSTATE_dceclientStateInitLocked(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate) {
     return engstateStateInitLocked(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_OBJDCECLIENTRM_OBJENGSTATE.offset));
 }
@@ -118,28 +114,8 @@ static NV_STATUS __nvoc_thunk_OBJENGSTATE_dceclientStatePreInitUnlocked(POBJGPU 
     return engstateStatePreInitUnlocked(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_OBJDCECLIENTRM_OBJENGSTATE.offset));
 }
 
-static NV_STATUS __nvoc_thunk_OBJENGSTATE_dceclientGetTunableState(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, void *pTunableState) {
-    return engstateGetTunableState(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_OBJDCECLIENTRM_OBJENGSTATE.offset), pTunableState);
-}
-
-static NV_STATUS __nvoc_thunk_OBJENGSTATE_dceclientCompareTunableState(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, void *pTunables1, void *pTunables2) {
-    return engstateCompareTunableState(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_OBJDCECLIENTRM_OBJENGSTATE.offset), pTunables1, pTunables2);
-}
-
-static void __nvoc_thunk_OBJENGSTATE_dceclientFreeTunableState(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, void *pTunableState) {
-    engstateFreeTunableState(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_OBJDCECLIENTRM_OBJENGSTATE.offset), pTunableState);
-}
-
 static NV_STATUS __nvoc_thunk_OBJENGSTATE_dceclientStatePostLoad(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, NvU32 arg0) {
     return engstateStatePostLoad(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_OBJDCECLIENTRM_OBJENGSTATE.offset), arg0);
-}
-
-static NV_STATUS __nvoc_thunk_OBJENGSTATE_dceclientAllocTunableState(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, void **ppTunableState) {
-    return engstateAllocTunableState(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_OBJDCECLIENTRM_OBJENGSTATE.offset), ppTunableState);
-}
-
-static NV_STATUS __nvoc_thunk_OBJENGSTATE_dceclientSetTunableState(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, void *pTunableState) {
-    return engstateSetTunableState(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_OBJDCECLIENTRM_OBJENGSTATE.offset), pTunableState);
 }
 
 static NvBool __nvoc_thunk_OBJENGSTATE_dceclientIsPresent(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate) {
@@ -154,6 +130,7 @@ const struct NVOC_EXPORT_INFO __nvoc_export_info_OBJDCECLIENTRM =
 
 void __nvoc_dtor_OBJENGSTATE(OBJENGSTATE*);
 void __nvoc_dtor_OBJDCECLIENTRM(OBJDCECLIENTRM *pThis) {
+    __nvoc_dceclientDestruct(pThis);
     __nvoc_dtor_OBJENGSTATE(&pThis->__nvoc_base_OBJENGSTATE);
     PORT_UNREFERENCED_VARIABLE(pThis);
 }
@@ -195,8 +172,6 @@ static void __nvoc_init_funcTable_OBJDCECLIENTRM_1(OBJDCECLIENTRM *pThis) {
 
     pThis->__nvoc_base_OBJENGSTATE.__engstateStateUnload__ = &__nvoc_thunk_OBJDCECLIENTRM_engstateStateUnload;
 
-    pThis->__dceclientReconcileTunableState__ = &__nvoc_thunk_OBJENGSTATE_dceclientReconcileTunableState;
-
     pThis->__dceclientStateInitLocked__ = &__nvoc_thunk_OBJENGSTATE_dceclientStateInitLocked;
 
     pThis->__dceclientStatePreLoad__ = &__nvoc_thunk_OBJENGSTATE_dceclientStatePreLoad;
@@ -213,17 +188,7 @@ static void __nvoc_init_funcTable_OBJDCECLIENTRM_1(OBJDCECLIENTRM *pThis) {
 
     pThis->__dceclientStatePreInitUnlocked__ = &__nvoc_thunk_OBJENGSTATE_dceclientStatePreInitUnlocked;
 
-    pThis->__dceclientGetTunableState__ = &__nvoc_thunk_OBJENGSTATE_dceclientGetTunableState;
-
-    pThis->__dceclientCompareTunableState__ = &__nvoc_thunk_OBJENGSTATE_dceclientCompareTunableState;
-
-    pThis->__dceclientFreeTunableState__ = &__nvoc_thunk_OBJENGSTATE_dceclientFreeTunableState;
-
     pThis->__dceclientStatePostLoad__ = &__nvoc_thunk_OBJENGSTATE_dceclientStatePostLoad;
-
-    pThis->__dceclientAllocTunableState__ = &__nvoc_thunk_OBJENGSTATE_dceclientAllocTunableState;
-
-    pThis->__dceclientSetTunableState__ = &__nvoc_thunk_OBJENGSTATE_dceclientSetTunableState;
 
     pThis->__dceclientIsPresent__ = &__nvoc_thunk_OBJENGSTATE_dceclientIsPresent;
 }
@@ -246,12 +211,15 @@ NV_STATUS __nvoc_objCreate_OBJDCECLIENTRM(OBJDCECLIENTRM **ppThis, Dynamic *pPar
     Object *pParentObj;
     OBJDCECLIENTRM *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(OBJDCECLIENTRM));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(OBJDCECLIENTRM), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
     portMemSet(pThis, 0, sizeof(OBJDCECLIENTRM));
 
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_OBJDCECLIENTRM);
+
+    pThis->__nvoc_base_OBJENGSTATE.__nvoc_base_Object.createFlags = createFlags;
 
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
@@ -268,11 +236,17 @@ NV_STATUS __nvoc_objCreate_OBJDCECLIENTRM(OBJDCECLIENTRM **ppThis, Dynamic *pPar
     if (status != NV_OK) goto __nvoc_objCreate_OBJDCECLIENTRM_cleanup;
 
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_OBJDCECLIENTRM_cleanup:
     // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(OBJDCECLIENTRM));
+    else
+        portMemFree(pThis);
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 

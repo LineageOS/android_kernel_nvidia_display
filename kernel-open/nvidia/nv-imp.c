@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -25,8 +25,6 @@
 
 #include "os-interface.h"
 #include "nv-linux.h"
-
-
 
 #if defined(NV_SOC_TEGRA_TEGRA_BPMP_H_PRESENT) || IS_ENABLED(CONFIG_TEGRA_BPMP)
 #include <soc/tegra/bpmp-abi.h>
@@ -173,6 +171,24 @@ nv_imp_get_bpmp_data
     struct tegra_bpmp *bpmp;
     struct tegra_bpmp_message msg;
     struct mrq_iso_client_request iso_client_request;
+
+    /*
+     * The existing "nvidia,skip-clk-rsts" DT property is currently being used
+     * to skip both clock/reset operations and BPMP MRQ calls. However, there
+     * are cases in which we want to enable clock/reset programming, but still
+     * keep the MRQ calls disabled. As such, an additional "nvidia,skip-bpmp-mrqs"
+     * property is being introduced solely for stubbing any MRQ calls, and
+     * "nvidia,skip-clk-rsts" will be decoupled so that it only applies to
+     * clock/reset operations.
+     *
+     * The "nvidia,skip-clk-rsts" check will be removed here once the relevant
+     * DT changes make their way to chips_a.
+     */
+    if (of_property_read_bool(nvl->dev->of_node, "nvidia,skip-clk-rsts") ||
+        of_property_read_bool(nvl->dev->of_node, "nvidia,skip-bpmp-mrqs"))
+    {
+        return NV_OK;
+    }
 
     bpmp = tegra_bpmp_get(nvl->dev);
     if (IS_ERR(bpmp))
@@ -562,9 +578,14 @@ nv_imp_icc_get
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     NV_STATUS status = NV_OK;
 
-#if defined(NV_ICC_GET_PRESENT)
+#if defined(NV_DEVM_ICC_GET_PRESENT)
+    // Needs to use devm_of_icc_get function as per the latest ICC driver
+    nvl->nv_imp_icc_path =
+           devm_of_icc_get(nvl->dev, "read-1");
+#elif defined(NV_ICC_GET_PRESENT)
     struct device_node *np;
     nvl->nv_imp_icc_path = NULL;
+
     // Check if ICC is present in the device tree, and enabled.
     np = of_find_node_by_path("/icc");
     if (np != NULL)
@@ -577,14 +598,11 @@ nv_imp_icc_get
         }
         of_node_put(np);
     }
-#else
-    nv_printf(NV_DBG_ERRORS, "NVRM: icc_get() not present\n");
-    return NV_ERR_NOT_SUPPORTED;
 #endif
 
     if (nvl->nv_imp_icc_path == NULL)
     {
-        nv_printf(NV_DBG_INFO, "NVRM: icc_get disabled\n");
+        nv_printf(NV_DBG_INFO, "NVRM: Function for getting ICC path not present\n");
         status = NV_ERR_NOT_SUPPORTED;
     }
     else if (IS_ERR(nvl->nv_imp_icc_path))
@@ -613,6 +631,10 @@ nv_imp_icc_put
 {
 #if ICC_SUPPORT_FUNCTIONS_PRESENT
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
+
+    // if devm_of_icc_get API is used for requesting the bandwidth, it does
+    // not require to call put explicitly.
+#if !defined(NV_DEVM_ICC_GET_PRESENT)
 #if defined(NV_ICC_PUT_PRESENT)
     if (nvl->nv_imp_icc_path != NULL)
     {
@@ -620,6 +642,7 @@ nv_imp_icc_put
     }
 #else
     nv_printf(NV_DBG_ERRORS, "icc_put() not present\n");
+#endif
 #endif
     nvl->nv_imp_icc_path = NULL;
 #endif
@@ -698,5 +721,4 @@ nv_imp_icc_set_bw
     return NV_ERR_NOT_SUPPORTED;
 #endif
 }
-
 

@@ -52,7 +52,7 @@ subdeviceCtrlCmdTimerCancel_IMPL
     OBJGPU *pGpu;
     OBJTMR *pTmr;
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner() && rmGpuLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
 
     if (pSubdevice == NULL)
     {
@@ -200,7 +200,7 @@ subdeviceCtrlCmdTimerSchedule_IMPL
     }
     else
     {
-        LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner() && rmGpuLockIsOwner());
+        LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
     }
 
     return timerSchedule(pSubdevice, pParams);
@@ -236,7 +236,7 @@ subdeviceCtrlCmdTimerGetTime_IMPL
     }
     else
     {
-        LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner() && rmGpuLockIsOwner());
+        LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmDeviceGpuLockIsOwner(pGpu->gpuInstance));
     }
 
     tmrGetCurrentTime(pTmr, &pParams->time_nsec);
@@ -260,7 +260,7 @@ subdeviceCtrlCmdTimerGetRegisterOffset_IMPL
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     return gpuGetRegBaseOffset_HAL(pGpu, NV_REG_BASE_TIMER, &pTimerRegOffsetParams->tmr_offset);
 }
@@ -288,13 +288,46 @@ subdeviceCtrlCmdTimerGetGpuCpuTimeCorrelationInfo_IMPL
     NvU8 i;
     NvU32 sec, usec;
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner() && rmGpuLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
 
-    NV_ASSERT_OR_RETURN((pParams->sampleCount <=
-                       NV2080_CTRL_TIMER_GPU_CPU_TIME_MAX_SAMPLES),
-                      NV_ERR_INVALID_ARGUMENT);
+    NV_CHECK_OR_RETURN(LEVEL_SILENT,
+        (pParams->sampleCount <= NV2080_CTRL_TIMER_GPU_CPU_TIME_MAX_SAMPLES),
+        NV_ERR_INVALID_ARGUMENT);
 
-    switch (pParams->cpuClkId)
+    if (RMCFG_FEATURE_PLATFORM_GSP)
+    {
+        NV_ASSERT_OR_RETURN(
+            FLD_TEST_DRF(2080, _TIMER_GPU_CPU_TIME_CPU_CLK_ID, _PROCESSOR, _GSP,
+                         pParams->cpuClkId),
+            NV_ERR_INVALID_ARGUMENT);
+    }
+    else if (FLD_TEST_DRF(2080, _TIMER_GPU_CPU_TIME_CPU_CLK_ID, _PROCESSOR, _GSP,
+                          pParams->cpuClkId))
+    {
+        //
+        // If GSP time is requested, forward the whole request to GSP.
+        // This can only be supported in GSP-RM offload mode.
+        //
+        if (!IS_GSP_CLIENT(pGpu))
+            return NV_ERR_NOT_SUPPORTED;
+
+        RM_API *pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
+
+        return pRmApi->Control(pRmApi,
+                               pGpu->hInternalClient,
+                               pGpu->hInternalSubdevice,
+                               NV2080_CTRL_CMD_TIMER_GET_GPU_CPU_TIME_CORRELATION_INFO,
+                               pParams, sizeof(*pParams));
+    }
+    else
+    {
+        NV_CHECK_OR_RETURN(LEVEL_SILENT,
+            FLD_TEST_DRF(2080, _TIMER_GPU_CPU_TIME_CPU_CLK_ID, _PROCESSOR, _CPU,
+                         pParams->cpuClkId),
+            NV_ERR_INVALID_ARGUMENT);
+    }
+
+    switch (DRF_VAL(2080, _TIMER_GPU_CPU_TIME_CPU_CLK_ID, _SOURCE, pParams->cpuClkId))
     {
         case NV2080_TIMER_GPU_CPU_TIME_CPU_CLK_ID_OSTIME:
         {

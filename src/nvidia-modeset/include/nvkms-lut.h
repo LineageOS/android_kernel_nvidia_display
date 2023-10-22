@@ -30,6 +30,16 @@ extern "C" {
 
 #include "nvkms-types.h"
 
+NvBool nvSetTmoLutSurfacesEvo(NVDevEvoPtr pDevEvo,
+                              NVFlipEvoHwState *pFlipState,
+                              NvU32 head);
+void nvRefTmoLutSurfacesEvo(NVDevEvoPtr pDevEvo,
+                            NVFlipEvoHwState *pFlipState,
+                            NvU32 head);
+void nvUnrefTmoLutSurfacesEvo(NVDevEvoPtr pDevEvo,
+                              NVFlipEvoHwState *pFlipState,
+                              NvU32 head);
+
 NvBool nvAllocLutSurfacesEvo(NVDevEvoPtr pDevEvo);
 
 void nvFreeLutSurfacesEvo(NVDevEvoPtr pDevEvo);
@@ -40,11 +50,11 @@ void nvUploadDataToLutSurfaceEvo(NVLutSurfaceEvoPtr pSurfEvo,
 
 static inline void nvCancelLutUpdateEvo(
     const NVDispEvoRec *pDispEvo,
-    const NvU32 head)
+    const NvU32 apiHead)
 {
     NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
-    nvkms_free_timer(pDevEvo->lut.head[head].disp[pDispEvo->displayOwner].updateTimer);
-    pDevEvo->lut.head[head].disp[pDispEvo->displayOwner].updateTimer = NULL;
+    nvkms_free_timer(pDevEvo->lut.apiHead[apiHead].disp[pDispEvo->displayOwner].updateTimer);
+    pDevEvo->lut.apiHead[apiHead].disp[pDispEvo->displayOwner].updateTimer = NULL;
 }
 
 #ifdef __cplusplus

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -21,7 +21,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-/***************************** HW State Rotuines ***************************\
+/***************************** HW State Routines ***************************\
 *                                                                           *
 *         System Object Function Definitions.                               *
 *                                                                           *
@@ -122,6 +122,7 @@ sysConstruct_IMPL(OBJSYS *pSys)
     return NV_OK;
 
 failed:
+
     _sysDeleteChildObjects(pSys);
 
     g_pSys = NULL;
@@ -137,12 +138,14 @@ failed:
 void
 sysDestruct_IMPL(OBJSYS *pSys)
 {
+
     //
     // Any of these operations might fail but go ahead and
     // attempt to free remaining resources before complaining.
     //
     listDestroy(&g_clientListBehindGpusLock);
     listDestroy(&g_userInfoList);
+    multimapDestroy(&g_osInfoList);
 
     rmapiShutdown();
     osSyncWithRmDestroy();
@@ -170,7 +173,7 @@ _sysCreateChildObjects(OBJSYS *pSys)
     NV_STATUS status = NV_OK;
     NvU32 i, n;
 
-    n = NV_ARRAY_ELEMENTS32(sysChildObjects);
+    n = NV_ARRAY_ELEMENTS(sysChildObjects);
 
     for (i = 0; i < n; i++)
     {
@@ -222,7 +225,7 @@ _sysDeleteChildObjects(OBJSYS *pSys)
 
     osRmCapUnregister(&pSys->pOsRmCaps);
 
-    for (i = NV_ARRAY_ELEMENTS32(sysChildObjects) - 1; i >= 0; i--)
+    for (i = NV_ARRAY_ELEMENTS(sysChildObjects) - 1; i >= 0; i--)
     {
         NvLength offset = sysChildObjects[i].childOffset;
         Dynamic **ppChild = reinterpretCast(reinterpretCast(pSys, NvU8*) + offset, Dynamic**);
@@ -289,6 +292,25 @@ _sysRegistryOverrideResourceServer
     {
         pSys->apiLockModuleMask = RM_LOCK_MODULE_GRP(RM_LOCK_MODULES_CLIENT);
     }
+
+    if (osReadRegistryDword(pGpu, NV_REG_STR_RM_CLIENT_HANDLE_LOOKUP,
+                            &data32) == NV_OK)
+    {
+        pSys->setProperty(pSys, PDB_PROP_SYS_CLIENT_HANDLE_LOOKUP, !!data32);
+    }
+
+    if (osReadRegistryDword(pGpu, NV_REG_STR_RM_CLIENT_LIST_DEFERRED_FREE,
+                            &data32) == NV_OK)
+    {
+        pSys->bUseDeferredClientListFree = !!data32;
+    }
+
+    if (osReadRegistryDword(pGpu, NV_REG_STR_RM_CLIENT_LIST_DEFERRED_FREE_LIMIT,
+                            &data32) == NV_OK)
+    {
+        pSys->clientListDeferredFreeLimit = data32;
+    }
+
 }
 
 static void
@@ -432,7 +454,7 @@ coreShutdownRm(void)
     objDelete(pSys);
 
     //
-    // Deinitalize libraries used by RM
+    // Deinitialize libraries used by RM
     //
     nvAssertDestroy();
 
@@ -627,11 +649,20 @@ sysInitRegistryOverrides_IMPL
     {
         pSys->setProperty(pSys, PDB_PROP_SYS_BUGCHECK_ON_TIMEOUT, NV_TRUE);
     }
+
+    if (osReadRegistryDword(pGpu, NV_REG_STR_RM_ENABLE_ROUTE_TO_PHYSICAL_LOCK_BYPASS,
+                            &data32) == NV_OK)
+    {
+        pSys->setProperty(pSys, PDB_PROP_SYS_ROUTE_TO_PHYSICAL_LOCK_BYPASS, !!data32);
+    }
+
+    gpumgrSetGpuNvlinkBwModeFromRegistry(pGpu);
 }
 
 void
 sysApplyLockingPolicy_IMPL(OBJSYS *pSys)
 {
+    g_resServ.bRouteToPhysicalLockBypass = pSys->getProperty(pSys, PDB_PROP_SYS_ROUTE_TO_PHYSICAL_LOCK_BYPASS);
     g_resServ.roTopLockApiMask = pSys->apiLockMask;
 }
 

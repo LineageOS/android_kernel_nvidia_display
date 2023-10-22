@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -36,6 +36,7 @@
 #include "rmapi/client.h"
 #include "rmapi/resource_fwd_decls.h"
 #include "core/thread_state.h"
+#include "virtualization/hypervisor/hypervisor.h"
 
 NV_STATUS
 gpuSetExternalKernelClientCount_IMPL(OBJGPU *pGpu, NvBool bIncr)
@@ -305,7 +306,18 @@ gpuNotifySubDeviceEvent_IMPL
     for (i = 0; i < pGpu->numSubdeviceBackReferences; i++)
     {
         Subdevice *pSubdevice = pGpu->pSubdeviceBackReferences[i];
+
+        //
+        // We've seen cases where pSubdevice is NULL implying that the
+        // pSubdeviceBackReferences[] array is being modified during this loop.
+        // Adding a NULL pointer check here is only a stopgap. See bug 3892382.
+        //
+        NV_ASSERT_OR_RETURN_VOID(pSubdevice != NULL);
+
         INotifier *pNotifier = staticCast(pSubdevice, INotifier);
+
+        if (inotifyGetNotificationShare(pNotifier) == NULL)
+            continue;
 
         GPU_RES_SET_THREAD_BC_STATE(pSubdevice);
 
@@ -342,6 +354,20 @@ gpuNotifySubDeviceEvent_IMPL
             pSubdevice->notifyActions[localNotifyType] = NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE;
         }
     }
+}
+
+//
+// For a particular gpu, find all the clients waiting for a particular event,
+// fill in the notifier if allocated, and raise an event to the client if registered.
+//
+void
+gpuGspPluginTriggeredEvent_IMPL
+(
+    OBJGPU *pGpu,
+    NvU32   gfid,
+    NvU32   notifyIndex
+)
+{
 }
 
 
@@ -535,7 +561,8 @@ _gpuCollectMemInfo
             (bGlobalInfo || (pMemory->pHeap == pTargetedHeap)) &&
             (RES_GET_HANDLE(pMemory->pDevice) == hDevice) &&
             (pMemory->pMemDesc != NULL) &&
-            ((!bIsGuestProcess && (!memdescGetFlag(pMemory->pMemDesc, MEMDESC_FLAGS_LIST_MEMORY))) ||
+            ((!bIsGuestProcess && (!memdescGetFlag(pMemory->pMemDesc, MEMDESC_FLAGS_LIST_MEMORY))
+             && !(hypervisorIsVgxHyper() && (pResourceRef->externalClassId == NV01_MEMORY_HW_RESOURCES))) ||
              (bIsGuestProcess && (memdescGetFlag(pMemory->pMemDesc, MEMDESC_FLAGS_GUEST_ALLOCATED)) && (pMemory->Type != NVOS32_TYPE_UNUSED))))
         {
 
@@ -599,31 +626,40 @@ gpuFindClientInfoWithPidIterator_IMPL
             ((subPid != 0) && (pClient->ProcID == pid)  && (pClient->SubProcessID == subPid)))
         {
             RS_PRIV_LEVEL privLevel = rmclientGetCachedPrivilege(pClient);
+            RS_ITERATOR it;
+
             hClient = pRsClient->hClient;
 
             // Skip reporting of kernel mode and internal RM clients
             if ((privLevel >= RS_PRIV_LEVEL_KERNEL) && rmclientIsAdmin(pClient, privLevel))
                 continue;
 
-            if (deviceGetByGpu(pRsClient, pGpu, NV_TRUE, &pDevice) != NV_OK)
-                continue;
+            it = clientRefIter(pRsClient, NULL, classId(Device), RS_ITERATE_CHILDREN, NV_TRUE);
 
-            hDevice = RES_GET_HANDLE(pDevice);
-
-            switch (internalClassId)
+            while (clientRefIterNext(pRsClient, &it))
             {
-                case (classId(Memory)):
+                pDevice = dynamicCast(it.pResourceRef->pResource, Device);
+
+                if (GPU_RES_GET_GPU(pDevice) != pGpu)
+                    continue;
+
+                hDevice = RES_GET_HANDLE(pDevice);
+
+                switch (internalClassId)
                 {
-                    // TODO -
-                    // When single process spanning across multiple GI or CI by creating multiple
-                    // clients, RM needs to provide the unique list being used by the client
-                    _gpuCollectMemInfo(hClient, hDevice, pHeap,
-                                       &pData->vidMemUsage, ((subPid != 0) ? NV_TRUE : NV_FALSE),
-                                       bGlobalInfo);
-                    break;
+                    case (classId(Memory)):
+                    {
+                        // TODO -
+                        // When single process spanning across multiple GI or CI by creating multiple
+                        // clients, RM needs to provide the unique list being used by the client
+                        _gpuCollectMemInfo(hClient, hDevice, pHeap,
+                                           &pData->vidMemUsage, ((subPid != 0) ? NV_TRUE : NV_FALSE),
+                                           bGlobalInfo);
+                        break;
+                    }
+                    default:
+                        return NV_ERR_INVALID_ARGUMENT;
                 }
-                default:
-                    return NV_ERR_INVALID_ARGUMENT;
             }
         }
     }

@@ -31,6 +31,9 @@ extern "C" {
 #endif
 
 void nvDpyProbeMaxPixelClock(NVDpyEvoPtr pDpyEvo);
+NVEvoPassiveDpDongleType nvDpyGetPassiveDpDongleType(
+    const NVDpyEvoRec *pDpyEvo,
+    NvU32 *passiveDpDongleMaxPclkKHz);
 void nvDpySetValidSyncsEvo(const NVDpyEvoRec *pDpyEvo,
                            struct NvKmsModeValidationValidSyncs *pValidSyncs);
 NVDpyEvoPtr nvAllocDpyEvo(NVDispEvoPtr pDispEvo,
@@ -39,6 +42,7 @@ NVDpyEvoPtr nvAllocDpyEvo(NVDispEvoPtr pDispEvo,
 void nvFreeDpyEvo(NVDispEvoPtr pDispEvo, NVDpyEvoPtr pDpyEvo);
 NVConnectorEvoPtr nvGetConnectorFromDisp(NVDispEvoPtr pDispEvo, NVDpyId dpyId);
 
+void nvDpyAssignSDRInfoFramePayload(NVT_HDR_INFOFRAME_PAYLOAD *pPayload);
 void nvUpdateInfoFrames(NVDpyEvoRec *pDpyEvo);
 
 NvBool nvDpyRequiresDualLinkEvo(const NVDpyEvoRec *pDpyEvo,
@@ -73,10 +77,14 @@ void nvDpyUpdateCurrentAttributes(NVDpyEvoRec *pDpyEvo);
 
 NvBool nvDpyIsAdaptiveSync(const NVDpyEvoRec *pDpyEvo);
 
-NvBool nvDpyIsAdaptiveSyncDefaultlisted(const NVParsedEdidEvoRec *pParsedEdid);
+NvBool nvDpyIsAdaptiveSyncDefaultlisted(const NVDpyEvoRec *pDpyEvo);
 
 enum NvKmsDpyAttributeDigitalSignalValue
 nvGetDefaultDpyAttributeDigitalSignalValue(const NVConnectorEvoRec *pConnectorEvo);
+
+NVColorFormatInfoRec nvGetColorFormatInfo(const NVDpyEvoRec *pDpyEvo);
+
+NvU32 nvDpyGetPossibleApiHeadsMask(const NVDpyEvoRec *pDpyEvo);
 
 #ifdef __cplusplus
 };

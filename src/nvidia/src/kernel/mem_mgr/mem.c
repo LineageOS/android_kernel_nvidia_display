@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -67,7 +67,7 @@ memConstruct_IMPL
         pMemory->pDevice = dynamicCast(pGrandParentRef->pResource, Device);
 
         if (pMemory->pDevice == NULL)
-                return NV_ERR_INVALID_OBJECT_HANDLE;
+            return NV_ERR_INVALID_OBJECT_HANDLE;
     }
 
     // If child of device, we have a pGpu
@@ -75,6 +75,8 @@ memConstruct_IMPL
     {
         // NOTE: pGpu and pDevice be NULL for NoDeviceMemory
         pMemory->pGpu = CliGetGpuFromContext(pResourceRef, &pMemory->bBcResource);
+
+        NV_ASSERT_OR_RETURN(pMemory->pGpu != NULL, NV_ERR_INVALID_ARGUMENT);
 
         // Set thread BC state
         gpuSetThreadBcState(pMemory->pGpu, pMemory->bBcResource);
@@ -252,7 +254,7 @@ memCreateKernelMapping_IMPL
 {
     NV_STATUS status;
 
-    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory));
+    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory, NV_FALSE));
 
     if (pMemory->KernelVAddr == NvP64_NULL)
     {
@@ -333,6 +335,9 @@ memConstructCommon_IMPL
 {
     OBJGPU            *pGpu           = NULL;
     NV_STATUS          status         = NV_OK;
+    NvHandle           hClient        = RES_GET_CLIENT_HANDLE(pMemory);
+    NvHandle           hParent        = RES_GET_PARENT_HANDLE(pMemory);
+    NvHandle           hMemory        = RES_GET_HANDLE(pMemory);
 
     if (pMemDesc == NULL)
         return NV_ERR_INVALID_ARGUMENT;
@@ -468,13 +473,21 @@ memConstructCommon_IMPL
     if (status != NV_OK)
         goto done;
 
+    // Make GSP-RM aware of the memory descriptor so it can be used there
+    if (FLD_TEST_DRF(OS32, _ATTR2, _REGISTER_MEMDESC_TO_PHYS_RM, _TRUE, attr2))
+    {
+        status = memdescRegisterToGSP(pGpu, hClient, hParent, hMemory);
+        if (status != NV_OK)
+            goto done;
+    }
+
     // Initialize the circular list item for tracking dup/sharing of pMemDesc
     pMemory->dupListItem.pNext = pMemory->dupListItem.pPrev = pMemory;
 
 done:
     if (status != NV_OK)
     {
-        if (pMemory != NULL && pMemory->pHwResource != NULL)
+        if (pMemory->pHwResource != NULL)
         {
             portMemFree(pMemory->pHwResource);
         }
@@ -529,6 +542,14 @@ _memDestructCommonWithDevice
         {
             pDisplayApi->hNotifierMemory = NV01_NULL_OBJECT;
             pDisplayApi->pNotifierMemory = NULL;
+        }
+    }
+
+    if (pMemory->pHwResource)
+    {
+        if (--pMemory->pHwResource->refCount == 0)
+        {
+            portMemFree(pMemory->pHwResource);
         }
     }
 
@@ -640,7 +661,7 @@ memGetByHandle_IMPL
     if (*ppMemory == NULL)
         return NV_ERR_INVALID_OBJECT_HANDLE;
 
-    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(*ppMemory));
+    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(*ppMemory, NV_FALSE));
 
     return NV_OK;
 }
@@ -668,7 +689,8 @@ memGetByHandleAndGroupedGpu_IMPL
 NV_STATUS
 memIsReady_IMPL
 (
-    Memory *pMemory
+    Memory *pMemory,
+    NvBool  bCopyConstructorContext
 )
 {
     if (pMemory->pMemDesc == NULL)
@@ -687,7 +709,7 @@ memControl_IMPL
 {
     RmCtrlParams *pRmCtrlParams = pParams->pLegacyParams;
 
-    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory));
+    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory, NV_FALSE));
 
     if (!pMemory->pGpu)
         return NV_ERR_INVALID_OBJECT_PARENT;
@@ -734,7 +756,7 @@ memCopyConstruct_IMPL
     NV_ASSERT_OR_RETURN(pDstParentRef != NULL, NV_ERR_INVALID_OBJECT_PARENT);
     NV_ASSERT_OR_RETURN(pMemorySrc != NULL, NV_ERR_INVALID_OBJECT_HANDLE);
 
-    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemorySrc));
+    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemorySrc, NV_TRUE));
 
     //
     // Must return early when parent is Client.
@@ -786,7 +808,7 @@ memCopyConstruct_IMPL
     }
 
     NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
-                        memCheckCopyPermissions(pMemorySrc, pDstGpu, pDstClient->hClient), done);
+                        memCheckCopyPermissions(pMemorySrc, pDstGpu, pDstDevice), done);
 
     // Initialize Memory
     pMemoryDst->categoryClassId = pMemorySrc->categoryClassId;
@@ -890,7 +912,7 @@ memGetMemInterMapParams_IMPL
     NvHandle            hMemoryDevice = 0;
     OBJGPU             *pSrcGpu = pGpu;
 
-    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory));
+    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory, NV_FALSE));
 
     if (pMemoryRef->pParentRef != NULL)
     {
@@ -948,7 +970,7 @@ memGetMemoryMappingDescriptor_IMPL
     MEMORY_DESCRIPTOR **ppMemDesc
 )
 {
-    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory));
+    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory, NV_FALSE));
     if (pMemory->pGpu != NULL)
     {
         *ppMemDesc = memdescGetMemDescFromGpu(pMemory->pMemDesc, pMemory->pGpu);
@@ -960,3 +982,29 @@ memGetMemoryMappingDescriptor_IMPL
     return NV_OK;
 }
 
+NV_STATUS
+memIsDuplicate_IMPL
+(
+    Memory   *pMemory,
+    NvHandle  hMemory,
+    NvBool   *pDuplicate
+)
+{
+    RsClient *pClient = RES_GET_CLIENT(pMemory);
+    Memory *pMemory1;
+
+    NV_CHECK_OK_OR_RETURN(LEVEL_SILENT,
+                          memIsReady(pMemory, NV_FALSE));
+
+    NV_CHECK_OK_OR_RETURN(LEVEL_SILENT,
+                          memGetByHandle(pClient, hMemory, &pMemory1));
+
+    //
+    // Do not dereference pMemdesc here. We only take RMAPI RO lock and
+    // client lock in this context.
+    //
+
+    *pDuplicate = (pMemory->pMemDesc == pMemory1->pMemDesc);
+
+    return NV_OK;
+}

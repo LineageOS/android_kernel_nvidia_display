@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2004-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2004-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -28,14 +28,17 @@
 #include "diagnostics/tracer.h"
 #include "core/locks.h"
 #include "core/thread_state.h"
+#include "virtualization/hypervisor/hypervisor.h"
 #include "gpu/device/device.h"
 
 #include "entry_points.h"
 #include "resserv/rs_access_map.h"
 #include "gpu/gpu.h"
 #include "gpu/subdevice/subdevice.h"
+#include "rmapi/rmapi_utils.h"
 
 #include "ctrl/ctrl2080/ctrl2080tmr.h" // NV2080_CTRL_CMD_TIMER_*
+#include "ctrl/ctrl0000/ctrl0000gpuacct.h" // NV0000_CTRL_CMD_GPUACCT_*
 
 static NV_STATUS
 releaseDeferRmCtrlBuffer(RmCtrlDeferredCmd* pRmCtrlDeferredCmd)
@@ -56,7 +59,6 @@ NV_STATUS
 rmControl_Deferred(RmCtrlDeferredCmd* pRmCtrlDeferredCmd)
 {
     RmCtrlParams rmCtrlParams;
-    RmClient *pClient;
     NvU8 paramBuffer[RMCTRL_DEFERRED_MAX_PARAM_SIZE];
     NV_STATUS status;
     RS_LOCK_INFO lockInfo = {0};
@@ -95,7 +97,7 @@ rmControl_Deferred(RmCtrlDeferredCmd* pRmCtrlDeferredCmd)
 
     // client was checked when we came in through rmControl()
     // but check again to make sure it's still good
-    if (serverutilGetClientUnderLock(rmCtrlParams.hClient, &pClient) != NV_OK)
+    if (serverutilGetClientUnderLock(rmCtrlParams.hClient) == NULL)
     {
         status = NV_ERR_INVALID_CLIENT;
         goto exit;
@@ -195,7 +197,7 @@ _rmControlDeferred(RmCtrlParams *pRmCtrlParams, NvP64 pUserParams, NvU32 paramsS
                         // flag is set and after this rmctrl failed to acquire lock.
 
                         // LOCK: try to acquire GPUs lock
-                        if (rmGpuLocksAcquire(GPUS_LOCK_FLAGS_COND_ACQUIRE,
+                        if (rmGpuLocksAcquire(GPU_LOCK_FLAGS_COND_ACQUIRE,
                                               RM_LOCK_MODULES_CLIENT) == NV_OK)
                         {
                             if (osCondAcquireRmSema(pSys->pSema) == NV_OK)
@@ -247,7 +249,13 @@ serverControlApiCopyIn
     pUserParams = NV_PTR_TO_NvP64(pRmCtrlParams->pParams);
     paramsSize = pRmCtrlParams->paramsSize;
 
-    RMAPI_PARAM_COPY_INIT(*pParamCopy, pRmCtrlParams->pParams, pUserParams, paramsSize, 1);
+    RMAPI_PARAM_COPY_INIT(*pParamCopy, pRmCtrlParams->pParams, pUserParams, 1, paramsSize);
+
+    if (pCookie->apiCopyFlags & RMCTRL_API_COPY_FLAGS_SKIP_COPYIN_ZERO_BUFFER)
+    {
+        pParamCopy->flags |= RMAPI_PARAM_COPY_FLAGS_SKIP_COPYIN;
+        pParamCopy->flags |= RMAPI_PARAM_COPY_FLAGS_ZERO_BUFFER;
+    }
 
     rmStatus = rmapiParamsAcquire(pParamCopy, (pRmCtrlParams->secInfo.paramLocation == PARAM_LOCATION_USER));
     if (rmStatus != NV_OK)
@@ -279,6 +287,16 @@ serverControlApiCopyOut
     NvBool     bFreeParamCopy;
 
     NV_ASSERT_OR_RETURN(pCookie != NULL, NV_ERR_INVALID_ARGUMENT);
+    NV_ASSERT_OR_RETURN(pRmCtrlParams != NULL, NV_ERR_INVALID_ARGUMENT);
+
+    if ((pCookie->apiCopyFlags & RMCTRL_API_COPY_FLAGS_SET_CONTROL_CACHE) && rmStatus == NV_OK)
+    {
+        rmapiControlCacheSet(pRmCtrlParams->hClient,
+                             pRmCtrlParams->hObject,
+                             pRmCtrlParams->cmd,
+                             pRmCtrlParams->pParams,
+                             pRmCtrlParams->paramsSize);
+    }
 
     pParamCopy = &pCookie->paramCopy;
     pEmbeddedParamCopies = pCookie->embeddedParamCopies;
@@ -286,7 +304,9 @@ serverControlApiCopyOut
     bFreeParamCopy = pCookie->bFreeParamCopy;
     bFreeEmbeddedCopy = pCookie->bFreeEmbeddedCopy;
 
-    if ((rmStatus != NV_OK) && !(pCookie->ctrlFlags & RMCTRL_FLAGS_COPYOUT_ON_ERROR))
+    if ((rmStatus != NV_OK) &&
+        (!(pCookie->ctrlFlags & RMCTRL_FLAGS_COPYOUT_ON_ERROR) ||
+        (pCookie->apiCopyFlags & RMCTRL_API_COPY_FLAGS_FORCE_SKIP_COPYOUT_ON_ERROR)))
     {
         pParamCopy->flags |= RMAPI_PARAM_COPY_FLAGS_SKIP_COPYOUT;
 
@@ -333,7 +353,6 @@ static NV_STATUS
 _rmapiRmControl(NvHandle hClient, NvHandle hObject, NvU32 cmd, NvP64 pUserParams, NvU32 paramsSize, NvU32 flags, RM_API *pRmApi, API_SECURITY_INFO *pSecInfo)
 {
     OBJSYS    *pSys = SYS_GET_INSTANCE();
-    RmClient *pClient;
     RmCtrlParams rmCtrlParams;
     RS_CONTROL_COOKIE rmCtrlExecuteCookie = {0};
     NvBool bIsRaisedIrqlCmd;
@@ -341,6 +360,9 @@ _rmapiRmControl(NvHandle hClient, NvHandle hObject, NvU32 cmd, NvP64 pUserParams
     NvBool bInternalRequest;
     NV_STATUS  rmStatus = NV_OK;
     RS_LOCK_INFO        lockInfo = {0};
+    NvU32 ctrlFlags = 0;
+    NvU32 ctrlAccessRight = 0;
+    NV_STATUS getCtrlInfoStatus;
 
     RMTRACE_RMAPI(_RMCTRL_ENTRY, cmd);
 
@@ -409,7 +431,7 @@ _rmapiRmControl(NvHandle hClient, NvHandle hObject, NvU32 cmd, NvP64 pUserParams
     }
 
     // Potential race condition if run lockless?
-    if (serverutilGetClientUnderLock(hClient, &pClient) != NV_OK)
+    if (serverutilGetClientUnderLock(hClient) == NULL)
     {
         rmStatus = NV_ERR_INVALID_CLIENT;
         goto done;
@@ -459,6 +481,18 @@ _rmapiRmControl(NvHandle hClient, NvHandle hObject, NvU32 cmd, NvP64 pUserParams
         lockInfo.flags |= RM_LOCK_FLAGS_NO_API_LOCK;
     }
 
+    getCtrlInfoStatus = rmapiutilGetControlInfo(cmd, &ctrlFlags, &ctrlAccessRight);
+    if (getCtrlInfoStatus == NV_OK)
+    {
+        //
+        // The output of CACHEABLE RMCTRL do not depend on the input.
+        // Skip param copy and clear the buffer in case the uninitialized
+        // buffer leaks information to clients.
+        //
+        if (ctrlFlags & RMCTRL_FLAGS_CACHEABLE)
+            rmCtrlParams.pCookie->apiCopyFlags |= RMCTRL_API_COPY_FLAGS_SKIP_COPYIN_ZERO_BUFFER;
+    }
+
     //
     // Three separate rmctrl command modes:
     //
@@ -489,7 +523,7 @@ _rmapiRmControl(NvHandle hClient, NvHandle hObject, NvU32 cmd, NvP64 pUserParams
         // LOCK: try to acquire GPUs lock
         if (osCondAcquireRmSema(pSys->pSema) == NV_OK)
         {
-            if (rmGpuLocksAcquire(GPUS_LOCK_FLAGS_COND_ACQUIRE, RM_LOCK_MODULES_CLIENT) == NV_OK)
+            if (rmGpuLocksAcquire(GPU_LOCK_FLAGS_COND_ACQUIRE, RM_LOCK_MODULES_CLIENT) == NV_OK)
             {
                 lockInfo.state |= RM_LOCK_STATES_GPUS_LOCK_ACQUIRED;
                 lockInfo.flags |= RM_LOCK_FLAGS_NO_API_LOCK |
@@ -498,7 +532,7 @@ _rmapiRmControl(NvHandle hClient, NvHandle hObject, NvU32 cmd, NvP64 pUserParams
                 rmStatus = serverControl(&g_resServ, &rmCtrlParams);
 
                 // UNLOCK: release GPUs lock
-                rmGpuLocksRelease(GPUS_LOCK_FLAGS_COND_ACQUIRE, osIsISR() ? rmCtrlParams.pGpu : NULL);
+                rmGpuLocksRelease(GPU_LOCK_FLAGS_COND_ACQUIRE, osIsISR() ? rmCtrlParams.pGpu : NULL);
             }
             else
             {
@@ -519,19 +553,106 @@ _rmapiRmControl(NvHandle hClient, NvHandle hObject, NvU32 cmd, NvP64 pUserParams
         // Normal rmctrl request.
         //
 
+        if (getCtrlInfoStatus == NV_OK)
+        {
+            if (rmapiControlIsCacheable(ctrlFlags, ctrlAccessRight, NV_FALSE))
+            {
+                rmCtrlParams.pCookie->apiCopyFlags |= RMCTRL_API_COPY_FLAGS_FORCE_SKIP_COPYOUT_ON_ERROR;
+
+                serverControlApiCopyIn(&g_resServ, &rmCtrlParams, rmCtrlParams.pCookie);
+                rmStatus = rmapiControlCacheGet(hClient, hObject, cmd, rmCtrlParams.pParams, paramsSize);
+                serverControlApiCopyOut(&g_resServ, &rmCtrlParams, rmCtrlParams.pCookie, rmStatus);
+
+                if (rmStatus == NV_OK)
+                {
+                    goto done;
+                }
+                else
+                {
+                    // reset cookie if cache get failed
+                    portMemSet(rmCtrlParams.pCookie, 0, sizeof(RS_CONTROL_COOKIE));
+                    rmCtrlParams.pCookie->apiCopyFlags |= RMCTRL_API_COPY_FLAGS_SET_CONTROL_CACHE;
+
+                    // re-initialize the flag if it's cleaned
+                    if (ctrlFlags & RMCTRL_FLAGS_CACHEABLE)
+                        rmCtrlParams.pCookie->apiCopyFlags |= RMCTRL_API_COPY_FLAGS_SKIP_COPYIN_ZERO_BUFFER;
+                }
+            }
+        }
+
         RM_API_CONTEXT rmApiContext = {0};
         rmStatus = rmapiPrologue(pRmApi, &rmApiContext);
         if (rmStatus != NV_OK)
-            goto done;
+            goto epilogue;
+
+        //
+        // If this is an internal request within the same RM instance, make
+        // sure we don't double lock clients and preserve previous lock state.
+        //
+        if (bInternalRequest && resservGetTlsCallContext() != NULL)
+        {
+            rmStatus = rmapiInitLockInfo(pRmApi, hClient, NV01_NULL_OBJECT, &lockInfo);
+            if (rmStatus != NV_OK)
+                goto epilogue;
+
+            //
+            // rmapiInitLockInfo overwrites lockInfo.flags, re-add
+            // RM_LOCK_FLAGS_NO_API_LOCK if it was originally added.
+            //
+            if (pRmApi->bApiLockInternal)
+                lockInfo.flags |= RM_LOCK_FLAGS_NO_API_LOCK;
+        }
 
         lockInfo.flags |= RM_LOCK_FLAGS_RM_SEMA;
         rmStatus = serverControl(&g_resServ, &rmCtrlParams);
+epilogue:
         rmapiEpilogue(pRmApi, &rmApiContext);
     }
 done:
 
     RMTRACE_RMAPI(_RMCTRL_EXIT, cmd);
     return rmStatus;
+}
+
+static NvBool
+serverControl_ValidateVgpu
+(
+    OBJGPU *pGpu,
+    NvU32 cmd,
+    RS_PRIV_LEVEL privLevel,
+    const NvU32 cookieFlags
+)
+{
+    NvBool bPermissionGranted = NV_FALSE;
+
+    // Check if context is already sufficiently admin privileged
+    if (cookieFlags & RMCTRL_FLAGS_PRIVILEGED)
+    {
+        if (privLevel >= RS_PRIV_LEVEL_USER_ROOT)
+        {
+            bPermissionGranted = NV_TRUE;
+        }
+    }
+
+    //
+    // If context is not privileged enough, check whether this
+    // control call is allowed in current hypervisor environment
+    //
+    if (!bPermissionGranted)
+    {
+        {
+            // For non-NV0000, identify current hypervisor environment and check for allow flag
+            if
+            (
+                (IS_SRIOV_WITH_VGPU_GSP_ENABLED(pGpu) && (cookieFlags & RMCTRL_FLAGS_CPU_PLUGIN_FOR_VGPU_GSP))
+            )
+            {
+                bPermissionGranted = NV_TRUE;
+            }
+        }
+    }
+
+    return bPermissionGranted;
 }
 
 // validate rmctrl flags
@@ -541,7 +662,25 @@ NV_STATUS serverControl_ValidateCookie
     RS_CONTROL_COOKIE *pRmCtrlExecuteCookie
 )
 {
-    NV_STATUS           status;
+    NV_STATUS status;
+    OBJGPU *pGpu;
+    CALL_CONTEXT *pCallContext = resservGetTlsCallContext();
+
+    if (pCallContext == NULL)
+    {
+        NV_PRINTF(LEVEL_ERROR, "Calling context is NULL!\n");
+        return NV_ERR_INVALID_PARAMETER;
+    }
+
+    if (RMCFG_FEATURE_PLATFORM_GSP)
+    {
+        pGpu = gpumgrGetSomeGpu();
+        if (pGpu == NULL)
+        {
+            NV_PRINTF(LEVEL_ERROR, "GPU is not found\n");
+            return NV_ERR_INVALID_STATE;
+        }
+    }
 
     if (g_resServ.bRsAccessEnabled)
     {
@@ -584,34 +723,68 @@ NV_STATUS serverControl_ValidateCookie
             return NV_ERR_NOT_SUPPORTED;
     }
 
-    if (pRmCtrlExecuteCookie->ctrlFlags & RMCTRL_FLAGS_PRIVILEGED)
+    //
+    // Narrow down usecase as much as possible to CPU-plugin.
+    // Must be running in hypervisor, at least cached privileged, not a kernel context and
+    // accessing a privileged or kernel privileged control call.
+    //
+    if (hypervisorIsVgxHyper() &&
+        clientIsAdmin(pCallContext->pClient, clientGetCachedPrivilege(pCallContext->pClient)) &&
+        (pRmCtrlParams->secInfo.privLevel != RS_PRIV_LEVEL_KERNEL) &&
+        !(pRmCtrlExecuteCookie->ctrlFlags & RMCTRL_FLAGS_NON_PRIVILEGED))
     {
-        //
-        // Calls originating from usermode require admin perms while calls
-        // originating from other kernel drivers are always allowed.
-        //
-        if ((pRmCtrlParams->secInfo.privLevel < RS_PRIV_LEVEL_USER_ROOT)
-           )
+        // VGPU CPU-Plugin (Legacy Non-SRIOV, SRIOV-HYPERV, SRIOV-LEGACY, SRIOV-Offload), and Admin or kernel clients running in hypervisor
+        NvBool bPermissionGranted = serverControl_ValidateVgpu(pRmCtrlParams->pGpu,
+                                                               pRmCtrlParams->cmd,
+                                                               pRmCtrlParams->secInfo.privLevel,
+                                                               pRmCtrlExecuteCookie->ctrlFlags);
+        if (!bPermissionGranted)
         {
             NV_PRINTF(LEVEL_WARNING,
-                      "hClient: 0x%08x, hObject 0x%08x, cmd 0x%08x: non-privileged context issued privileged cmd\n",
+                      "hClient: 0x%08x, hObject 0x%08x, cmd 0x%08x: non-privileged hypervisor context issued privileged cmd\n",
                       pRmCtrlParams->hClient, pRmCtrlParams->hObject,
                       pRmCtrlParams->cmd);
             return NV_ERR_INSUFFICIENT_PERMISSIONS;
         }
     }
-
-    // permissions check for KERNEL_PRIVILEGED (default) unless NON_PRIVILEGED, PRIVILEGED or INTERNAL is specified
-    if ( !(pRmCtrlExecuteCookie->ctrlFlags & (RMCTRL_FLAGS_NON_PRIVILEGED | RMCTRL_FLAGS_PRIVILEGED | RMCTRL_FLAGS_INTERNAL)))
+    else
     {
-        if ((pRmCtrlParams->secInfo.privLevel < RS_PRIV_LEVEL_KERNEL)
-           )
+        //
+        // Non-Hypervisor clients
+        // PF clients
+        // Unprivileged processes running in Hypervisor
+        // Privileged processes running in Hypervisor, executing an unprivileged control call.
+        // Kernel privileged processes running in Hypervisor
+        //
+
+        // permissions check for PRIVILEGED controls
+        if (pRmCtrlExecuteCookie->ctrlFlags & RMCTRL_FLAGS_PRIVILEGED)
         {
-            NV_PRINTF(LEVEL_WARNING,
-                      "hClient: 0x%08x, hObject 0x%08x, cmd 0x%08x: non-kernel client issued kernel-only cmd\n",
-                      pRmCtrlParams->hClient, pRmCtrlParams->hObject,
-                      pRmCtrlParams->cmd);
-            return NV_ERR_INSUFFICIENT_PERMISSIONS;
+            //
+            // Calls originating from usermode require admin perms while calls
+            // originating from other kernel drivers are always allowed.
+            //
+            if (pRmCtrlParams->secInfo.privLevel < RS_PRIV_LEVEL_USER_ROOT)
+            {
+                NV_PRINTF(LEVEL_WARNING,
+                          "hClient: 0x%08x, hObject 0x%08x, cmd 0x%08x: non-privileged context issued privileged cmd\n",
+                          pRmCtrlParams->hClient, pRmCtrlParams->hObject,
+                          pRmCtrlParams->cmd);
+                return NV_ERR_INSUFFICIENT_PERMISSIONS;
+            }
+        }
+
+        // permissions check for KERNEL_PRIVILEGED (default) unless NON_PRIVILEGED, PRIVILEGED or INTERNAL is specified
+        if (!(pRmCtrlExecuteCookie->ctrlFlags & (RMCTRL_FLAGS_NON_PRIVILEGED | RMCTRL_FLAGS_PRIVILEGED | RMCTRL_FLAGS_INTERNAL)))
+        {
+            if (pRmCtrlParams->secInfo.privLevel < RS_PRIV_LEVEL_KERNEL)
+            {
+                NV_PRINTF(LEVEL_WARNING,
+                          "hClient: 0x%08x, hObject 0x%08x, cmd 0x%08x: non-kernel client issued kernel-only cmd\n",
+                          pRmCtrlParams->hClient, pRmCtrlParams->hObject,
+                          pRmCtrlParams->cmd);
+                return NV_ERR_INSUFFICIENT_PERMISSIONS;
+            }
         }
     }
 
@@ -644,6 +817,36 @@ serverControlLookupLockFlags
     LOCK_ACCESS_TYPE *pAccess
 )
 {
+    //
+    // Calls with LOCK_TOP doesn't fill in the cookie param correctly.
+    // This is just a WAR for this.
+    //
+    NvU32 controlFlags = pRmCtrlExecuteCookie->ctrlFlags;
+    if (controlFlags == 0 && !RMCFG_FEATURE_PLATFORM_GSP)
+    {
+        NV_STATUS status = rmapiutilGetControlInfo(pRmCtrlParams->cmd, &controlFlags, NULL);
+        if (status != NV_OK)
+        {
+            NV_PRINTF(LEVEL_INFO,
+                      "rmapiutilGetControlInfo(cmd=0x%x, out flags=0x%x, NULL) = status=0x%x\n",
+                      pRmCtrlParams->cmd, controlFlags, status);
+        }
+    }
+
+    NvBool areAllGpusInOffloadMode = gpumgrAreAllGpusInOffloadMode();
+
+    //
+    // If the control is ROUTE_TO_PHYSICAL, and we're in GSP offload mode,
+    // we can use a more relaxed locking mode:
+    //    1. Only lock the single device and not all GPUs
+    //    2. Take the API lock for READ instead of WRITE.
+    // Unfortunately, at this point we don't have the pGpu yet to check if it
+    // is in offload mode or not. So, instead, these optimizations are only
+    // done if *all* GPUs in the system are in offload mode.
+    //
+    NvBool bUseGspLockingMode = areAllGpusInOffloadMode &&
+                                (controlFlags & RMCTRL_FLAGS_ROUTE_TO_PHYSICAL);
+
     if (pAccess == NULL)
         return NV_ERR_INVALID_ARGUMENT;
 
@@ -657,8 +860,19 @@ serverControlLookupLockFlags
             return NV_OK;
         }
 
-        if (pRmCtrlExecuteCookie->ctrlFlags & RMCTRL_FLAGS_API_LOCK_READONLY)
+        if (controlFlags & RMCTRL_FLAGS_API_LOCK_READONLY)
+        {
             *pAccess = LOCK_ACCESS_READ;
+        }
+
+        //
+        // ROUTE_TO_PHYSICAL controls always take the READ API lock. This only applies
+        // to GSP clients: Only there can we guarantee per-gpu execution of commands.
+        //
+        if (g_resServ.bRouteToPhysicalLockBypass && bUseGspLockingMode)
+        {
+            *pAccess = LOCK_ACCESS_READ;
+        }
 
         return NV_OK;
     }
@@ -673,7 +887,7 @@ serverControlLookupLockFlags
         // we already own the GPUs Lock.
         //
         if  ((pLockInfo->state & RM_LOCK_STATES_GPUS_LOCK_ACQUIRED) ||
-             (pRmCtrlExecuteCookie->ctrlFlags & RMCTRL_FLAGS_NO_GPUS_LOCK) ||
+             (controlFlags & RMCTRL_FLAGS_NO_GPUS_LOCK) ||
              (pRmCtrlParams->flags & NVOS54_FLAGS_IRQL_RAISED) ||
              (pRmCtrlParams->flags & NVOS54_FLAGS_LOCK_BYPASS))
         {
@@ -682,7 +896,8 @@ serverControlLookupLockFlags
         }
         else
         {
-            if (pRmCtrlExecuteCookie->ctrlFlags & RMCTRL_FLAGS_GPU_LOCK_DEVICE_ONLY)
+            if ((controlFlags & RMCTRL_FLAGS_GPU_LOCK_DEVICE_ONLY) ||
+                (g_resServ.bRouteToPhysicalLockBypass && bUseGspLockingMode))
             {
                 pLockInfo->flags |= RM_LOCK_FLAGS_NO_GPUS_LOCK;
                 pLockInfo->flags |= RM_LOCK_FLAGS_GPU_GROUP_LOCK;
@@ -693,7 +908,7 @@ serverControlLookupLockFlags
                 pLockInfo->flags &= ~RM_LOCK_FLAGS_GPU_GROUP_LOCK;
             }
 
-            if (pRmCtrlExecuteCookie->ctrlFlags & RMCTRL_FLAGS_GPU_LOCK_READONLY)
+            if (controlFlags & RMCTRL_FLAGS_GPU_LOCK_READONLY)
                 *pAccess = LOCK_ACCESS_READ;
         }
 

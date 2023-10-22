@@ -29,12 +29,12 @@
 irqreturn_t     nvidia_isr              (int, void *);
 irqreturn_t     nvidia_isr_kthread_bh   (int, void *);
 
-
 int       nv_platform_register_driver(void);
 void      nv_platform_unregister_driver(void);
 int       nv_platform_count_devices(void);
 int       nv_soc_register_irqs(nv_state_t *nv);
 void      nv_soc_free_irqs(nv_state_t *nv);
 
+int nv_remove_conflicting_framebuffers(void);
 
 #endif

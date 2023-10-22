@@ -124,12 +124,15 @@ NV_STATUS __nvoc_objCreate_UserInfo(UserInfo **ppThis, Dynamic *pParent, NvU32 c
     Object *pParentObj;
     UserInfo *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(UserInfo));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(UserInfo), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
     portMemSet(pThis, 0, sizeof(UserInfo));
 
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_UserInfo);
+
+    pThis->__nvoc_base_RsShared.__nvoc_base_Object.createFlags = createFlags;
 
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
@@ -146,11 +149,17 @@ NV_STATUS __nvoc_objCreate_UserInfo(UserInfo **ppThis, Dynamic *pParent, NvU32 c
     if (status != NV_OK) goto __nvoc_objCreate_UserInfo_cleanup;
 
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_UserInfo_cleanup:
     // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(UserInfo));
+    else
+        portMemFree(pThis);
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 
@@ -241,6 +250,14 @@ static NV_STATUS __nvoc_thunk_RmClient_clientPostProcessPendingFreeList(struct R
     return rmclientPostProcessPendingFreeList((struct RmClient *)(((unsigned char *)pClient) - __nvoc_rtti_RmClient_RsClient.offset), ppFirstLowPriRef);
 }
 
+static RS_PRIV_LEVEL __nvoc_thunk_RmClient_clientGetCachedPrivilege(struct RsClient *pClient) {
+    return rmclientGetCachedPrivilege((struct RmClient *)(((unsigned char *)pClient) - __nvoc_rtti_RmClient_RsClient.offset));
+}
+
+static NvBool __nvoc_thunk_RmClient_clientIsAdmin(struct RsClient *pClient, RS_PRIV_LEVEL privLevel) {
+    return rmclientIsAdmin((struct RmClient *)(((unsigned char *)pClient) - __nvoc_rtti_RmClient_RsClient.offset), privLevel);
+}
+
 static NV_STATUS __nvoc_thunk_RsClient_rmclientDestructResourceRef(struct RmClient *pClient, RsServer *pServer, struct RsResourceRef *pResourceRef) {
     return clientDestructResourceRef((struct RsClient *)(((unsigned char *)pClient) + __nvoc_rtti_RmClient_RsClient.offset), pServer, pResourceRef);
 }
@@ -306,6 +323,10 @@ static void __nvoc_init_funcTable_RmClient_1(RmClient *pThis) {
 
     pThis->__rmclientPostProcessPendingFreeList__ = &rmclientPostProcessPendingFreeList_IMPL;
 
+    pThis->__rmclientGetCachedPrivilege__ = &rmclientGetCachedPrivilege_IMPL;
+
+    pThis->__rmclientIsAdmin__ = &rmclientIsAdmin_IMPL;
+
     pThis->__nvoc_base_RsClient.__clientValidate__ = &__nvoc_thunk_RmClient_clientValidate;
 
     pThis->__nvoc_base_RsClient.__clientFreeResource__ = &__nvoc_thunk_RmClient_clientFreeResource;
@@ -315,6 +336,10 @@ static void __nvoc_init_funcTable_RmClient_1(RmClient *pThis) {
     pThis->__nvoc_base_RsClient.__clientInterUnmap__ = &__nvoc_thunk_RmClient_clientInterUnmap;
 
     pThis->__nvoc_base_RsClient.__clientPostProcessPendingFreeList__ = &__nvoc_thunk_RmClient_clientPostProcessPendingFreeList;
+
+    pThis->__nvoc_base_RsClient.__clientGetCachedPrivilege__ = &__nvoc_thunk_RmClient_clientGetCachedPrivilege;
+
+    pThis->__nvoc_base_RsClient.__clientIsAdmin__ = &__nvoc_thunk_RmClient_clientIsAdmin;
 
     pThis->__rmclientDestructResourceRef__ = &__nvoc_thunk_RsClient_rmclientDestructResourceRef;
 
@@ -343,12 +368,15 @@ NV_STATUS __nvoc_objCreate_RmClient(RmClient **ppThis, Dynamic *pParent, NvU32 c
     Object *pParentObj;
     RmClient *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(RmClient));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(RmClient), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
     portMemSet(pThis, 0, sizeof(RmClient));
 
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_RmClient);
+
+    pThis->__nvoc_base_RsClient.__nvoc_base_Object.createFlags = createFlags;
 
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
@@ -365,11 +393,17 @@ NV_STATUS __nvoc_objCreate_RmClient(RmClient **ppThis, Dynamic *pParent, NvU32 c
     if (status != NV_OK) goto __nvoc_objCreate_RmClient_cleanup;
 
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_RmClient_cleanup:
     // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(RmClient));
+    else
+        portMemFree(pThis);
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 

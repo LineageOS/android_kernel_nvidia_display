@@ -30,137 +30,61 @@
 
 int bl_name_len;
 
-static DSI_CMD *dsi_parse_command
+static u32 *dsi_read_prop_array
 (
-    const struct device_node *node,
+    const struct device_node *np,
     struct property *prop,
-    u32 n_cmd
+    u32 *array_size
 )
 {
-    DSI_CMD *dsi_cmd = NULL;
-    DSI_CMD *temp;
-    __be32 *prop_val_ptr;
-    u32 count = 0, i = 0;
-    u8 arg1 = 0, arg2 = 0, arg3 = 0;
-    bool long_pkt = false;
-
-    if (n_cmd == 0)
-        return NULL;
+    u32 *val_array = NULL;
+    u32 count = 0;
+    u32 i = 0;
+    int ret = 0;
 
     if (!prop)
         return NULL;
 
-    prop_val_ptr = prop->value;
+#if defined(NV_OF_PROPERTY_COUNT_ELEMS_OF_SIZE_PRESENT)
+    count = of_property_count_elems_of_size(np, prop->name, sizeof(u32));
+#else
+    nv_printf(NV_DBG_ERRORS, "NVRM: dsi_read_prop_array, of_property_count_elems_of_size not present\n");
+    return ERR_PTR(-ENOSYS);
+#endif
 
-    NV_KMALLOC(dsi_cmd, sizeof(DSI_CMD) * n_cmd);
-    if (dsi_cmd == NULL) {
-        nv_printf(NV_DBG_ERRORS, "NVRM: DSI cmd memory allocation failed\n");
-        return ERR_PTR(-ENOMEM);
-    }
-
-    temp = dsi_cmd;
-
-    for (count  = 0; count < n_cmd; count++, temp++) {
-        temp->cmd_type = be32_to_cpu(*prop_val_ptr++);
-        temp->pdata = NULL;
-        if ((temp->cmd_type == DSI_PACKET_CMD) ||
-            (temp->cmd_type == DSI_PACKET_VIDEO_VBLANK_CMD)) {
-            temp->data_id = be32_to_cpu(*prop_val_ptr++);
-            arg1 = be32_to_cpu(*prop_val_ptr++);
-            arg2 = be32_to_cpu(*prop_val_ptr++);
-            prop_val_ptr++; /* skip ecc */
-            long_pkt = (temp->data_id == DSI_GENERIC_LONG_WRITE ||
-                temp->data_id == DSI_DCS_LONG_WRITE ||
-                temp->data_id == DSI_NULL_PKT_NO_DATA ||
-                temp->data_id == DSI_BLANKING_PKT_NO_DATA) ?
-                true : false;
-            if (!long_pkt && (temp->cmd_type == DSI_PACKET_VIDEO_VBLANK_CMD))
-                arg3 = be32_to_cpu(*prop_val_ptr++);
-            if (long_pkt) {
-                temp->sp_len_dly.data_len = (arg2 << BITS_PER_BYTE) | arg1;
-                NV_KMALLOC(temp->pdata, temp->sp_len_dly.data_len);
-                for (i = 0; i < temp->sp_len_dly.data_len; i++)
-                    (temp->pdata)[i] = be32_to_cpu(*prop_val_ptr++);
-                prop_val_ptr += 2; /* skip checksum */
-            } else {
-                temp->sp_len_dly.sp.data0 = arg1;
-                temp->sp_len_dly.sp.data1 = arg2;
-                if (temp->cmd_type == DSI_PACKET_VIDEO_VBLANK_CMD)
-                    temp->club_cmd = (bool)arg3;
-            }
-        } else if (temp->cmd_type == DSI_DELAY_MS) {
-            temp->sp_len_dly.delay_ms = be32_to_cpu(*prop_val_ptr++);
-        } else if (temp->cmd_type == DSI_DELAY_US) {
-            temp->sp_len_dly.delay_us = be32_to_cpu(*prop_val_ptr++);
-        } else if (temp->cmd_type == DSI_SEND_FRAME) {
-            temp->sp_len_dly.frame_cnt = be32_to_cpu(*prop_val_ptr++);
-        } else if (temp->cmd_type == DSI_GPIO_SET) {
-            temp->sp_len_dly.gpio = be32_to_cpu(*prop_val_ptr++);
-            temp->data_id = be32_to_cpu(*prop_val_ptr++);
+    if (count > 0)
+    {
+        NV_KMALLOC(val_array, sizeof(u32) * count);
+        if (val_array == NULL)
+        {
+            nv_printf(NV_DBG_ERRORS, "NVRM: dsi_read_prop_array, failed to allocate memory for values of DSI property %s", prop->name);
+            return ERR_PTR(-ENOMEM);
         }
     }
-
-    return dsi_cmd;
-}
-
-static const u32 *dsi_parse_pkt_seq
-(
-    struct device_node *node,
-    struct property    *prop
-)
-{
-    __be32 *prop_val_ptr;
-    u32 *pkt_seq;
-    int line, i;
-
-#define LINE_STOP 0xff
-
-    if (!prop)
-        return NULL;
-
-    NV_KMALLOC(pkt_seq, (sizeof(u32) * NUMOF_PKT_SEQ));
-    if (pkt_seq == NULL) {
-        nv_printf(NV_DBG_ERRORS, "NVRM: Memory allocation for DSI pkt sequence failed\n");
-        return ERR_PTR(-ENOMEM);
+    else
+    {
+        nv_printf(NV_DBG_ERRORS, "NVRM: dsi_read_prop_array, failed to get elements count in property %s\n", prop->name);
+        return ERR_PTR(-ENOSYS);
     }
 
-    prop_val_ptr = prop->value;
-
-    for (line = 0; line < NUMOF_PKT_SEQ; line += 2) {
-        /* compute line value from dt line */
-        for (i = 0;; i += 2) {
-            u32 cmd = be32_to_cpu(*prop_val_ptr++);
-            if (cmd == LINE_STOP)
-                break;
-            else if (cmd == PKT_LP)
-                pkt_seq[line] |= PKT_LP;
-            else {
-                u32 len = be32_to_cpu(*prop_val_ptr++);
-                if (i == 0) /* PKT_ID0 */
-                    pkt_seq[line] |=
-                        PKT_ID0(cmd) | PKT_LEN0(len);
-                if (i == 2) /* PKT_ID1 */
-                    pkt_seq[line] |=
-                        PKT_ID1(cmd) | PKT_LEN1(len);
-                if (i == 4) /* PKT_ID2 */
-                    pkt_seq[line] |=
-                        PKT_ID2(cmd) | PKT_LEN2(len);
-                if (i == 6) /* PKT_ID3 */
-                    pkt_seq[line + 1] |=
-                        PKT_ID3(cmd) | PKT_LEN3(len);
-                if (i == 8) /* PKT_ID4 */
-                    pkt_seq[line + 1] |=
-                        PKT_ID4(cmd) | PKT_LEN4(len);
-                if (i == 10) /* PKT_ID5 */
-                    pkt_seq[line + 1] |=
-                        PKT_ID5(cmd) | PKT_LEN5(len);
-            }
-        }
+#if defined(NV_OF_PROPERTY_READ_VARIABLE_U32_ARRAY_PRESENT)
+    ret = of_property_read_variable_u32_array(np, prop->name,
+            val_array, 0, count);
+#else
+    nv_printf(NV_DBG_ERRORS, "NVRM: dsi_read_prop_array, of_property_read_variable_u32_array not present\n");
+    ret = -ENOSYS;
+#endif
+    if (IS_ERR(&ret))
+    {
+        nv_printf(NV_DBG_ERRORS, "NVRM: dsi_read_prop_array, failed to read property %s", prop->name);
+        NV_KFREE(val_array, sizeof(u32) * count);
+        val_array = NULL;
+        return ERR_PTR(ret);
     }
 
-#undef LINE_STOP
+    *array_size = count;
 
-     return pkt_seq;
+    return val_array;
 }
 
 static int dsi_get_panel_timings(struct device_node *np_panel, DSI_PANEL_INFO *panelInfo)
@@ -338,6 +262,30 @@ static int dsi_get_panel_gpio(struct device_node *node, DSI_PANEL_INFO *panel)
 #endif
 }
 
+static int dsi_parse_pps_data
+(
+    const struct device_node *node,
+    struct property *prop,
+    NvU32 *pps
+)
+{
+    __be32 *prop_val_ptr;
+    u32 count = 0;
+
+    if (!prop)
+        return -ENOENT;
+
+    prop_val_ptr = prop->value;
+
+#define PPS_COUNT 32
+    for (count = 0; count < PPS_COUNT; count++) {
+        pps[count] = be32_to_cpu(*prop_val_ptr++);
+    }
+#undef PPS_COUNT
+
+    return 0U;
+}
+
 static int parse_dsi_properties(const struct device_node *np_dsi, DSI_PANEL_INFO *dsi)
 {
     u32 temp;
@@ -403,6 +351,10 @@ static int parse_dsi_properties(const struct device_node *np_dsi, DSI_PANEL_INFO
             goto parse_dsi_settings_fail;
         }
     }
+
+    if (of_property_read_bool(np_dsi_panel,
+            "nvidia,cphy-data-scrambling"))
+        dsi->en_data_scrambling = true;
 
     if (!of_property_read_u32(np_dsi_panel,
             "nvidia,dsi-video-burst-mode", &temp))
@@ -592,13 +544,13 @@ static int parse_dsi_properties(const struct device_node *np_dsi, DSI_PANEL_INFO
         "nvidia,dsi-n-init-cmd", &temp)) {
         dsi->n_init_cmd = (u16)temp;
     }
-    dsi->dsi_init_cmd =
-        dsi_parse_command(np_dsi_panel,
-            of_find_property(np_dsi_panel,
-            "nvidia,dsi-init-cmd", NULL),
-            dsi->n_init_cmd);
+    if (dsi->n_init_cmd > 0) {
+        dsi->dsi_init_cmd_array = dsi_read_prop_array(np_dsi_panel,
+                of_find_property(np_dsi_panel, "nvidia,dsi-init-cmd", NULL),
+                &dsi->init_cmd_array_size);
+    }
     if (dsi->n_init_cmd &&
-        IS_ERR_OR_NULL(dsi->dsi_init_cmd)) {
+        IS_ERR_OR_NULL(dsi->dsi_init_cmd_array)) {
         nv_printf(NV_DBG_ERRORS, "NVRM: DSI init cmd parsing from DT failed\n");
         ret = -EINVAL;
         goto parse_dsi_settings_fail;
@@ -608,13 +560,13 @@ static int parse_dsi_properties(const struct device_node *np_dsi, DSI_PANEL_INFO
         "nvidia,dsi-n-postvideo-cmd", &temp)) {
         dsi->n_postvideo_cmd = (u16)temp;
     }
-    dsi->dsi_postvideo_cmd =
-        dsi_parse_command(np_dsi_panel,
-            of_find_property(np_dsi_panel,
-            "nvidia,dsi-postvideo-cmd", NULL),
-            dsi->n_postvideo_cmd);
+    if (dsi->n_postvideo_cmd > 0) {
+        dsi->dsi_postvideo_cmd_array = dsi_read_prop_array(np_dsi_panel,
+                of_find_property(np_dsi_panel, "nvidia,dsi-postvideo-cmd", NULL),
+                &dsi->postvideo_cmd_array_size);
+    }
     if (dsi->n_postvideo_cmd &&
-        IS_ERR_OR_NULL(dsi->dsi_postvideo_cmd)) {
+        IS_ERR_OR_NULL(dsi->dsi_postvideo_cmd_array)) {
         nv_printf(NV_DBG_ERRORS, "NVRM: DSI postvideo cmd parsing from DT failed\n");
         goto parse_dsi_settings_fail;
     };
@@ -623,13 +575,13 @@ static int parse_dsi_properties(const struct device_node *np_dsi, DSI_PANEL_INFO
             "nvidia,dsi-n-suspend-cmd", &temp)) {
         dsi->n_suspend_cmd = (u16)temp;
     }
-    dsi->dsi_suspend_cmd =
-        dsi_parse_command(np_dsi_panel,
-            of_find_property(np_dsi_panel,
-            "nvidia,dsi-suspend-cmd", NULL),
-            dsi->n_suspend_cmd);
+    if (dsi->n_suspend_cmd > 0) {
+    dsi->dsi_suspend_cmd_array = dsi_read_prop_array(np_dsi_panel,
+                of_find_property(np_dsi_panel, "nvidia,dsi-suspend-cmd", NULL),
+                &dsi->suspend_cmd_array_size);
+    }
     if (dsi->n_suspend_cmd &&
-        IS_ERR_OR_NULL(dsi->dsi_suspend_cmd)) {
+        IS_ERR_OR_NULL(dsi->dsi_suspend_cmd_array)) {
         nv_printf(NV_DBG_ERRORS, "NVRM: DSI suspend cmd parsing from DT failed\n");
         ret = -EINVAL;
         goto parse_dsi_settings_fail;
@@ -639,13 +591,13 @@ static int parse_dsi_properties(const struct device_node *np_dsi, DSI_PANEL_INFO
         "nvidia,dsi-n-early-suspend-cmd", &temp)) {
         dsi->n_early_suspend_cmd = (u16)temp;
     }
-    dsi->dsi_early_suspend_cmd =
-        dsi_parse_command(np_dsi_panel,
-            of_find_property(np_dsi_panel,
-            "nvidia,dsi-early-suspend-cmd", NULL),
-            dsi->n_early_suspend_cmd);
+    if (dsi->n_early_suspend_cmd > 0) {
+    dsi->dsi_early_suspend_cmd_array = dsi_read_prop_array(np_dsi_panel,
+                of_find_property(np_dsi_panel, "nvidia,dsi-early-suspend-cmd", NULL),
+                &dsi->early_suspend_cmd_array_size);
+    }
     if (dsi->n_early_suspend_cmd &&
-        IS_ERR_OR_NULL(dsi->dsi_early_suspend_cmd)) {
+        IS_ERR_OR_NULL(dsi->dsi_early_suspend_cmd_array)) {
         nv_printf(NV_DBG_ERRORS, "NVRM: DSI early suspend cmd parsing from DT failed\n");
         ret = -EINVAL;
         goto parse_dsi_settings_fail;
@@ -660,22 +612,22 @@ static int parse_dsi_properties(const struct device_node *np_dsi, DSI_PANEL_INFO
         "nvidia,dsi-n-late-resume-cmd", &temp)) {
         dsi->n_late_resume_cmd = (u16)temp;
     }
-    dsi->dsi_late_resume_cmd =
-        dsi_parse_command(np_dsi_panel,
-            of_find_property(np_dsi_panel,
-            "nvidia,dsi-late-resume-cmd", NULL),
-            dsi->n_late_resume_cmd);
+    if (dsi->n_late_resume_cmd > 0) {
+    dsi->dsi_late_resume_cmd_array = dsi_read_prop_array(np_dsi_panel,
+                of_find_property(np_dsi_panel, "nvidia,dsi-late-resume-cmd", NULL),
+                &dsi->late_resume_cmd_array_size);
+    }
     if (dsi->n_late_resume_cmd &&
-        IS_ERR_OR_NULL(dsi->dsi_late_resume_cmd)) {
+        IS_ERR_OR_NULL(dsi->dsi_late_resume_cmd_array)) {
         nv_printf(NV_DBG_ERRORS, "NVRM: DSI late resume cmd parsing from DT failed\n");
         ret = -EINVAL;
         goto parse_dsi_settings_fail;
     };
 
-    dsi->pktSeq = dsi_parse_pkt_seq(np_dsi_panel,
-                of_find_property(np_dsi_panel,
-                "nvidia,dsi-pkt-seq", NULL));
-    if (IS_ERR(dsi->pktSeq)) {
+    dsi->pktSeq_array = dsi_read_prop_array(np_dsi_panel,
+                of_find_property(np_dsi_panel, "nvidia,dsi-pkt-seq", NULL),
+                &dsi->pktSeq_array_size);
+    if (IS_ERR(dsi->pktSeq_array)) {
         nv_printf(NV_DBG_ERRORS, "NVRM: DSI packet seq parsing from DT fail\n");
         ret = -EINVAL;
         goto parse_dsi_settings_fail;
@@ -763,14 +715,53 @@ static int parse_dsi_properties(const struct device_node *np_dsi, DSI_PANEL_INFO
 
     if (!of_property_read_u32(np_dsi_panel,
             "nvidia,num-of-slices", &temp))
-        dsi->dsiDscNumSlices = (u8)temp;
+        dsi->dsiDscNumSlices = (u32)temp;
 
     if (!of_property_read_u32(np_dsi_panel,
             "nvidia,comp-rate", &temp))
-        dsi->dsiDscBpp = (u8)temp;
+        dsi->dsiDscBpp = (u32)temp;
+
+    if (!of_property_read_u32(np_dsi_panel,
+            "nvidia,version-major", &temp))
+        dsi->dsiDscDecoderMajorVersion = (u32)temp;
+
+    if (!of_property_read_u32(np_dsi_panel,
+            "nvidia,version-minor", &temp))
+        dsi->dsiDscDecoderMinorVersion = (u32)temp;
+
+    if (of_property_read_bool(np_dsi_panel,
+            "nvidia,use-custom-pps")) {
+        dsi->dsiDscUseCustomPPS = true;
+
+        ret = dsi_parse_pps_data(np_dsi_panel,
+            of_find_property(np_dsi_panel,
+            "nvidia,custom-pps-data", NULL),
+            dsi->dsiDscCustomPPSData);
+
+        if (ret != NV_OK) {
+            nv_printf(NV_DBG_ERRORS, "NVRM: Parsing DSI Panel Custom PPS data failed\n");
+            goto parse_dsi_settings_fail;
+        }
+    }
 
     if (of_property_read_bool(np_dsi, "nvidia,dsi-csi-loopback"))
         dsi->dsi_csi_loopback = 1;
+
+    if (!of_property_read_u32(np_dsi_panel,
+            "nvidia,vpll0-rate-hz", &temp))
+        dsi->vpll0_rate_hz = temp;
+
+    if (!of_property_read_u32(np_dsi_panel,
+            "nvidia,dsipll-vco-rate-hz", &temp))
+        dsi->dsipll_vco_rate_hz = temp;
+
+    if (!of_property_read_u32(np_dsi_panel,
+            "nvidia,dsipll-clkouta-rate-hz", &temp))
+        dsi->dsipll_clkouta_rate_hz = temp;
+
+    if (!of_property_read_u32(np_dsi_panel,
+            "nvidia,dsipll-clkoutpn-rate-hz", &temp))
+        dsi->dsipll_clkoutpn_rate_hz = temp;
 
     ret = dsi_get_panel_timings(np_dsi_panel, dsi);
     if (ret != NV_OK) {
@@ -961,26 +952,6 @@ void nv_dsi_panel_disable
     }
 }
 
-static void dsi_panel_command_cleanup
-(
-    DSI_CMD *dsi_cmd,
-    u32     n_cmd
-)
-{
-    int i;
-    DSI_CMD *temp = dsi_cmd;
-
-    if (dsi_cmd == NULL)
-        return;
-
-    for (i = 0; i < n_cmd; i++, temp++) {
-        if (temp->pdata != NULL)
-            NV_KFREE(temp->pdata, temp->sp_len_dly.data_len);
-    }
-
-    NV_KFREE(dsi_cmd, sizeof(DSI_CMD) * n_cmd);
-}
-
 void nv_dsi_panel_cleanup
 (
     nv_state_t      *nv,
@@ -990,19 +961,23 @@ void nv_dsi_panel_cleanup
     int count;
     DSI_PANEL_INFO *panelInfo = dsiPanelInfo;
 
-    dsi_panel_command_cleanup(panelInfo->dsi_init_cmd, panelInfo->n_init_cmd);
+    if (!IS_ERR_OR_NULL(panelInfo->dsi_init_cmd_array))
+        NV_KFREE(panelInfo->dsi_init_cmd_array, sizeof(u32) * panelInfo->init_cmd_array_size);
 
-    dsi_panel_command_cleanup(panelInfo->dsi_postvideo_cmd, panelInfo->n_postvideo_cmd);
+    if (!IS_ERR_OR_NULL(panelInfo->dsi_early_suspend_cmd_array))
+        NV_KFREE(panelInfo->dsi_early_suspend_cmd_array, sizeof(u32) * panelInfo->early_suspend_cmd_array_size);
 
-    dsi_panel_command_cleanup(panelInfo->dsi_suspend_cmd, panelInfo->n_suspend_cmd);
+    if (!IS_ERR_OR_NULL(panelInfo->dsi_late_resume_cmd_array))
+        NV_KFREE(panelInfo->dsi_late_resume_cmd_array, sizeof(u32) * panelInfo->late_resume_cmd_array_size);
 
-    dsi_panel_command_cleanup(panelInfo->dsi_early_suspend_cmd, panelInfo->n_early_suspend_cmd);
+     if (!IS_ERR_OR_NULL(panelInfo->dsi_postvideo_cmd_array))
+        NV_KFREE(panelInfo->dsi_postvideo_cmd_array, sizeof(u32) * panelInfo->postvideo_cmd_array_size);
 
-    dsi_panel_command_cleanup(panelInfo->dsi_late_resume_cmd, panelInfo->n_late_resume_cmd);
+    if (!IS_ERR_OR_NULL(panelInfo->dsi_suspend_cmd_array))
+        NV_KFREE(panelInfo->dsi_suspend_cmd_array, sizeof(u32) * panelInfo->suspend_cmd_array_size);
 
-    if (panelInfo->pktSeq != NULL) {
-        NV_KFREE((u32 *)panelInfo->pktSeq, sizeof(u32) * NUMOF_PKT_SEQ);
-    }
+    if (!IS_ERR_OR_NULL(panelInfo->pktSeq_array))
+        NV_KFREE(panelInfo->pktSeq_array, sizeof(u32) * panelInfo->pktSeq_array_size);
 
     if (panelInfo->bl_name != NULL) {
         NV_KFREE(panelInfo->bl_name, sizeof(u8) * bl_name_len);

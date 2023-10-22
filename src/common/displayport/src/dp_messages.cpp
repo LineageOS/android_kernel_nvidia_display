@@ -68,6 +68,17 @@ bool MessageManager::send(MessageManager::Message * message, NakData & nakData)
     startTime = timer->getTimeUs();
     do
     {
+        hal->updateDPCDOffline();
+        if (hal->isDpcdOffline())
+        {
+            DP_LOG(("DP-MM> Device went offline while waiting for reply and so ignoring message %p (ID = %02X, target = %s)",
+                    message, message->requestIdentifier, ((message->state).target).toString(sb)));
+            completion.nakData.reason = NakDpcdFail;
+            nakData = completion.nakData;
+            completion.failed = true;
+            break;
+        }
+
         hal->notifyIRQ();
         if (hal->interruptDownReplyReady())
             IRQDownReply();
@@ -77,6 +88,7 @@ bool MessageManager::send(MessageManager::Message * message, NakData & nakData)
             nakData = completion.nakData;
             break;
         }
+
         elapsedTime = timer->getTimeUs() - startTime;
 
         if (elapsedTime > (DPCD_MESSAGE_REPLY_TIMEOUT * 1000))

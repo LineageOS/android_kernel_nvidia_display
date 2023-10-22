@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -42,7 +42,6 @@
 
 #define HDCP_DUMMY_CN    (0x1)
 #define HDCP_DUMMY_CKSV  (0xFFFFF)
-
 
 namespace DisplayPort
 {
@@ -143,8 +142,12 @@ namespace DisplayPort
         bool _hasMultistream;
         bool _isPC2Disabled;
         bool _isEDP;
-        bool _isDP1_2Supported;
-        bool _isDP1_4Supported;
+
+        //
+        // Bit mask for GPU supported DP versions.
+        // Defines the same as NV0073_CTRL_CMD_DP_GET_CAPS_PARAMS.dpVersionsSupported
+        //
+        NvU32   _gpuSupportedDpVersions;
         bool _isStreamCloningEnabled;
         bool _needForceRmEdid;
         bool _skipPowerdownEDPPanelWhenHeadDetach;
@@ -177,8 +180,8 @@ namespace DisplayPort
         }_DSC;
 
     private:
-        virtual void initializeRegkeyDatabase();
-        virtual void applyRegkeyOverrides();
+        void initializeRegkeyDatabase();
+        void applyRegkeyOverrides();
 
     public:
         EvoMainLink(EvoInterface * provider, Timer * timer);
@@ -198,13 +201,9 @@ namespace DisplayPort
             return _isPC2Disabled;
         }
 
-        virtual bool isDP1_2Supported()
+        virtual NvU32 getGpuDpSupportedVersions()
         {
-            return _isDP1_2Supported;
-        }
-        virtual bool isDP1_4Supported()
-        {
-            return _isDP1_4Supported;
+            return _gpuSupportedDpVersions;
         }
         virtual bool isFECSupported()
         {

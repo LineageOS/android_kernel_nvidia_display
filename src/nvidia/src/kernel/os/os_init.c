@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -21,7 +21,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-/***************************** HW State Rotuines ***************************\
+/***************************** HW State Routines ***************************\
 *                                                                           *
 *         Common Operating System Object Function Pointer Initializations.  *
 *         All the function pointers in the OS object are initialized here.  *
@@ -44,8 +44,6 @@
 #include "nv_ref.h"
 #include "virtualization/hypervisor/hypervisor.h"
 
-
-#include "g_os_private.h"
 
 //
 // Functions to fill function stubs
@@ -97,21 +95,12 @@ static void
 initCommonMiscOSFunctionPointers(OBJOS *pOS)
 {
     // Common OS function pointers.
-    pOS->osGetSimulationMode             = osGetSimulationMode;
 }
 
 static void
 initStubMiscOSFunctionPointers(OBJOS *pOS)
 {
     // Stubbed OS function pointers.
-    pOS->osSimEscapeWrite               = stubOsSimEscapeWrite;
-    pOS->osSimEscapeWriteBuffer         = stubOsSimEscapeWriteBuffer;
-    pOS->osSimEscapeRead                = stubOsSimEscapeRead;
-    pOS->osSimEscapeReadBuffer          = stubOsSimEscapeReadBuffer;
-
-    pOS->osCheckCallback                = stubOsCheckCallback;
-    pOS->osRCCallback                   = stubOsRCCallback;
-
     pOS->osPageArrayGetPhysAddr         = stubOsPageArrayGetPhysAddr;
 
     pOS->osInternalReserveAllocCallback = stubOsInternalReserveAllocCallback;
@@ -121,34 +110,7 @@ initStubMiscOSFunctionPointers(OBJOS *pOS)
 static void
 initWinNTStubOSFunctionPointers(OBJOS *pOS)
 {
-    pOS->osQADbgRegistryInit         = stubOsQADbgRegistryInit;
-    pOS->osQueueWorkItem             = stubOsQueueWorkItem;
-    pOS->osQueueWorkItemWithFlags    = stubOsQueueWorkItemWithFlags;
-    pOS->osQueueSystemWorkItem       = stubOsQueueSystemWorkItem;
-    pOS->osCallACPI_MXMX             = stubOsCallACPI_MXMX;
-    pOS->osCallACPI_DDC              = stubOsCallACPI_DDC;
-    pOS->osCallACPI_BCL              = stubOsCallACPI_BCL;
-    pOS->osCallACPI_ON               = stubOsCallACPI_ON;
-    pOS->osCallACPI_OFF              = stubOsCallACPI_OFF;
-    pOS->osCallACPI_NVHG_GPUON       = stubOsCallWMI_NVHG_GPUON;
-    pOS->osCallACPI_NVHG_GPUOFF      = stubOsCallWMI_NVHG_GPUOFF;
-    pOS->osCallACPI_NVHG_GPUSTA      = stubOsCallWMI_NVHG_GPUSTA;
-    pOS->osCallACPI_NVHG_MXDS        = stubOsCallWMI_NVHG_MXDS;
-    pOS->osCallACPI_NVHG_MXMX        = stubOsCallWMI_NVHG_MXMX;
-    pOS->osCallACPI_NVHG_DOS         = stubOsCallWMI_NVHG_DOS;
-    pOS->osCallACPI_NVHG_ROM         = stubOsCallWMI_NVHG_ROM;
-    pOS->osCallACPI_NVHG_DCS         = stubOsCallWMI_NVHG_DCS;
-    pOS->osCallACPI_DOD              = stubOsCallWMI_DOD;
     pOS->osSetupVBlank               = stubOsSetupVBlank;
-    pOS->osCallACPI_NBPS             = stubOsCallACPI_NBPS;
-    pOS->osCallACPI_NBSL             = stubOsCallACPI_NBSL;
-    pOS->osCallACPI_DSM              = stubOsCallACPI_DSM;
-    pOS->osCallACPI_OPTM_GPUON       = stubOsCallWMI_OPTM_GPUON;
-    pOS->osGetUefiVariable           = stubOsGetUefiVariable;
-    pOS->osCallACPI_MXDS             = stubOsCallACPI_MXDS;
-    pOS->osCallACPI_MXDM             = stubOsCallACPI_MXDM;
-    pOS->osCallACPI_MXID             = stubOsCallACPI_MXID;
-    pOS->osCallACPI_LRST             = stubOsCallACPI_LRST;
 }
 
 static void
@@ -159,11 +121,6 @@ initMacOSCoreOSFunctionPointers(OBJOS *pOS)
     pOS->osNv_cpuid                      = stubOsnv_cpuid;
     pOS->osNv_rdmsr                      = stubOsnv_rdmsr;
     pOS->osNv_wrmsr                      = stubOsnv_wrmsr;
-    pOS->osRobustChannelsDefaultState    = stubOsRobustChannelsDefaultState;
-    pOS->osCallACPI_MXMX                 = stubOsCallACPI_MXMX;
-    pOS->osCallACPI_DDC                  = stubOsCallACPI_DDC;
-    pOS->osCallACPI_BCL                  = stubOsCallACPI_BCL;
-    pOS->osGetUefiVariable               = stubOsGetUefiVariable;
 }
 
 static void
@@ -175,7 +132,7 @@ initAPIOSFunctionPointers(OBJOS *pOS)
 //
 // Function to find the maximum number of cores in the system
 //
-NvU32 osGetMaximumCoreCount()
+NvU32 osGetMaximumCoreCount(void)
 {
     //
     // Windows provides an API to query this that supports CPU hotadd that our
@@ -335,6 +292,27 @@ NvU32 vgpuDevReadReg032(
     return 0;
 }
 
+NvU64 osGetMaxUserVa(void);
+
+/**
+ * @brief Get the Max User VA address shift
+ *
+ * The max user VA address shift may not be power-2 aligned,
+ * so do some math to round it up.
+ *
+ * @return max user VA address shift
+ */
+NvU32
+osGetCpuVaAddrShift(void)
+{
+    NvU64 maxUserVa = osGetMaxUserVa();
+
+    //
+    // Add 1 to account for kernel VA space, on the assumption
+    // that kernel VA space is the top half of the address space.
+    //
+    return (64 - portUtilCountLeadingZeros64(maxUserVa - 1)) + 1;
+}
 
 /**
  * @brief Adds a filter to trap a certain CPU virtual address range
@@ -456,7 +434,7 @@ osMemGetFilter(NvUPtr address)
  *                               full call stack that is much helpful for debugging.
  */
 
-void osPagedSegmentAccessCheck()
+void osPagedSegmentAccessCheck(void)
 {
     OBJSYS    *pSys = SYS_GET_INSTANCE();
     OBJOS     *pOS  = SYS_GET_OS(pSys);
@@ -466,11 +444,6 @@ void osPagedSegmentAccessCheck()
     {
         NV_ASSERT_FAILED("Paged memory access is prohibited");
 
-        //
-        // Trigger internal BSOD on developer branches
-        // This code should never be reachable on release branches
-        //
-        osBugCheck(OS_BUG_CHECK_BUGCODE_PAGED_SEGMENT);
     }
 }
 

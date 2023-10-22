@@ -64,9 +64,6 @@ static nv_cap_table_entry_t g_nv_cap_mig_table[] =
 
 static nv_cap_table_entry_t g_nv_cap_sys_table[] =
 {
-
-
-
 };
 
 #define NV_CAP_MIG_CI_ENTRIES(_gi)  \
@@ -263,7 +260,9 @@ static void nv_cap_procfs_exit(void)
         return;
     }
 
-    nv_procfs_unregister_all(nv_cap_procfs_dir, nv_cap_procfs_dir);
+#if defined(CONFIG_PROC_FS)
+    proc_remove(nv_cap_procfs_dir);
+#endif
     nv_cap_procfs_dir = NULL;
 }
 
@@ -549,7 +548,7 @@ int NV_API_CALL nv_cap_validate_and_dup_fd(const nv_cap_t *cap, int fd)
 
         spin_lock(&files->file_lock);
         fdt = files_fdtable(files);
-        NV_SET_CLOSE_ON_EXEC(dup_fd, fdt);
+        __set_bit(dup_fd, fdt->close_on_exec);
         spin_unlock(&files->file_lock);
     }
 

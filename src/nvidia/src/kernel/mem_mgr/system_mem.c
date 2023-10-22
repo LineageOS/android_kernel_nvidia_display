@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -41,7 +41,6 @@
  * @brief
  *     This routine provides common allocation services used by the
  *     following heap allocation functions:
- *       NVOS32_FUNCTION_ALLOC_DEPTH_WIDTH_HEIGHT
  *       NVOS32_FUNCTION_ALLOC_SIZE
  *       NVOS32_FUNCTION_ALLOC_SIZE_RANGE
  *       NVOS32_FUNCTION_ALLOC_TILED_PITCH_HEIGHT
@@ -194,6 +193,24 @@ sysmemConstruct_IMPL
     memdescSetFlag(pMemDesc, MEMDESC_FLAGS_SYSMEM_OWNED_BY_CLIENT, NV_TRUE);
 
     memdescSetGpuCacheAttrib(pMemDesc, gpuCacheAttrib);
+
+    if (FLD_TEST_DRF(OS32, _ATTR2, _FIXED_NUMA_NODE_ID, _YES, pAllocData->attr2))
+    {
+        //
+        // TODO: Add validation of NUMA Node ID. Bug: 3802992
+        // Invalid ID criteria:
+        // * NUMA is not supported on this platform
+        // * NUMA Node ID is of GPU
+        // * When memory is protected, if requested in unprotected memory
+        //
+        // Allow kernel to validate the following:
+        // * NUMA Node ID is not in range of [0,MAX_NUMANODES)
+        // * NUMA Node has no memory present
+        // * NUMA Node has no free memory
+        //
+
+        memdescSetNumaNode(pMemDesc, pAllocData->numaNode);
+    }
 
     rmStatus = memdescAlloc(pMemDesc);
     if (rmStatus != NV_OK)
@@ -477,7 +494,7 @@ sysmemAllocResources
     // While replaying a trace, it is possible for the playback OS to have a smaller page size
     // than the capture OS so if we're running a replay where the requested page size is larger,
     // assume this is a contiguous piece of memory, if contiguity is not specified.
-    // 
+    //
     if (FLD_TEST_DRF(OS32, _ATTR, _PHYSICALITY, _DEFAULT, pVidHeapAlloc->attr))
     {
         if ((FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _BIG, pVidHeapAlloc->attr) ||

@@ -240,25 +240,32 @@ NV_STATUS NV_API_CALL nv_gpio_set_pin_interrupt
 #endif
 
     /*
-     * TODO:Ignoring trigger_level as RM calls this function twice to set
-     * the level(rising/falling seperately) of interrupt for same gpio pin,
-     * so hardcoding the trigger_level to rising/falling during first
-     * registration as second time this registration fails as interrupt
-     * is already registered. For initial GPIO support let interrupt
-     * registration fail for second time, will plan to check the status if
-     * interrupt is already registered and skip for second time in the
-     * follow-up patch.
+     * Ignore setting interrupt for falling trigger for hotplug gpio pin
+     * as hotplug sequence calls this function twice to set the level
+     * (rising/falling) of interrupt for same gpio pin. Linux interrupt
+     * registration allows only once to register the interrupt with required
+     * trigger levels. So to avoid re-registration, skip registering for
+     * falling trigger level but when this function called with rising trigger
+     * then itself register for both rising/falling triggers.
      */
+    if (trigger_level == 0)
+    {
+        return NV_OK;
+    }
 
     rc = nv_request_soc_irq(nvl, irq_num, NV_SOC_IRQ_GPIO_TYPE,
                             (IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING |
-                            IRQF_ONESHOT), pinNum);
+                            IRQF_ONESHOT), pinNum,
+                            "hdmi-hotplug");
     if (rc < 0)
     {
         nv_printf(NV_DBG_ERRORS, "IRQ registration failed for gpio - %d, rc - %d\n",
                   pinNum, rc);
         return NV_ERR_GENERIC;
     }
+
+    /* Disable the irq after registration as RM init sequence re-enables it */
+    disable_irq_nosync(irq_num);
 
     return NV_OK;
 }

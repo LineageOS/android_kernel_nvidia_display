@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2016-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -41,6 +41,7 @@
 #include "gpu/device/device.h"
 #include "gpu/subdevice/subdevice.h"
 #include "gpu_mgr/gpu_mgr.h"
+#include "virtualization/hypervisor/hypervisor.h"
 
 #include "g_allclasses.h"
 
@@ -403,7 +404,7 @@ gpuresGetByDeviceOrSubdeviceHandle
         return status;
 
     // Must be device or subdevice
-    if (!dynamicCast(*ppGpuResource, Device) && 
+    if (!dynamicCast(*ppGpuResource, Device) &&
         !dynamicCast(*ppGpuResource, Subdevice))
     {
         return NV_ERR_INVALID_OBJECT_HANDLE;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1997-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1997-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -20,6 +20,11 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
+
+//
+// This file holds NVIDIA Resource Manager registry key definitions that are
+// shared between Windows and Unix
+//
 
 #ifndef NVRM_REGISTRY_H
 #define NVRM_REGISTRY_H
@@ -442,12 +447,9 @@
 #define NV_REG_STR_RM_INST_LOC_4_FECS_EVENT_BUF_NCOH          NV_REG_STR_RM_INST_LOC_NCOH
 #define NV_REG_STR_RM_INST_LOC_4_FECS_EVENT_BUF_VID           NV_REG_STR_RM_INST_LOC_VID
 
-#define NV_REG_STR_RM_DISABLE_GSP_OFFLOAD                   "RmDisableGspOffload"
-#define NV_REG_STR_RM_DISABLE_GSP_OFFLOAD_FALSE             (0x00000000)
-#define NV_REG_STR_RM_DISABLE_GSP_OFFLOAD_TRUE              (0x00000001)
-// Type DWORD (Boolean)
-// Override any other settings and disable GSP-RM offload.
-
+#define NV_REG_STR_RM_GSP_STATUS_QUEUE_SIZE         "RmGspStatusQueueSize"
+// TYPE DWORD
+// Set the GSP status queue size in KB (for GSP to CPU RPC status and event communication)
 
 #define NV_REG_STR_RM_MSG                                   "RmMsg"
 // Type String: Set parameters for RM DBG_PRINTF.  Only for builds with printfs enabled.
@@ -693,14 +695,9 @@
 #define NV_REG_STR_RM_READONLY_GPU_LOCK_MODULE_WORKITEM_ENABLE     (0x00000001)
 
 
-// Enable support for CACHEABLE rmapi control flag
-// 0: never cache any controls
-// 1 (default): cache only ROUTE_TO_PHYSICAL controls, and only if GSP-RM is running
-// 2: cache all controls
+// Mode for CACHEABLE rmapi control
+// RMCTRL cache mode defined in ctrl0000system.h
 #define NV_REG_STR_RM_CACHEABLE_CONTROLS             "RmEnableCacheableControls"
-#define NV_REG_STR_RM_CACHEABLE_CONTROLS_DISABLE     0
-#define NV_REG_STR_RM_CACHEABLE_CONTROLS_GSP_ONLY    1
-#define NV_REG_STR_RM_CACHEABLE_CONTROLS_ENABLE      2
 
 // Type DWORD
 // This regkey forces for Maxwell+ that on FB Unload we wait for FB pull before issuing the
@@ -727,6 +724,17 @@
 // Used to enable no locking on copy
 //
 #define NV_REG_STR_RM_PARAM_COPY_NO_LOCK                      "RMParamCopyNoLock"
+
+//
+// Type DWORD
+// Used to control RM API lock aging for low priority acquires.
+// If 0, low priority acquires (e.g. from cleanup when a process dies)
+// are disabled and treated like regular ones.
+// Otherwise, they will yield the lock this many times to the higher priority
+// threads before proceeding.
+// Off by default; 3 would be a good starting value if the feature is desired.
+//
+#define NV_REG_STR_RM_LOCKING_LOW_PRIORITY_AGING              "RMLockingLowPriorityAging"
 
 //
 // Type DWORD
@@ -909,7 +917,7 @@
 // will fail in such a case.
 //
 // TYPE_DEFAULT let RM to choose a P2P type. The priority is:
-//              C2C > NVLINK > BAR1P2P > mailbox P2P
+//              C2C > NVLINK > mailbox P2P > BAR1P2P 
 //
 // TYPE_C2C to use C2C P2P if it supports
 // TYPE_NVLINK to use NVLINK P2P, including INDIRECT_NVLINK_P2P if it supports
@@ -952,6 +960,15 @@
 // Encoding -- NvS32
 // Override GPU NUMA Node ID assigned by OS
 
+#define NV_REG_STR_RESTORE_BAR1_SIZE_BUG_3249028_WAR         "RMBar1RestoreSize"
+#define NV_REG_STR_RESTORE_BAR1_SIZE_BUG_3249028_TRUE        (0x00000001)
+#define NV_REG_STR_RESTORE_BAR1_SIZE_BUG_3249028_FALSE       (0x00000000)
+// Type DWORD:
+// Encoding -- Boolean
+// Check if BAR1 size has been restored correctly by SBIOS across power transitions
+// Default: enabled for Ampere and up
+//
+
 //
 // Type DWORD
 // Numa allocations allow for skipping reclaim less than a specified memory occupancy threshold.
@@ -988,7 +1005,7 @@
 // RM aperture size. This can result in undefined beahvior in environments that
 // rely on a virtual bar2 aperture shared between RM and VBIOS for VESA support.
 
-#if defined(DEVELOP) || defined(DEBUG) || defined(NV_MODS)
+#if defined(DEVELOP) || defined(DEBUG) || (defined(RMCFG_FEATURE_MODS_FEATURES) && RMCFG_FEATURE_MODS_FEATURES)
 //
 // TYPE DWORD
 // This setting will override the BAR1 Big page size
@@ -997,7 +1014,7 @@
 #define NV_REG_STR_RM_SET_BAR1_ADDRESS_SPACE_BIG_PAGE_SIZE                  "RMSetBAR1AddressSpaceBigPageSize"
 #define NV_REG_STR_RM_SET_BAR1_ADDRESS_SPACE_BIG_PAGE_SIZE_64k              (64 * 1024)
 #define NV_REG_STR_RM_SET_BAR1_ADDRESS_SPACE_BIG_PAGE_SIZE_128k             (128 * 1024)
-#endif //DEVELOP || DEBUG || NV_MODS
+#endif //DEVELOP || DEBUG || MODS_FEATURES
 
 // This regkey is to disable coherent path CPU->Nvlink/C2C->FB and force BAR path.
 #define NV_REG_STR_RM_FORCE_BAR_PATH            "RMForceBarPath"
@@ -1072,6 +1089,14 @@
 // Encoding -- Boolean
 // Disable noncontig vidmem allocation
 //
+
+// Type DWORD
+// Encoding -- 0 -- Disable
+//          -- 1 -- Enable
+// Enable  MemoryMapper API (in-development). Currently disabled by default
+#define NV_REG_ENABLE_MEMORY_MAPPER_API                 "RMEnableMemoryMapperApi"
+#define NV_REG_ENABLE_MEMORY_MAPPER_API_FALSE           0
+#define NV_REG_ENABLE_MEMORY_MAPPER_API_TRUE            1
 
 #define NV_REG_STR_RM_FBSR_PAGED_DMA                         "RmFbsrPagedDMA"
 #define NV_REG_STR_RM_FBSR_PAGED_DMA_ENABLE                  1
@@ -1485,6 +1510,10 @@
 #define NV_REG_STR_RM_PCIE_LINK_SPEED_ALLOW_GEN5_DEFAULT                  (0x00000000)
 #define NV_REG_STR_RM_PCIE_LINK_SPEED_ALLOW_GEN5_ENABLE                   (0x00000001)
 #define NV_REG_STR_RM_PCIE_LINK_SPEED_ALLOW_GEN5_DISABLE                  (0x00000002)
+#define NV_REG_STR_RM_PCIE_LINK_SPEED_ALLOW_GEN6                          9:8
+#define NV_REG_STR_RM_PCIE_LINK_SPEED_ALLOW_GEN6_DEFAULT                  (0x00000000)
+#define NV_REG_STR_RM_PCIE_LINK_SPEED_ALLOW_GEN6_ENABLE                   (0x00000001)
+#define NV_REG_STR_RM_PCIE_LINK_SPEED_ALLOW_GEN6_DISABLE                  (0x00000002)
 #define NV_REG_STR_RM_PCIE_LINK_SPEED_LOCK_AT_LOAD                        31:31
 #define NV_REG_STR_RM_PCIE_LINK_SPEED_LOCK_AT_LOAD_DISABLE                (0x00000000)
 #define NV_REG_STR_RM_PCIE_LINK_SPEED_LOCK_AT_LOAD_ENABLE                 (0x00000001)
@@ -1580,6 +1609,18 @@
 // 1 - Force Enable Gen2 (to invalidate PDB_PROP_CL_PCIE_GEN1_GEN2_SWITCH_CHIPSET_DISABLED)
 //
 
+#define NV_REG_STR_RM_D3_FEATURE                                    "RMD3Feature"
+// Type DWORD
+// This regkey controls D3 related features
+#define NV_REG_STR_RM_D3_FEATURE_DRIVER_CFG_SPACE_RESTORE           1:0
+#define NV_REG_STR_RM_D3_FEATURE_DRIVER_CFG_SPACE_RESTORE_DEFAULT   (0x00000000)
+#define NV_REG_STR_RM_D3_FEATURE_DRIVER_CFG_SPACE_RESTORE_ENABLED   (0x00000001)
+#define NV_REG_STR_RM_D3_FEATURE_DRIVER_CFG_SPACE_RESTORE_DISABLED  (0x00000002)
+#define NV_REG_STR_RM_D3_FEATURE_DRIVER_CFG_SPACE_RESTORE_UNUSED    (0x00000003)
+
+#define NV_REG_STR_EMULATED_NBSI_TABLE                      "RMemNBSItable"
+// The emulated NBSI table
+
 #define NV_REG_STR_RM_DISABLE_FSP                           "RmDisableFsp"
 #define NV_REG_STR_RM_DISABLE_FSP_NO                        (0x00000000)
 #define NV_REG_STR_RM_DISABLE_FSP_YES                       (0x00000001)
@@ -1601,5 +1642,374 @@
 // Override to control setting/not setting of pci timer latency value.
 // Not present suggests default value. A value 0xFFFFFFFF will leave the value unmodified (ie bios value).
 // All other values must be multiples of 8
+
+#define NV_REG_STR_RM_ENABLE_ROUTE_TO_PHYSICAL_LOCK_BYPASS  "RmRouteToPhyiscalLockBypass"
+// Type Bool
+// Enable optimisation to only take API READ (not WRITE) lock when forwarding ROUTE_TO_PHYSICAL
+// control calls to GSP-enabled GPUs.
+// This will heavily improve multi-gpu-multi-process control call latency and throughput.
+// This optimisation will only work when *all* GPUs in the system are in offload mode (GSP mode).
+
+#define NV_REG_STR_RM_GPU_FABRIC_PROBE "RmGpuFabricProbe"
+#define NV_REG_STR_RM_GPU_FABRIC_PROBE_DELAY               7:0
+#define NV_REG_STR_RM_GPU_FABRIC_PROBE_SLOWDOWN_THRESHOLD 15:8
+#define NV_REG_STR_RM_GPU_FABRIC_PROBE_OVERRIDE           31:31
+// Type DWORD
+// Enable GPU fabric probe
+//
+// When this option is enabled, the GPU will probe its fabric state over the
+// NVLink inband channel. The fabric state includes the attributes to allow
+// the GPU to participate in P2P over the NVLink fabric.
+//
+// This option is only honored on NVSwitch based systems.
+//
+// Encoding:
+//    _DELAY              : Delay between consecutive probe retries (in sec)
+//                           before the slowdown starts. (Default: 5 sec)
+//    _SLOWDOWN_THRESHOLD : Number of probes retries before the slowdown starts
+//                          (Default: 10). The slowdown doubles the delay
+//                          between every consecutive probe retries until success.
+//
+
+// Enable plugin logs in ftrace buffer.
+// 0 - Default
+// 0 - Disabled
+// 1 - Enabled
+#define NV_REG_STR_RM_ENABLE_PLUGIN_IN_FTRACE_BUFFER                "RmEnablePluginFtrace"
+#define NV_REG_STR_RM_ENABLE_PLUGIN_IN_FTRACE_BUFFER_ENABLED        0x00000001
+#define NV_REG_STR_RM_ENABLE_PLUGIN_IN_FTRACE_BUFFER_DISABLED       0x00000000
+#define NV_REG_STR_RM_ENABLE_PLUGIN_IN_FTRACE_BUFFER_DEFAULT        0x00000000
+
+// TYPE Dword
+// Enable vGPU migration on KVM hyperivsor.
+// 1 - (Default) Enable vGPU migration on KVM
+// 0 - Disable vGPU migration on KVM hypervisor
+//
+#define NV_REG_STR_RM_ENABLE_KVM_VGPU_MIGRATION           "RmEnableKvmVgpuMigration"
+#define NV_REG_STR_RM_ENABLE_KVM_VGPU_MIGRATION_TRUE      0x00000001
+#define NV_REG_STR_RM_ENABLE_KVM_VGPU_MIGRATION_FALSE     0x00000000
+#define NV_REG_STR_RM_ENABLE_KVM_VGPU_MIGRATION_DEFAULT   0x00000001
+
+#define NV_REG_STR_RM_QSYNC_FW_REV_CHECK                    "QuadroSyncFirmwareRevisionCheckDisable"
+#define NV_REG_STR_RM_QSYNC_FW_REV_CHECK_DEFAULT            0x00000000
+#define NV_REG_STR_RM_QSYNC_FW_REV_CHECK_ENABLE             0x00000000
+#define NV_REG_STR_RM_QSYNC_FW_REV_CHECK_DISABLE            0x00000001
+
+// Type DWORD
+// Disable Quadro Sync Firmware Revision Checking, for testing new versions.
+//
+
+//
+// Type: Dword
+// Encoding:
+// 1 - SRIOV Enabled on supported GPU
+// 0 - SRIOV Disabled on specific GPU
+//
+#define NV_REG_STR_RM_SET_SRIOV_MODE                    "RMSetSriovMode"
+#define NV_REG_STR_RM_SET_SRIOV_MODE_DISABLED             0x00000000
+#define NV_REG_STR_RM_SET_SRIOV_MODE_ENABLED              0x00000001
+
+#define NV_REG_STR_RM_SET_VGPU_VERSION_MIN                       "RMSetVGPUVersionMin"
+//
+// TYPE DWORD
+// Set the minimum vGPU version enforced to support
+
+#define NV_REG_STR_RM_SET_VGPU_VERSION_MAX                       "RMSetVGPUVersionMax"
+//
+// TYPE DWORD
+// Set the maximum vGPU version enforced to support
+
+#define NV_REG_STR_TIME_SWAP_RDY_HI_MODIFY_LSR_MIN_TIME             "TSwapRdyHiLsrMinTime"
+#define NV_REG_STR_TIME_SWAP_RDY_HI_MODIFY_LSR_MIN_TIME_DEFAULT     250 // 250 micro seconds
+// Type: DWORD
+// Encoding:
+// To modify LSR_MIN_TIME parameter according to the time
+// period for which swap lock window will remain HIGH for QSYNC III
+// i.e. P2060 during swap barrier.
+
+#define NV_REG_STR_TIME_SWAP_RDY_HI_MODIFY_SWAP_LOCKOUT_START           "TSwapRdyHiSwapLockoutStart"
+#define NV_REG_STR_TIME_SWAP_RDY_HI_MODIFY_SWAP_LOCKOUT_START_DEFAULT   250 // 250 micro seconds
+// Type: DWORD
+// Encoding:
+// To modify SWAP_LOCKOUT_START parameter according to the time
+// period for which swap lock window will remain HIGH for QSYNC III.
+//
+
+#define NV_REG_STR_RM_NVLINK_BW                     "RmNvlinkBandwidth"
+// Type String
+// The option is in the string format.
+//
+// Possible string values:
+//   OFF:      0% bandwidth
+//   MIN:      15%-25% bandwidth depending on the system's NVLink topology
+//   HALF:     50% bandwidth
+//   3QUARTER: 75% bandwidth
+//   FULL:     100% bandwidth (default)
+//
+// This option is only for Hopper+ GPU with NVLINK version 4.0.
+
+#define NV_REG_STR_RM_CLIENT_HANDLE_LOOKUP                  "RmClientHandleLookup"
+// Type DWORD (Boolean)
+// 1 - Store active RM clients in a multimap to speed up lookups (currently only in thirdpartyp2p)
+// 0 - (Default) Linear list search for clients
+
+
+//
+// Type: DWORD (Boolean)
+//
+// 1 - Only invalidate and free CPU mappings immediatelly, then collect GPU resources
+//     from individual clients under separate lock acquire/release sequences.
+// 0 - (Default) Immediately free all clients resources when freeing a client list
+#define NV_REG_STR_RM_CLIENT_LIST_DEFERRED_FREE             "RMClientListDeferredFree"
+
+//
+// Type: DWORD
+//
+// Number of clients to free in a single chunk before yielding and scheduling
+// a work item to handle the rest.
+//
+// Only valid if NV_REG_STR_RM_CLIENT_LIST_DEFERRED_FREE is set.
+//
+// Value of 0 (default) means there is no limit and all clients will be freed
+// at once before the process terminates.
+//
+#define NV_REG_STR_RM_CLIENT_LIST_DEFERRED_FREE_LIMIT      "RMClientListDeferredFreeLimit"
+
+//
+// TYPE Dword
+// Determines whether or not to emulate VF MMU TLB Invalidation register range
+// Encoding : 1 - Emulate register range (Default)
+//          : 0 - Do not emulate register range.
+//
+#define NV_REG_STR_BUG_3007008_EMULATE_VF_MMU_TLB_INVALIDATE            "RMBug3007008EmulateVfMmuTlbInvalidate"
+#define NV_REG_STR_BUG_3007008_EMULATE_VF_MMU_TLB_INVALIDATE_ENABLE     0x00000001
+#define NV_REG_STR_BUG_3007008_EMULATE_VF_MMU_TLB_INVALIDATE_DISABLE    0x00000000
+#define NV_REG_STR_BUG_3007008_EMULATE_VF_MMU_TLB_INVALIDATE_DEFAULT    NV_REG_STR_BUG_3007008_EMULATE_VF_MMU_TLB_INVALIDATE_ENABLE
+
+#define NV_REG_STR_RM_POWER_FEATURES                        "RMPowerFeature"
+
+// Type DWORD
+// This Regkey controls inforom black box data recording. This can be used to
+// restrict access to BBX.
+// 0               - Enable BBX. (Default)
+// COMPLETELY      - Enable/Disable BBX access (read/write).
+// WRITE_BY_RM     - Enable/Disable writes by RM itself.
+// WRITE_BY_CLIENT - Enable/Disable writes by clients to RM.
+// PERIODIC FLUSH  - Enable/Disable periodic flush to inforom (Also enables/disables Power data collection)
+//
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX                  "RmDisableInforomBBX"
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_NO                        (0x00000000)
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_YES                       (0x00000001)
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_COMPLETELY                         0:0
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_COMPLETELY_NO             (0x00000000)
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_COMPLETELY_YES            (0x00000001)
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_WRITE_BY_RM                        1:1
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_WRITE_BY_RM_NO            (0x00000000)
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_WRITE_BY_RM_YES           (0x00000001)
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_WRITE_BY_CLIENT                    2:2
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_WRITE_BY_CLIENT_NO        (0x00000000)
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_WRITE_BY_CLIENT_YES       (0x00000001)
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_PERIODIC_FLUSH                     3:3
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_PERIODIC_FLUSH_YES        (0x00000000)
+#define NV_REG_STR_RM_INFOROM_DISABLE_BBX_PERIODIC_FLUSH_NO         (0x00000001)
+
+//
+// Type DWORD (Boolean)
+// RmNvlinkEnablePrivErrorRc
+//
+// 0 - (default) does not do RC recovery when PRIV_ERROR
+// 1 - enable FLA PRIV_ERROR RC recovery
+//
+#define NV_REG_STR_RM_NVLINK_ENABLE_PRIV_ERROR_RC                 "RmNvlinkEnablePrivErrorRc"
+#define NV_REG_STR_RM_NVLINK_ENABLE_PRIV_ERROR_RC_NO              0
+#define NV_REG_STR_RM_NVLINK_ENABLE_PRIV_ERROR_RC_YES             1
+
+//
+// Add the conditions to exclude these macros from Orin build, as CONFIDENTIAL_COMPUTE
+// is a guardword. The #if could be removed when nvRmReg.h file is trimmed from Orin build.
+//
+// Enable Disable Confidential Compute and control its various modes of operation
+// 0 - Feature Disable
+// 1 - Feature Enable
+//
+#define NV_REG_STR_RM_CONFIDENTIAL_COMPUTE                              "RmConfidentialCompute"
+#define NV_REG_STR_RM_CONFIDENTIAL_COMPUTE_ENABLED                      0:0
+#define NV_REG_STR_RM_CONFIDENTIAL_COMPUTE_ENABLED_NO                   0x00000000
+#define NV_REG_STR_RM_CONFIDENTIAL_COMPUTE_ENABLED_YES                  0x00000001
+#define NV_REG_STR_RM_CONFIDENTIAL_COMPUTE_DEV_MODE_ENABLED             1:1
+#define NV_REG_STR_RM_CONFIDENTIAL_COMPUTE_DEV_MODE_ENABLED_NO          0x00000000
+#define NV_REG_STR_RM_CONFIDENTIAL_COMPUTE_DEV_MODE_ENABLED_YES         0x00000001
+#define NV_REG_STR_RM_CONFIDENTIAL_COMPUTE_GPUS_READY_CHECK             2:2
+#define NV_REG_STR_RM_CONFIDENTIAL_COMPUTE_GPUS_READY_CHECK_DISABLED    0x00000000
+#define NV_REG_STR_RM_CONFIDENTIAL_COMPUTE_GPUS_READY_CHECK_ENABLED     0x00000001
+
+#define NV_REG_STR_RM_CONF_COMPUTE_EARLY_INIT                            "RmConfComputeEarlyInit"
+#define NV_REG_STR_RM_CONF_COMPUTE_EARLY_INIT_DISABLED                   0x00000000
+#define NV_REG_STR_RM_CONF_COMPUTE_EARLY_INIT_ENABLED                    0x00000001
+
+//
+// Enable/disable SPDM feature in Confidential Compute. SPDM-capable profiles
+// may not be loaded by default. This regkey allows us to override the default
+// behavior and force SPDM to enabled/disabled.
+//
+// 0 - Feature disable
+// 1 - Feature enable
+//
+#define NV_REG_STR_RM_CONF_COMPUTE_SPDM_POLICY                            "RmConfComputeSpdmPolicy"
+#define NV_REG_STR_RM_CONF_COMPUTE_SPDM_POLICY_ENABLED                    0:0
+#define NV_REG_STR_RM_CONF_COMPUTE_SPDM_POLICY_ENABLED_NO                 0x00000000
+#define NV_REG_STR_RM_CONF_COMPUTE_SPDM_POLICY_ENABLED_YES                0x00000001
+
+// TYPE Dword
+// Encoding boolean
+// Regkey based solution to serialize VBlank Aggressive Handling in Top Half using spinlock
+// 2 - Enable serialization of aggressive vblank callbacks when HMD is active
+//
+//
+// 1 - Enable serialization of aggressive vblank callbacks in all scenarios
+// (even when a HMD is not active)
+//
+// 0 - (default) Disable WAR
+// This regkey settings are enabled when Aggressive Vblanks are enabled,
+// if RmDisableAggressiveVblank is set to disable then these regkeys do not have any affect
+#define NV_REG_STR_RM_BUG_2089053_WAR                               "RmBug2089053War"
+#define NV_REG_STR_RM_BUG_2089053_WAR_ENABLE_ON_HMD_ACTIVE_ONLY     0x00000002
+#define NV_REG_STR_RM_BUG_2089053_WAR_ENABLE_ALWAYS                 0x00000001
+#define NV_REG_STR_RM_BUG_2089053_WAR_DISABLE                       0x00000000
+#define NV_REG_STR_RM_BUG_2089053_WAR_DEFAULT                       (NV_REG_STR_RM_BUG_2089053_WAR_ENABLE_ALWAYS)
+
+//
+// Controls whether GSP-RM profiling is enabled.
+// 0 (default): disabled
+// 1: enabled
+//
+#define NV_REG_STR_RM_GSPRM_PROFILING "RmGspRmProfiling"
+#define NV_REG_STR_RM_GSPRM_PROFILING_DISABLE 0
+#define NV_REG_STR_RM_GSPRM_PROFILING_ENABLE  1
+
+//
+// Overrides the size of the GSP-RM firmware heap in GPU memory.
+// The GSP-RM firmware heap is reserved for system use and is not available to
+// applications. This regkey can be used to optimize the amount of memory
+// reserved for system use for targeted use cases. The default value for this
+// regkey is determined to support certain worst case resource allocation
+// patterns, but many use cases do not exhibit such resource allocation patterns
+// and could benefit from the lesser reserved GPU memory. Other use cases may
+// exhibit an even more pathological/stressful resource allocation pattern,
+// which can be enabled (up to a limit) with this regkey.
+// 
+// However, NVIDIA does not support setting this registry key, and will require
+// that any bugs observed with it set be reproducible with the default setting
+// as well.
+//
+// The value of this regkey is specified in megabytes. A value of 0 indicates to
+// use the default value. Values less than the minimum or greater than the
+// maximum will be clamped to the nearest optimum. The default values are
+// are dynamically computed for each GPU prior to booting GSP-RM.
+//
+#define NV_REG_STR_GSP_FIRMWARE_HEAP_SIZE_MB          "RmGspFirmwareHeapSizeMB"
+#define NV_REG_STR_GSP_FIRMWARE_HEAP_SIZE_MB_DEFAULT  0
+
+//
+// Type DWORD
+// This regkey can be used to enable GSP owned fault buffers
+//
+#define NV_REG_STR_RM_GSP_OWNED_FAULT_BUFFERS_ENABLE      "RmGspOwnedFaultBuffersEnable"
+#define NV_REG_STR_RM_GSP_OWNED_FAULT_BUFFERS_ENABLE_NO    0x00000000
+#define NV_REG_STR_RM_GSP_OWNED_FAULT_BUFFERS_ENABLE_YES   0x00000001
+
+//
+// WAR for BlueField3: Bug 4040336
+// BF3's PCI MMIO bus address 0x800000000000 is too high for Ampere to address.
+// Due to this, BF3's bus address is now moved to < 4GB. So, the CPU PA is no longer
+// the same as the bus address and this regkey adjusts the CPU PA passed in to the 
+// correct bus address.
+//
+#define NV_REG_STR_RM_DMA_ADJUST_PEER_MMIO_BF3 "RmDmaAdjustPeerMmioBF3"
+#define NV_REG_STR_RM_DMA_ADJUST_PEER_MMIO_BF3_DISABLE 0
+#define NV_REG_STR_RM_DMA_ADJUST_PEER_MMIO_BF3_ENABLE  1
+
+#define NV_REG_STR_RM_NVLINK_FORCED_LOOPBACK_ON_SWITCH                  "RMNvLinkForcedLoopbackOnSwitch"
+#define NV_REG_STR_RM_NVLINK_FORCED_LOOPBACK_ON_SWITCH_MODE             0:0
+#define NV_REG_STR_RM_NVLINK_FORCED_LOOPBACK_ON_SWITCH_MODE_DEFAULT     (0x00000000)
+#define NV_REG_STR_RM_NVLINK_FORCED_LOOPBACK_ON_SWITCH_MODE_ENABLED     (0x00000001)
+
+//
+// Type: Dword
+// Encoding:
+// 0 - Iterative MMU Walker is not enabled. Normal recursive implementation is used. (default)
+// 1 - Iterative MMU Walker is used
+//
+#define NV_REG_STR_RM_ITERATIVE_MMU_WALKER           "RMUseIterativeMMUWalker"
+#define NV_REG_STR_RM_ITERATIVE_MMU_WALKER_DISABLED   0x00000000
+#define NV_REG_STR_RM_ITERATIVE_MMU_WALKER_ENABLED    0x00000001
+#define NV_REG_STR_RM_ITERATIVE_MMU_WALKER_DEFAULT    NV_REG_STR_RM_ITERATIVE_MMU_WALKER_DISABLED
+
+//
+// Type DWORD
+// This set of MIG regkeys specifies a set of allocation requests to be issued to the GPU on boot.
+// MIG configuration contained within GPUMGR always supersedes these regkeys, if present and valid.
+// The entire configuration specified by these regkeys is validated before being applied. An error
+// reflected in whole or in part on these regkeys will cause them to be discarded entirely.
+//
+// RmMIGBootConfigurationGI is used to encode a series of GPU instance allocations. These are applied in order.
+// RmMIGBootConfigurationCI is used to encode a series of CI instance allocations.
+//   The GI associated with each CI allocation entry is specified by RmMIGBootConfigurationCIAssignment.
+//   It is an error to specify a CI via RmMIGBootConfigurationCI without specifying the associated GPU
+//   instance entry via RmMIGBootConfigurationCIAssignment. The values for any CI assignment for a CI
+//   entry left unspecified must be 0.
+//
+// RmMIGBootConfigurationGI_N
+//                           _FLAGS               - determines granularity of GPU partitioning. See NV2080_CTRL_CMD_GPU_SET_PARTITIONS
+//                           _PLACEMENT_LO        - Optional placement span to allocate the partition into. Unused if HI<LO
+//                           _PLACEMENT_HI        - Optional placement span to allocate the partition into. Unused if HI<LO
+//                           _REQ_DEC_JPG_OFA     - For single slice instances, request at least 1 video decode, jpeg, and optical flow engine
+//
+// RmMIGBootConfigurationCI_N
+//                           _FLAGS               - determines granularity of GPU partitioning. Subset of the GI flags - only the compute size flags are used here. See NV2080_CTRL_CMD_GPU_SET_PARTITIONS
+//                           _PLACEMENT_LO        - Starting slice in GPU instance
+//                           _CES                 - # Copy engines to share with other CIs in this GI. 0 denotes all available.
+//                           _DECS                - # video decoder engines to share with other CIs in this GI. 0 denotes all available.
+//                           _ENCS                - # video decoder engines to share with other CIs in this GI. 0 denotes all available.
+//                           _JPGS                - # jpeg engines to share with other CIs in this GI. 0 denotes all available.
+//                           _OFAS                - # optical flow engines to share with other CIs in this GI. 0 denotes all available.
+//
+// RmMIGBootConfigurationCIAssignment
+//                                   _GI(n)       - Assign Compute instance n to GPU instance entry according to this value
+//
+// RmMIGBootConfigurationFeatureFlags
+//                                   _AUTO_UPDATE - Windows only. RM updates the regkeys at runtime as MIG configuration changes.
+//
+
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_GI(n)                               "RmMIGBootConfigurationGI_" #n
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_GI__SIZE                            8
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_GI_FLAGS                            7:0
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_GI_PLACEMENT_LO                     15:8
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_GI_PLACEMENT_HI                     23:16
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_GI_REQ_DEC_JPG_OFA                  31:31
+
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_CI(n)                               "RmMIGBootConfigurationCI_" #n
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_CI__SIZE                            8
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_CI_FLAGS                            7:0
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_CI_PLACEMENT_LO                     11:8
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_CI_CES                              15:12
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_CI_DECS                             19:16
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_CI_ENCS                             23:20
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_CI_JPGS                             27:24
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_CI_OFAS                             31:28
+
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_CI_ASSIGNMENT                       "RmMIGBootConfigurationCIAssignment"
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_CI_ASSIGNMENT_GI(n)                 ((4 * ((n) + 1)) - 1):(4 * (n))
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_CI_ASSIGNMENT_GI__SIZE              8
+
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_FEATURE_FLAGS                       "RmMIGBootConfigurationFeatureFlags"
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_FEATURE_FLAGS_SUPPORTED             0:0
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_FEATURE_FLAGS_SUPPORTED_DEFAULT     0x0
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_FEATURE_FLAGS_SUPPORTED_FALSE       0x0
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_FEATURE_FLAGS_SUPPORTED_TRUE        0x1
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_FEATURE_FLAGS_AUTO_UPDATE           1:1
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_FEATURE_FLAGS_AUTO_UPDATE_DEFAULT   0x0
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_FEATURE_FLAGS_AUTO_UPDATE_DISABLED  0x0
+#define NV_REG_STR_RM_MIG_BOOT_CONFIGURATION_FEATURE_FLAGS_AUTO_UPDATE_ENABLED   0x1
 
 #endif // NVRM_REGISTRY_H

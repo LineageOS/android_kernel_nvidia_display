@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2013-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2013-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -152,6 +152,24 @@ engstateGetName_IMPL
 #endif
 }
 
+void
+engstateLogStateStatus_IMPL
+(
+    OBJENGSTATE   *pEngstate,
+    ENGSTATE_STATE targetState,
+    NV_STATUS      targetStatus
+)
+{
+    ENGSTATE_STATUS *status = &pEngstate->status[targetState];
+    NV_ASSERT_OR_RETURN_VOID(targetState < ENGSTATE_STATE_COUNT);
+
+    status->engStatus = targetStatus;
+
+#if NV_PRINTF_STRINGS_ALLOWED
+    portStringCopy(status->name, sizeof(status->name), engstateGetName(pEngstate), portStringLength(engstateGetName(pEngstate)) + 1);
+#endif
+}
+
 /*!
  * @brief generic constructor
  */
@@ -175,8 +193,6 @@ engstateDestruct_IMPL
     OBJENGSTATE *pEngstate
 )
 {
-    portMemFree(pEngstate->pOriginalTunableState);
-    pEngstate->pOriginalTunableState = NULL;
 }
 
 /*!
@@ -380,117 +396,6 @@ engstateStateDestroy_IMPL
     OBJENGSTATE *pEngstate
 )
 {
-}
-
-/*!
- * @brief allocates a tunable state structure
- *
- * @param[in]   pGpu
- * @param[in]   pEngstate
- * @param[out]  ppTunableState
- */
-NV_STATUS
-engstateAllocTunableState_IMPL
-(
-    OBJGPU *pGpu,
-    OBJENGSTATE *pEngstate,
-    void **ppTunableState
-)
-{
-    *ppTunableState = NULL;
-    return NV_OK;
-}
-
-/*!
- * @brief frees a tunable state structure
- *
- * @param[in]   pGpu
- * @param[in]   pEngstate
- * @param[in]   pTunableState
- */
-void
-engstateFreeTunableState_IMPL
-(
-    OBJGPU *pGpu,
-    OBJENGSTATE *pEngstate,
-    void *pTunableState
-)
-{
-    portMemFree(pTunableState);
-}
-
-/*!
- * @brief fills pTunableState with the current state
- *
- * @param[in]   pGpu
- * @param[in]   pEngstate
- * @param[out]  pTunableState
- */
-NV_STATUS
-engstateGetTunableState_IMPL
-(
-    OBJGPU *pGpu,
-    OBJENGSTATE *pEngstate,
-    void *pTunableState
-)
-{
-    return NV_OK;
-}
-
-/*!
- * @brief sets the current state to values in pTunableState
- *
- * @param[in]      pGpu
- * @param[in,out]  pEngstate
- * @param[in]      pTunableState
- */
-NV_STATUS
-engstateSetTunableState_IMPL
-(
-    OBJGPU *pGpu,
-    OBJENGSTATE *pEngstate,
-    void *pTunableState
-)
-{
-    return NV_OK;
-}
-
-/*!
- * @brief modifies pTunableState to be compatible with pEngstate->pOriginalTunableState
- *
- * @param[in]      pGpu
- * @param[in]      pEngstate
- * @param[in,out]  pTunableState
- */
-NV_STATUS
-engstateReconcileTunableState_IMPL
-(
-    OBJGPU *pGpu,
-    OBJENGSTATE *pEngstate,
-    void *pTunableState
-)
-{
-    return NV_OK;
-}
-
-/*!
- * @brief returns NV_ERR_GENERIC if two tunable states are incompatible
- *
- * @param[in]   pGpu
- * @param[in]   pEngstate
- * @param[in]   pTunables1
- * @param[in]   pTunables2
- */
-NV_STATUS
-engstateCompareTunableState_IMPL
-(
-    OBJGPU *pGpu,
-    OBJENGSTATE *pEngstate,
-    void *pTunables1,
-    void *pTunables2
-)
-{
-    return NV_OK;
 }
 
 /*!

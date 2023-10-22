@@ -27,10 +27,11 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrl0080/ctrl0080gr.finn
+// Source file:      ctrl/ctrl0080/ctrl0080gr.finn
 //
 
 #include "ctrl/ctrl0080/ctrl0080base.h"
+#include "nvcfg_sdk.h"
 
 typedef struct NV0080_CTRL_GR_ROUTE_INFO {
     NvU32 flags;
@@ -95,10 +96,7 @@ typedef struct NV0080_CTRL_GR_GET_CAPS_PARAMS {
  *     indicates that there is no minimum and the bug is not present on this
  *     system.
  */
-typedef struct NV0080_CTRL_GR_INFO {
-    NvU32 index;
-    NvU32 data;
-} NV0080_CTRL_GR_INFO;
+typedef NVXXXX_CTRL_XXX_INFO NV0080_CTRL_GR_INFO;
 
 /* valid graphics info index values */
 #define NV0080_CTRL_GR_INFO_INDEX_MAXCLIPS                          (0x00000000)
@@ -150,13 +148,20 @@ typedef struct NV0080_CTRL_GR_INFO {
 #define NV0080_CTRL_GR_INFO_INDEX_MAX_PER_ENGINE_SUBCONTEXT_COUNT   (0x0000002E)
 
 
+#define NV0080_CTRL_GR_INFO_INDEX_LITTER_NUM_SLICES_PER_LTC         (0x00000032)
+
+
+#define NV0080_CTRL_GR_INFO_INDEX_DUMMY                             (0x00000033)
+#define NV0080_CTRL_GR_INFO_INDEX_GFX_CAPABILITIES                  (0x00000034)
+#define NV0080_CTRL_GR_INFO_INDEX_MAX_MIG_ENGINES                   (0x00000035)
+#define NV0080_CTRL_GR_INFO_INDEX_MAX_PARTITIONABLE_GPCS            (0x00000036)
 
 /* When adding a new INDEX, please update MAX_SIZE accordingly
  * NOTE: 0080 functionality is merged with 2080 functionality, so this max size
  * reflects that.
  */
-#define NV0080_CTRL_GR_INFO_INDEX_MAX                               (0x00000031)
-#define NV0080_CTRL_GR_INFO_MAX_SIZE                                (0x32) /* finn: Evaluated from "(NV0080_CTRL_GR_INFO_INDEX_MAX + 1)" */
+#define NV0080_CTRL_GR_INFO_INDEX_MAX                               (0x00000036)
+#define NV0080_CTRL_GR_INFO_MAX_SIZE                                (0x37) /* finn: Evaluated from "(NV0080_CTRL_GR_INFO_INDEX_MAX + 1)" */
 
 /*
  * NV0080_CTRL_CMD_GR_GET_INFO
@@ -209,9 +214,9 @@ typedef struct NV0080_CTRL_GR_GET_INFO_PARAMS {
  *         disambiguate the target GR engine.
  *
  */
-#define NV0080_CTRL_CMD_GR_GET_TPC_PARTITION_MODE (0x801107) /* finn: Evaluated from "(FINN_NV01_DEVICE_0_GR_INTERFACE_ID << 8) | 0x7" */
+#define NV0080_CTRL_CMD_GR_GET_TPC_PARTITION_MODE (0x801107) /* finn: Evaluated from "(FINN_NV01_DEVICE_0_GR_INTERFACE_ID << 8) | NV0080_CTRL_GR_GET_TPC_PARTITION_MODE_PARAMS_MESSAGE_ID" */
 
-#define NV0080_CTRL_CMD_GR_SET_TPC_PARTITION_MODE (0x801108) /* finn: Evaluated from "(FINN_NV01_DEVICE_0_GR_INTERFACE_ID << 8) | 0x8" */
+#define NV0080_CTRL_CMD_GR_SET_TPC_PARTITION_MODE (0x801108) /* finn: Evaluated from "(FINN_NV01_DEVICE_0_GR_INTERFACE_ID << 8) | NV0080_CTRL_GR_SET_TPC_PARTITION_MODE_PARAMS_MESSAGE_ID" */
 
 /* Enum for listing TPC partitioning modes */
 typedef enum NV0080_CTRL_GR_TPC_PARTITION_MODE {
@@ -226,6 +231,14 @@ typedef struct NV0080_CTRL_GR_TPC_PARTITION_MODE_PARAMS {
     NvBool                            bEnableAllTpcs;  // [in/out]
     NV_DECLARE_ALIGNED(NV0080_CTRL_GR_ROUTE_INFO grRouteInfo, 8);     // [in]
 } NV0080_CTRL_GR_TPC_PARTITION_MODE_PARAMS;
+
+#define NV0080_CTRL_GR_GET_TPC_PARTITION_MODE_PARAMS_MESSAGE_ID (0x7U)
+
+typedef NV0080_CTRL_GR_TPC_PARTITION_MODE_PARAMS NV0080_CTRL_GR_GET_TPC_PARTITION_MODE_PARAMS;
+
+#define NV0080_CTRL_GR_SET_TPC_PARTITION_MODE_PARAMS_MESSAGE_ID (0x8U)
+
+typedef NV0080_CTRL_GR_TPC_PARTITION_MODE_PARAMS NV0080_CTRL_GR_SET_TPC_PARTITION_MODE_PARAMS;
 
 /**
  * NV0080_CTRL_CMD_GR_GET_CAPS_V2

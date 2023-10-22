@@ -7,7 +7,7 @@ extern "C" {
 #endif
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -48,7 +48,7 @@ extern "C" {
 #include "ctrl/ctrl0080.h" // rmcontrol params
 
 // Forward declaration
-struct HOST_VGPU_DEVICE;
+struct KERNEL_HOST_VGPU_DEVICE;
 struct OBJVASPACE;
 
 #ifndef __NVOC_CLASS_OBJVASPACE_TYPEDEF__
@@ -61,9 +61,6 @@ typedef struct OBJVASPACE OBJVASPACE;
 #endif /* __nvoc_class_id_OBJVASPACE */
 
 
-
-// TODO: Remove this after adding KERNEL_HOST_VGPU_DEVICE
-typedef struct HOST_VGPU_DEVICE KERNEL_HOST_VGPU_DEVICE;
 
 /**
  *  A device consists of one or more GPUs. Devices provide broadcast
@@ -98,23 +95,26 @@ struct Device {
     NV_STATUS (*__deviceCtrlCmdOsUnixVTSwitch__)(struct Device *, NV0080_CTRL_OS_UNIX_VT_SWITCH_PARAMS *);
     NV_STATUS (*__deviceCtrlCmdOsUnixVTGetFBInfo__)(struct Device *, NV0080_CTRL_OS_UNIX_VT_GET_FB_INFO_PARAMS *);
     NvBool (*__deviceShareCallback__)(struct Device *, struct RsClient *, struct RsResourceRef *, RS_SHARE_POLICY *);
-    NV_STATUS (*__deviceUnmap__)(struct Device *, struct CALL_CONTEXT *, struct RsCpuMapping *);
-    NV_STATUS (*__deviceGetMemInterMapParams__)(struct Device *, RMRES_MEM_INTER_MAP_PARAMS *);
-    NV_STATUS (*__deviceGetMemoryMappingDescriptor__)(struct Device *, struct MEMORY_DESCRIPTOR **);
-    NV_STATUS (*__deviceGetMapAddrSpace__)(struct Device *, struct CALL_CONTEXT *, NvU32, NV_ADDRESS_SPACE *);
-    NvHandle (*__deviceGetInternalObjectHandle__)(struct Device *);
-    NV_STATUS (*__deviceControlFilter__)(struct Device *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
-    void (*__deviceAddAdditionalDependants__)(struct RsClient *, struct Device *, RsResourceRef *);
-    NvU32 (*__deviceGetRefCount__)(struct Device *);
     NV_STATUS (*__deviceCheckMemInterUnmap__)(struct Device *, NvBool);
     NV_STATUS (*__deviceMapTo__)(struct Device *, RS_RES_MAP_TO_PARAMS *);
+    NV_STATUS (*__deviceGetMapAddrSpace__)(struct Device *, struct CALL_CONTEXT *, NvU32, NV_ADDRESS_SPACE *);
+    NvU32 (*__deviceGetRefCount__)(struct Device *);
+    void (*__deviceAddAdditionalDependants__)(struct RsClient *, struct Device *, RsResourceRef *);
     NV_STATUS (*__deviceControl_Prologue__)(struct Device *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NV_STATUS (*__deviceGetRegBaseOffsetAndSize__)(struct Device *, struct OBJGPU *, NvU32 *, NvU32 *);
-    NvBool (*__deviceCanCopy__)(struct Device *);
-    void (*__devicePreDestruct__)(struct Device *);
     NV_STATUS (*__deviceUnmapFrom__)(struct Device *, RS_RES_UNMAP_FROM_PARAMS *);
     void (*__deviceControl_Epilogue__)(struct Device *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NV_STATUS (*__deviceControlLookup__)(struct Device *, struct RS_RES_CONTROL_PARAMS_INTERNAL *, const struct NVOC_EXPORTED_METHOD_DEF **);
+    NvHandle (*__deviceGetInternalObjectHandle__)(struct Device *);
+    NV_STATUS (*__deviceUnmap__)(struct Device *, struct CALL_CONTEXT *, struct RsCpuMapping *);
+    NV_STATUS (*__deviceGetMemInterMapParams__)(struct Device *, RMRES_MEM_INTER_MAP_PARAMS *);
+    NV_STATUS (*__deviceGetMemoryMappingDescriptor__)(struct Device *, struct MEMORY_DESCRIPTOR **);
+    NV_STATUS (*__deviceControlFilter__)(struct Device *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
+    NV_STATUS (*__deviceControlSerialization_Prologue__)(struct Device *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
+    NvBool (*__deviceCanCopy__)(struct Device *);
+    void (*__devicePreDestruct__)(struct Device *);
+    NV_STATUS (*__deviceIsDuplicate__)(struct Device *, NvHandle, NvBool *);
+    void (*__deviceControlSerialization_Epilogue__)(struct Device *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NV_STATUS (*__deviceMap__)(struct Device *, struct CALL_CONTEXT *, struct RS_CPU_MAP_PARAMS *, struct RsCpuMapping *);
     NvBool (*__deviceAccessCallback__)(struct Device *, struct RsClient *, void *, RsAccessRight);
     NvU32 deviceInst;
@@ -134,8 +134,7 @@ struct Device {
     NvU64 vaLimitInternal;
     NvU64 vaSize;
     NvU32 vaMode;
-    struct HOST_VGPU_DEVICE *pHostVgpuDevice;
-    KERNEL_HOST_VGPU_DEVICE *pKernelHostVgpuDevice;
+    struct KERNEL_HOST_VGPU_DEVICE *pKernelHostVgpuDevice;
 };
 
 #ifndef __NVOC_CLASS_Device_TYPEDEF__
@@ -180,23 +179,26 @@ NV_STATUS __nvoc_objCreate_Device(Device**, Dynamic*, NvU32, struct CALL_CONTEXT
 #define deviceCtrlCmdOsUnixVTSwitch(pDevice, pParams) deviceCtrlCmdOsUnixVTSwitch_DISPATCH(pDevice, pParams)
 #define deviceCtrlCmdOsUnixVTGetFBInfo(pDevice, pParams) deviceCtrlCmdOsUnixVTGetFBInfo_DISPATCH(pDevice, pParams)
 #define deviceShareCallback(pGpuResource, pInvokingClient, pParentRef, pSharePolicy) deviceShareCallback_DISPATCH(pGpuResource, pInvokingClient, pParentRef, pSharePolicy)
-#define deviceUnmap(pGpuResource, pCallContext, pCpuMapping) deviceUnmap_DISPATCH(pGpuResource, pCallContext, pCpuMapping)
-#define deviceGetMemInterMapParams(pRmResource, pParams) deviceGetMemInterMapParams_DISPATCH(pRmResource, pParams)
-#define deviceGetMemoryMappingDescriptor(pRmResource, ppMemDesc) deviceGetMemoryMappingDescriptor_DISPATCH(pRmResource, ppMemDesc)
-#define deviceGetMapAddrSpace(pGpuResource, pCallContext, mapFlags, pAddrSpace) deviceGetMapAddrSpace_DISPATCH(pGpuResource, pCallContext, mapFlags, pAddrSpace)
-#define deviceGetInternalObjectHandle(pGpuResource) deviceGetInternalObjectHandle_DISPATCH(pGpuResource)
-#define deviceControlFilter(pResource, pCallContext, pParams) deviceControlFilter_DISPATCH(pResource, pCallContext, pParams)
-#define deviceAddAdditionalDependants(pClient, pResource, pReference) deviceAddAdditionalDependants_DISPATCH(pClient, pResource, pReference)
-#define deviceGetRefCount(pResource) deviceGetRefCount_DISPATCH(pResource)
 #define deviceCheckMemInterUnmap(pRmResource, bSubdeviceHandleProvided) deviceCheckMemInterUnmap_DISPATCH(pRmResource, bSubdeviceHandleProvided)
 #define deviceMapTo(pResource, pParams) deviceMapTo_DISPATCH(pResource, pParams)
+#define deviceGetMapAddrSpace(pGpuResource, pCallContext, mapFlags, pAddrSpace) deviceGetMapAddrSpace_DISPATCH(pGpuResource, pCallContext, mapFlags, pAddrSpace)
+#define deviceGetRefCount(pResource) deviceGetRefCount_DISPATCH(pResource)
+#define deviceAddAdditionalDependants(pClient, pResource, pReference) deviceAddAdditionalDependants_DISPATCH(pClient, pResource, pReference)
 #define deviceControl_Prologue(pResource, pCallContext, pParams) deviceControl_Prologue_DISPATCH(pResource, pCallContext, pParams)
 #define deviceGetRegBaseOffsetAndSize(pGpuResource, pGpu, pOffset, pSize) deviceGetRegBaseOffsetAndSize_DISPATCH(pGpuResource, pGpu, pOffset, pSize)
-#define deviceCanCopy(pResource) deviceCanCopy_DISPATCH(pResource)
-#define devicePreDestruct(pResource) devicePreDestruct_DISPATCH(pResource)
 #define deviceUnmapFrom(pResource, pParams) deviceUnmapFrom_DISPATCH(pResource, pParams)
 #define deviceControl_Epilogue(pResource, pCallContext, pParams) deviceControl_Epilogue_DISPATCH(pResource, pCallContext, pParams)
 #define deviceControlLookup(pResource, pParams, ppEntry) deviceControlLookup_DISPATCH(pResource, pParams, ppEntry)
+#define deviceGetInternalObjectHandle(pGpuResource) deviceGetInternalObjectHandle_DISPATCH(pGpuResource)
+#define deviceUnmap(pGpuResource, pCallContext, pCpuMapping) deviceUnmap_DISPATCH(pGpuResource, pCallContext, pCpuMapping)
+#define deviceGetMemInterMapParams(pRmResource, pParams) deviceGetMemInterMapParams_DISPATCH(pRmResource, pParams)
+#define deviceGetMemoryMappingDescriptor(pRmResource, ppMemDesc) deviceGetMemoryMappingDescriptor_DISPATCH(pRmResource, ppMemDesc)
+#define deviceControlFilter(pResource, pCallContext, pParams) deviceControlFilter_DISPATCH(pResource, pCallContext, pParams)
+#define deviceControlSerialization_Prologue(pResource, pCallContext, pParams) deviceControlSerialization_Prologue_DISPATCH(pResource, pCallContext, pParams)
+#define deviceCanCopy(pResource) deviceCanCopy_DISPATCH(pResource)
+#define devicePreDestruct(pResource) devicePreDestruct_DISPATCH(pResource)
+#define deviceIsDuplicate(pResource, hMemory, pDuplicate) deviceIsDuplicate_DISPATCH(pResource, hMemory, pDuplicate)
+#define deviceControlSerialization_Epilogue(pResource, pCallContext, pParams) deviceControlSerialization_Epilogue_DISPATCH(pResource, pCallContext, pParams)
 #define deviceMap(pGpuResource, pCallContext, pParams, pCpuMapping) deviceMap_DISPATCH(pGpuResource, pCallContext, pParams, pCpuMapping)
 #define deviceAccessCallback(pResource, pInvokingClient, pAllocParams, accessRight) deviceAccessCallback_DISPATCH(pResource, pInvokingClient, pAllocParams, accessRight)
 NV_STATUS deviceControl_IMPL(struct Device *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);
@@ -281,38 +283,6 @@ static inline NvBool deviceShareCallback_DISPATCH(struct Device *pGpuResource, s
     return pGpuResource->__deviceShareCallback__(pGpuResource, pInvokingClient, pParentRef, pSharePolicy);
 }
 
-static inline NV_STATUS deviceUnmap_DISPATCH(struct Device *pGpuResource, struct CALL_CONTEXT *pCallContext, struct RsCpuMapping *pCpuMapping) {
-    return pGpuResource->__deviceUnmap__(pGpuResource, pCallContext, pCpuMapping);
-}
-
-static inline NV_STATUS deviceGetMemInterMapParams_DISPATCH(struct Device *pRmResource, RMRES_MEM_INTER_MAP_PARAMS *pParams) {
-    return pRmResource->__deviceGetMemInterMapParams__(pRmResource, pParams);
-}
-
-static inline NV_STATUS deviceGetMemoryMappingDescriptor_DISPATCH(struct Device *pRmResource, struct MEMORY_DESCRIPTOR **ppMemDesc) {
-    return pRmResource->__deviceGetMemoryMappingDescriptor__(pRmResource, ppMemDesc);
-}
-
-static inline NV_STATUS deviceGetMapAddrSpace_DISPATCH(struct Device *pGpuResource, struct CALL_CONTEXT *pCallContext, NvU32 mapFlags, NV_ADDRESS_SPACE *pAddrSpace) {
-    return pGpuResource->__deviceGetMapAddrSpace__(pGpuResource, pCallContext, mapFlags, pAddrSpace);
-}
-
-static inline NvHandle deviceGetInternalObjectHandle_DISPATCH(struct Device *pGpuResource) {
-    return pGpuResource->__deviceGetInternalObjectHandle__(pGpuResource);
-}
-
-static inline NV_STATUS deviceControlFilter_DISPATCH(struct Device *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
-    return pResource->__deviceControlFilter__(pResource, pCallContext, pParams);
-}
-
-static inline void deviceAddAdditionalDependants_DISPATCH(struct RsClient *pClient, struct Device *pResource, RsResourceRef *pReference) {
-    pResource->__deviceAddAdditionalDependants__(pClient, pResource, pReference);
-}
-
-static inline NvU32 deviceGetRefCount_DISPATCH(struct Device *pResource) {
-    return pResource->__deviceGetRefCount__(pResource);
-}
-
 static inline NV_STATUS deviceCheckMemInterUnmap_DISPATCH(struct Device *pRmResource, NvBool bSubdeviceHandleProvided) {
     return pRmResource->__deviceCheckMemInterUnmap__(pRmResource, bSubdeviceHandleProvided);
 }
@@ -321,20 +291,24 @@ static inline NV_STATUS deviceMapTo_DISPATCH(struct Device *pResource, RS_RES_MA
     return pResource->__deviceMapTo__(pResource, pParams);
 }
 
+static inline NV_STATUS deviceGetMapAddrSpace_DISPATCH(struct Device *pGpuResource, struct CALL_CONTEXT *pCallContext, NvU32 mapFlags, NV_ADDRESS_SPACE *pAddrSpace) {
+    return pGpuResource->__deviceGetMapAddrSpace__(pGpuResource, pCallContext, mapFlags, pAddrSpace);
+}
+
+static inline NvU32 deviceGetRefCount_DISPATCH(struct Device *pResource) {
+    return pResource->__deviceGetRefCount__(pResource);
+}
+
+static inline void deviceAddAdditionalDependants_DISPATCH(struct RsClient *pClient, struct Device *pResource, RsResourceRef *pReference) {
+    pResource->__deviceAddAdditionalDependants__(pClient, pResource, pReference);
+}
+
 static inline NV_STATUS deviceControl_Prologue_DISPATCH(struct Device *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
     return pResource->__deviceControl_Prologue__(pResource, pCallContext, pParams);
 }
 
 static inline NV_STATUS deviceGetRegBaseOffsetAndSize_DISPATCH(struct Device *pGpuResource, struct OBJGPU *pGpu, NvU32 *pOffset, NvU32 *pSize) {
     return pGpuResource->__deviceGetRegBaseOffsetAndSize__(pGpuResource, pGpu, pOffset, pSize);
-}
-
-static inline NvBool deviceCanCopy_DISPATCH(struct Device *pResource) {
-    return pResource->__deviceCanCopy__(pResource);
-}
-
-static inline void devicePreDestruct_DISPATCH(struct Device *pResource) {
-    pResource->__devicePreDestruct__(pResource);
 }
 
 static inline NV_STATUS deviceUnmapFrom_DISPATCH(struct Device *pResource, RS_RES_UNMAP_FROM_PARAMS *pParams) {
@@ -347,6 +321,46 @@ static inline void deviceControl_Epilogue_DISPATCH(struct Device *pResource, str
 
 static inline NV_STATUS deviceControlLookup_DISPATCH(struct Device *pResource, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams, const struct NVOC_EXPORTED_METHOD_DEF **ppEntry) {
     return pResource->__deviceControlLookup__(pResource, pParams, ppEntry);
+}
+
+static inline NvHandle deviceGetInternalObjectHandle_DISPATCH(struct Device *pGpuResource) {
+    return pGpuResource->__deviceGetInternalObjectHandle__(pGpuResource);
+}
+
+static inline NV_STATUS deviceUnmap_DISPATCH(struct Device *pGpuResource, struct CALL_CONTEXT *pCallContext, struct RsCpuMapping *pCpuMapping) {
+    return pGpuResource->__deviceUnmap__(pGpuResource, pCallContext, pCpuMapping);
+}
+
+static inline NV_STATUS deviceGetMemInterMapParams_DISPATCH(struct Device *pRmResource, RMRES_MEM_INTER_MAP_PARAMS *pParams) {
+    return pRmResource->__deviceGetMemInterMapParams__(pRmResource, pParams);
+}
+
+static inline NV_STATUS deviceGetMemoryMappingDescriptor_DISPATCH(struct Device *pRmResource, struct MEMORY_DESCRIPTOR **ppMemDesc) {
+    return pRmResource->__deviceGetMemoryMappingDescriptor__(pRmResource, ppMemDesc);
+}
+
+static inline NV_STATUS deviceControlFilter_DISPATCH(struct Device *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return pResource->__deviceControlFilter__(pResource, pCallContext, pParams);
+}
+
+static inline NV_STATUS deviceControlSerialization_Prologue_DISPATCH(struct Device *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return pResource->__deviceControlSerialization_Prologue__(pResource, pCallContext, pParams);
+}
+
+static inline NvBool deviceCanCopy_DISPATCH(struct Device *pResource) {
+    return pResource->__deviceCanCopy__(pResource);
+}
+
+static inline void devicePreDestruct_DISPATCH(struct Device *pResource) {
+    pResource->__devicePreDestruct__(pResource);
+}
+
+static inline NV_STATUS deviceIsDuplicate_DISPATCH(struct Device *pResource, NvHandle hMemory, NvBool *pDuplicate) {
+    return pResource->__deviceIsDuplicate__(pResource, hMemory, pDuplicate);
+}
+
+static inline void deviceControlSerialization_Epilogue_DISPATCH(struct Device *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    pResource->__deviceControlSerialization_Epilogue__(pResource, pCallContext, pParams);
 }
 
 static inline NV_STATUS deviceMap_DISPATCH(struct Device *pGpuResource, struct CALL_CONTEXT *pCallContext, struct RS_CPU_MAP_PARAMS *pParams, struct RsCpuMapping *pCpuMapping) {
@@ -362,10 +376,13 @@ static inline NV_STATUS deviceSetDefaultVASpace(struct Device *pDevice, NvHandle
 }
 
 NV_STATUS deviceConstruct_IMPL(struct Device *arg_pResource, struct CALL_CONTEXT *arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL *arg_pParams);
+
 #define __nvoc_deviceConstruct(arg_pResource, arg_pCallContext, arg_pParams) deviceConstruct_IMPL(arg_pResource, arg_pCallContext, arg_pParams)
 void deviceDestruct_IMPL(struct Device *pResource);
+
 #define __nvoc_deviceDestruct(pResource) deviceDestruct_IMPL(pResource)
 NV_STATUS deviceInit_IMPL(struct Device *pDevice, struct CALL_CONTEXT *pCallContext, NvHandle hClient, NvHandle hDevice, NvU32 deviceInst, NvHandle hClientShare, NvHandle hTargetClient, NvHandle hTargetDevice, NvU64 vaSize, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 allocFlags, NvU32 vaMode);
+
 #ifdef __nvoc_device_h_disabled
 static inline NV_STATUS deviceInit(struct Device *pDevice, struct CALL_CONTEXT *pCallContext, NvHandle hClient, NvHandle hDevice, NvU32 deviceInst, NvHandle hClientShare, NvHandle hTargetClient, NvHandle hTargetDevice, NvU64 vaSize, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 allocFlags, NvU32 vaMode) {
     NV_ASSERT_FAILED_PRECOMP("Device was disabled!");
@@ -376,12 +393,16 @@ static inline NV_STATUS deviceInit(struct Device *pDevice, struct CALL_CONTEXT *
 #endif //__nvoc_device_h_disabled
 
 NV_STATUS deviceGetByHandle_IMPL(struct RsClient *pClient, NvHandle hDevice, struct Device **ppDevice);
+
 #define deviceGetByHandle(pClient, hDevice, ppDevice) deviceGetByHandle_IMPL(pClient, hDevice, ppDevice)
 NV_STATUS deviceGetByInstance_IMPL(struct RsClient *pClient, NvU32 deviceInstance, struct Device **ppDevice);
+
 #define deviceGetByInstance(pClient, deviceInstance, ppDevice) deviceGetByInstance_IMPL(pClient, deviceInstance, ppDevice)
 NV_STATUS deviceGetByGpu_IMPL(struct RsClient *pClient, struct OBJGPU *pGpu, NvBool bAnyInGroup, struct Device **ppDevice);
+
 #define deviceGetByGpu(pClient, pGpu, bAnyInGroup, ppDevice) deviceGetByGpu_IMPL(pClient, pGpu, bAnyInGroup, ppDevice)
 NV_STATUS deviceGetDefaultVASpace_IMPL(struct Device *pDevice, struct OBJVASPACE **ppVAS);
+
 #ifdef __nvoc_device_h_disabled
 static inline NV_STATUS deviceGetDefaultVASpace(struct Device *pDevice, struct OBJVASPACE **ppVAS) {
     NV_ASSERT_FAILED_PRECOMP("Device was disabled!");
@@ -392,6 +413,7 @@ static inline NV_STATUS deviceGetDefaultVASpace(struct Device *pDevice, struct O
 #endif //__nvoc_device_h_disabled
 
 NV_STATUS deviceSetClientShare_IMPL(struct Device *pDevice, NvHandle hClientShare, NvU64 vaSize, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 deviceAllocFlags);
+
 #ifdef __nvoc_device_h_disabled
 static inline NV_STATUS deviceSetClientShare(struct Device *pDevice, NvHandle hClientShare, NvU64 vaSize, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 deviceAllocFlags) {
     NV_ASSERT_FAILED_PRECOMP("Device was disabled!");
@@ -402,6 +424,7 @@ static inline NV_STATUS deviceSetClientShare(struct Device *pDevice, NvHandle hC
 #endif //__nvoc_device_h_disabled
 
 void deviceRemoveFromClientShare_IMPL(struct Device *pDevice);
+
 #ifdef __nvoc_device_h_disabled
 static inline void deviceRemoveFromClientShare(struct Device *pDevice) {
     NV_ASSERT_FAILED_PRECOMP("Device was disabled!");
@@ -416,11 +439,6 @@ static inline void deviceRemoveFromClientShare(struct Device *pDevice) {
 // ****************************************************************************
 //                            Deprecated Definitions
 // ****************************************************************************
-
-/**
- * WARNING: This function is deprecated! Please use deviceGetByHandle.
- */
-struct Device *CliGetDeviceInfo(NvHandle, NvHandle);
 
 /**
  * WARNING: This function is deprecated and use is *strongly* discouraged

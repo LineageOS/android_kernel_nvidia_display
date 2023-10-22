@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -34,7 +34,6 @@
 #include "class/clc67d.h"
 #include "class/clc67e.h"
 #include "class/cl84a0.h"
-#include "class/clc372sw.h"
 
 #include <rmapi/alloc_size.h>
 
@@ -53,17 +52,6 @@
 #undef RPC_MESSAGE_GENERIC_UNION
 
 #define DCE_MAX_RPC_MSG_SIZE 4096
-
-extern ROOT roots[MAX_RM_CLIENTS];
-extern DEVICE devices[MAX_RM_CLIENTS];
-extern SUBDEVICE subdevices[MAX_RM_CLIENTS];
-extern DISPLAY_COMMON display;
-extern DISPLAY_SW displaySW;
-extern DISPLAY_SW_EVENT displaySWEventHotplug;
-extern DISPLAY_SW_EVENT displaySWEventDPIRQ;
-extern DISPLAY_HPD_CTRL displayCtrlHotplug;
-extern DISPLAY_HPD_CTRL displayCtrlDPIRQ;
-extern DISPLAY_DP_SET_MANUAL displayCtrlDPSetManual;
 
 NV_STATUS
 dceclientInitRpcInfra_IMPL
@@ -418,8 +406,6 @@ NV_STATUS rpcRmApiControl_dce
     rpc_generic_union *msg_data;
     rpc_gsp_rm_control_v *rpc_params = NULL;
     NV_STATUS status = NV_ERR_NOT_SUPPORTED;
-    NV2080_CTRL_EVENT_SET_NOTIFICATION_PARAMS setEventParams = { };
-    NV0073_CTRL_CMD_DP_SET_MANUAL_DISPLAYPORT_PARAMS setManualParams = {0};
 
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE : Prepare and send RmApiControl RPC\n");
 
@@ -448,36 +434,6 @@ NV_STATUS rpcRmApiControl_dce
     rpc_params->cmd        = cmd;
     rpc_params->paramsSize = paramsSize;
     portMemCopy(rpc_params->params, paramsSize,pParamStructPtr, paramsSize);
-
-    if (!pGpu->getProperty(pGpu, PDB_PROP_GPU_IN_PM_RESUME_CODEPATH))
-    {
-        if (cmd == NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION)
-        {
-            portMemCopy(&setEventParams, paramsSize,pParamStructPtr, paramsSize);
-            if (setEventParams.event == NV2080_NOTIFIERS_HOTPLUG)
-            {
-                displayCtrlHotplug.hClient = rpc_params->hClient;
-                displayCtrlHotplug.hObject = rpc_params->hObject;
-                portMemCopy(&displayCtrlHotplug.setEventParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
-                displayCtrlHotplug.valid = NV_TRUE;
-            }
-            if (setEventParams.event == NV2080_NOTIFIERS_DP_IRQ)
-            {
-                displayCtrlDPIRQ.hClient = rpc_params->hClient;
-                displayCtrlDPIRQ.hObject = rpc_params->hObject;
-                portMemCopy(&displayCtrlDPIRQ.setEventParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
-                displayCtrlDPIRQ.valid = NV_TRUE;
-            }
-        }
-        if (cmd == NV0073_CTRL_CMD_DP_SET_MANUAL_DISPLAYPORT)
-        {
-            portMemCopy(&setManualParams, paramsSize,pParamStructPtr, paramsSize);
-            displayCtrlDPSetManual.hClient = rpc_params->hClient;
-            displayCtrlDPSetManual.hObject = rpc_params->hObject;
-            portMemCopy(&displayCtrlDPSetManual.setManualParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
-            displayCtrlDPSetManual.valid = NV_TRUE;
-        }
-    }
 
     status = _dceRpcIssueAndWait(pRmApi);
     if (status != NV_OK)
@@ -512,7 +468,8 @@ NV_STATUS rpcRmApiAlloc_dce
     NvHandle hParent,
     NvHandle hObject,
     NvU32 hClass,
-    void *pAllocParams
+    void *pAllocParams,
+    NvU32 allocParamSize
 )
 {
     OBJGPU *pGpu = (OBJGPU*)pRmApi->pPrivateContext;
@@ -523,7 +480,6 @@ NV_STATUS rpcRmApiAlloc_dce
     NV_STATUS status;
     NvU32 paramsSize;
     NvBool bNullAllowed;
-    NV0005_ALLOC_PARAMETERS displaySWEventAllocParams;
 
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE: Prepare and send RmApiAlloc RPC\n");
 
@@ -561,110 +517,6 @@ NV_STATUS rpcRmApiAlloc_dce
     rpc_params->hClass     = hClass;
     rpc_params->paramsSize = pAllocParams ? paramsSize : 0;
     portMemCopy(rpc_params->params, rpc_params->paramsSize, pAllocParams, paramsSize);
-
-    if (!pGpu->getProperty(pGpu, PDB_PROP_GPU_IN_PM_RESUME_CODEPATH))
-    {
-        if (hClass == NV01_ROOT)
-        {
-            NvU32 i = 0;
-
-            for (i = 0; i < MAX_RM_CLIENTS; i++)
-            {
-                if (!roots[i].valid)
-                {
-                    roots[i].hClient = rpc_params->hClient;
-                    roots[i].hParent = rpc_params->hParent;
-                    roots[i].hObject = rpc_params->hObject;
-                    roots[i].hClass  = rpc_params->hClass;
-                    portMemCopy(&roots[i].rootAllocParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
-                    roots[i].valid   = NV_TRUE;
-                    break;
-                }
-            }
-        }
-
-        if (hClass == NV01_DEVICE_0)
-        {
-            NvU32 i=0;
-
-            for (i = 0; i < MAX_RM_CLIENTS; i++)
-            {
-                if (!devices[i].valid)
-                {
-                    devices[i].hClient = rpc_params->hClient;
-                    devices[i].hParent = rpc_params->hParent;
-                    devices[i].hObject = rpc_params->hObject;
-                    devices[i].hClass  = rpc_params->hClass;
-                    portMemCopy(&devices[i].deviceAllocParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
-                    devices[i].valid   = NV_TRUE;
-                    break;
-                }
-            }
-        }
-
-        if (hClass == NV20_SUBDEVICE_0)
-        {
-            NvU32 i = 0;
-
-            for (i = 0; i < MAX_RM_CLIENTS; i++)
-            {
-                if (!subdevices[i].valid)
-                {
-                    subdevices[i].hClient = rpc_params->hClient;
-                    subdevices[i].hParent = rpc_params->hParent;
-                    subdevices[i].hObject = rpc_params->hObject;
-                    subdevices[i].hClass  = rpc_params->hClass;
-                    portMemCopy(&subdevices[i].subdeviceAllocParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
-                    subdevices[i].valid   = NV_TRUE;
-                    break;
-                }
-            }
-        }
-
-        if (hClass == NV04_DISPLAY_COMMON)
-        {
-            display.hClient = rpc_params->hClient;
-            display.hParent = rpc_params->hParent;
-            display.hObject = rpc_params->hObject;
-            display.hClass  = rpc_params->hClass;
-            portMemCopy(&display.displayCommonAllocParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
-            display.valid   = NV_TRUE;
-        }
-
-        if (hClass == NVC372_DISPLAY_SW)
-        {
-            displaySW.hClient = rpc_params->hClient;
-            displaySW.hParent = rpc_params->hParent;
-            displaySW.hObject = rpc_params->hObject;
-            displaySW.hClass  = rpc_params->hClass;
-            portMemCopy(&displaySW.displaySWAllocParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
-            displaySW.valid   = NV_TRUE;
-        }
-
-        if (hClass == NV01_EVENT_KERNEL_CALLBACK_EX)
-        {
-            portMemCopy(&displaySWEventAllocParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
-            if (0x4000001 == displaySWEventAllocParams.notifyIndex)
-            {
-                displaySWEventHotplug.hClient = rpc_params->hClient;
-                displaySWEventHotplug.hParent = rpc_params->hParent;
-                displaySWEventHotplug.hObject = rpc_params->hObject;
-                displaySWEventHotplug.hClass  = rpc_params->hClass;
-                portMemCopy(&displaySWEventHotplug.displaySWEventAllocParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
-                displaySWEventHotplug.valid   = NV_TRUE;
-            }
-
-            if (0x4000007 == displaySWEventAllocParams.notifyIndex)
-            {
-                displaySWEventDPIRQ.hClient = rpc_params->hClient;
-                displaySWEventDPIRQ.hParent = rpc_params->hParent;
-                displaySWEventDPIRQ.hObject = rpc_params->hObject;
-                displaySWEventDPIRQ.hClass  = rpc_params->hClass;
-                portMemCopy(&displaySWEventDPIRQ.displaySWEventAllocParams, rpc_params->paramsSize, rpc_params->params, rpc_params->paramsSize);
-                displaySWEventDPIRQ.valid   = NV_TRUE;
-            }
-        }
-    }
 
     status = _dceRpcIssueAndWait(pRmApi);
     if (status != NV_OK)
@@ -851,6 +703,57 @@ rpcDceRmInit_dce
     if (status != NV_OK)
     {
         NV_PRINTF(LEVEL_ERROR, "NVRM_RPC_DCE: Failed RM init/deinit result 0x%x:\n", status);
+    }
+
+done:
+    portMemFree(pRpc->message_buffer);
+    return status;
+}
+
+NV_STATUS
+rpcUnloadingGuestDriver_dce(
+    OBJGPU       *pGpu,
+    OBJRPC       *pRpc,
+    NvBool        bInPMTransition,
+    NvBool        bGc6Entering,
+    NvU32         newPMLevel
+)
+{
+    RM_API *pRmApi = NULL;
+    rpc_generic_union *msg_data;
+    NV_STATUS status = NV_ERR_NOT_SUPPORTED;
+    rpc_unloading_guest_driver_v *rpc_params = NULL;
+
+    status = _dceRpcAllocateMemory(pRpc);
+    NV_ASSERT_OK_OR_RETURN(status);
+
+    pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
+    msg_data = _dceRpcGetMessageData(pRpc);
+    rpc_params = &msg_data->unloading_guest_driver_v;
+
+    status = rpcWriteCommonHeader(pGpu, pRpc,
+                                  NV_VGPU_MSG_FUNCTION_UNLOADING_GUEST_DRIVER,
+                                  sizeof(rpc_unloading_guest_driver_v));
+    if (status != NV_OK)
+    {
+        NV_PRINTF(LEVEL_ERROR, "NVRM_RPC_DCE: Writing RPC Header Failed [0x%x]\n", status);
+        goto done;
+    }
+
+    rpc_params->bInPMTransition = bInPMTransition;
+    rpc_params->bGc6Entering = bGc6Entering;
+    rpc_params->newLevel = newPMLevel;
+
+    status = _dceRpcIssueAndWait(pRmApi);
+    if (status != NV_OK)
+    {
+        goto done;
+    }
+
+    status = _dceRpcGetRpcResult(pRpc);
+    if (status != NV_OK)
+    {
+        NV_PRINTF(LEVEL_ERROR, "NVRM_RPC_DCE: Failed Fw Unload result 0x%x:\n", status);
     }
 
 done:

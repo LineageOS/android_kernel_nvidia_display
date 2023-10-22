@@ -81,6 +81,7 @@ struct NvKmsKapiDevice {
         NvU32 maxCursorSizeInPixels;
 
         NvU8  genericPageKind;
+        NvBool requiresVrrSemaphores;
     } caps;
 
     NvU64 supportedSurfaceMemoryFormats[NVKMS_KAPI_LAYER_MAX];
@@ -172,5 +173,42 @@ nvKmsKapiAllocateChannelEvent(struct NvKmsKapiDevice *device,
 void
 nvKmsKapiFreeChannelEvent(struct NvKmsKapiDevice *device,
                           struct NvKmsKapiChannelEvent *cb);
+
+struct NvKmsKapiSemaphoreSurface*
+nvKmsKapiImportSemaphoreSurface(struct NvKmsKapiDevice *device,
+                                NvU64 nvKmsParamsUser,
+                                NvU64 nvKmsParamsSize,
+                                void **pSemaphoreMap,
+                                void **pMaxSubmittedMap);
+
+void
+nvKmsKapiFreeSemaphoreSurface(struct NvKmsKapiDevice *device,
+                              struct NvKmsKapiSemaphoreSurface *ss);
+
+NvKmsKapiRegisterWaiterResult
+nvKmsKapiRegisterSemaphoreSurfaceCallback(
+    struct NvKmsKapiDevice *device,
+    struct NvKmsKapiSemaphoreSurface *semaphoreSurface,
+    NvKmsSemaphoreSurfaceCallbackProc *pCallback,
+    void *pData,
+    NvU64 index,
+    NvU64 wait_value,
+    NvU64 new_value,
+    struct NvKmsKapiSemaphoreSurfaceCallback **pCallbackHandle);
+
+NvBool
+nvKmsKapiUnregisterSemaphoreSurfaceCallback(
+    struct NvKmsKapiDevice *device,
+    struct NvKmsKapiSemaphoreSurface *semaphoreSurface,
+    NvU64 index,
+    NvU64 wait_value,
+    struct NvKmsKapiSemaphoreSurfaceCallback *callbackHandle);
+
+NvBool
+nvKmsKapiSetSemaphoreSurfaceValue(
+    struct NvKmsKapiDevice *device,
+    struct NvKmsKapiSemaphoreSurface *semaphoreSurface,
+    NvU64 index,
+    NvU64 new_value);
 
 #endif /* __NVKMS_KAPI_INTERNAL_H__ */

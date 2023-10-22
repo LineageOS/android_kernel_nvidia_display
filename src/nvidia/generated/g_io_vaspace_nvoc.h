@@ -254,8 +254,10 @@ static inline NvU32 iovaspaceGetFlags_DISPATCH(struct OBJIOVASPACE *pVAS) {
 }
 
 void iovaspaceDestruct_IMPL(struct OBJIOVASPACE *pIOVAS);
+
 #define __nvoc_iovaspaceDestruct(pIOVAS) iovaspaceDestruct_IMPL(pIOVAS)
 NV_STATUS iovaspaceAcquireMapping_IMPL(struct OBJIOVASPACE *pIOVAS, PMEMORY_DESCRIPTOR pIovaMapping);
+
 #ifdef __nvoc_io_vaspace_h_disabled
 static inline NV_STATUS iovaspaceAcquireMapping(struct OBJIOVASPACE *pIOVAS, PMEMORY_DESCRIPTOR pIovaMapping) {
     NV_ASSERT_FAILED_PRECOMP("OBJIOVASPACE was disabled!");
@@ -266,6 +268,7 @@ static inline NV_STATUS iovaspaceAcquireMapping(struct OBJIOVASPACE *pIOVAS, PME
 #endif //__nvoc_io_vaspace_h_disabled
 
 void iovaspaceReleaseMapping_IMPL(struct OBJIOVASPACE *pIOVAS, PIOVAMAPPING pIovaMapping);
+
 #ifdef __nvoc_io_vaspace_h_disabled
 static inline void iovaspaceReleaseMapping(struct OBJIOVASPACE *pIOVAS, PIOVAMAPPING pIovaMapping) {
     NV_ASSERT_FAILED_PRECOMP("OBJIOVASPACE was disabled!");
@@ -275,6 +278,7 @@ static inline void iovaspaceReleaseMapping(struct OBJIOVASPACE *pIOVAS, PIOVAMAP
 #endif //__nvoc_io_vaspace_h_disabled
 
 void iovaspaceDestroyMapping_IMPL(struct OBJIOVASPACE *pIOVAS, PIOVAMAPPING pIovaMapping);
+
 #ifdef __nvoc_io_vaspace_h_disabled
 static inline void iovaspaceDestroyMapping(struct OBJIOVASPACE *pIOVAS, PIOVAMAPPING pIovaMapping) {
     NV_ASSERT_FAILED_PRECOMP("OBJIOVASPACE was disabled!");

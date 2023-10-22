@@ -43,8 +43,10 @@ static void FreeLutSurfaceEvoInVidmem(NVLutSurfaceEvoPtr pSurfEvo)
     nvRmEvoUnMapVideoMemory(pDevEvo, pSurfEvo->handle,
                             pSurfEvo->subDeviceAddress);
 
-    /* Free display context dmas for the surface, if any */
-    nvRmEvoFreeDispContextDMA(pDevEvo, &pSurfEvo->dispCtxDma);
+    /* Free surface descriptor */
+    pDevEvo->hal->FreeSurfaceDescriptor(pDevEvo,
+                                        nvEvoGlobal.clientHandle,
+                                        &pSurfEvo->surfaceDesc);
 
     /* Free the surface */
     if (pSurfEvo->handle) {
@@ -122,14 +124,15 @@ static NVLutSurfaceEvoPtr AllocLutSurfaceEvoInVidmem(NVDevEvoPtr pDevEvo)
         goto fail;
     }
 
-    /* Allocate a display context dma */
-    pSurfEvo->dispCtxDma =
-        nvRmEvoAllocateAndBindDispContextDMA(pDevEvo,
-                                             pSurfEvo->handle,
-                                             NvKmsSurfaceMemoryLayoutPitch,
-                                             pSurfEvo->size - 1);
-
-    if (!pSurfEvo->dispCtxDma) {
+    /* Allocate and bind surface descriptor */
+    ret =
+        nvRmAllocAndBindSurfaceDescriptor(
+                pDevEvo,
+                pSurfEvo->handle,
+                NvKmsSurfaceMemoryLayoutPitch,
+                pSurfEvo->size - 1,
+                &pSurfEvo->surfaceDesc);
+    if (ret != NVOS_STATUS_SUCCESS) {
         goto fail;
     }
 
@@ -161,8 +164,10 @@ static void FreeLutSurfaceEvoInSysmem(NVLutSurfaceEvoPtr pSurfEvo)
 
     pDevEvo = pSurfEvo->pDevEvo;
 
-    /* Free display context dmas for the surface, if any */
-    nvRmEvoFreeDispContextDMA(pDevEvo, &pSurfEvo->dispCtxDma);
+    /* Free surface descriptor */
+    pDevEvo->hal->FreeSurfaceDescriptor(pDevEvo,
+                                        nvEvoGlobal.clientHandle,
+                                        &pSurfEvo->surfaceDesc);
 
     /* Free the surface */
     if (pSurfEvo->handle) {
@@ -205,6 +210,7 @@ static NVLutSurfaceEvoPtr AllocLutSurfaceEvoInSysmem(NVDevEvoPtr pDevEvo)
     void *pBase = NULL;
     NvU64 size = 0;
     NVLutSurfaceEvoPtr pSurfEvo;
+    NvU32 ret;
 
     pSurfEvo = nvCalloc(1, sizeof(*pSurfEvo));
     if (pSurfEvo == NULL) {
@@ -234,13 +240,16 @@ static NVLutSurfaceEvoPtr AllocLutSurfaceEvoInSysmem(NVDevEvoPtr pDevEvo)
 
     pSurfEvo->handle = memoryHandle;
 
-    /* Allocate and bind a display context dma */
-    pSurfEvo->dispCtxDma =
-        nvRmEvoAllocateAndBindDispContextDMA(pDevEvo,
-                                             pSurfEvo->handle,
-                                             NvKmsSurfaceMemoryLayoutPitch,
-                                             pSurfEvo->size - 1);
-    if (!pSurfEvo->dispCtxDma) {
+    /* Allocate and bind surface descriptor */
+    ret =
+        nvRmAllocAndBindSurfaceDescriptor(
+                pDevEvo,
+                pSurfEvo->handle,
+                NvKmsSurfaceMemoryLayoutPitch,
+                pSurfEvo->size - 1,
+                &pSurfEvo->surfaceDesc);
+
+    if (ret != NVOS_STATUS_SUCCESS) {
         goto fail;
     }
 
@@ -288,16 +297,83 @@ static NVLutSurfaceEvoPtr AllocLutSurfaceEvo(NVDevEvoPtr pDevEvo)
     }
 }
 
+NvBool nvSetTmoLutSurfacesEvo(NVDevEvoPtr pDevEvo,
+                              NVFlipEvoHwState *pFlipState,
+                              NvU32 head)
+{
+    NvU32 layer;
+    for (layer = 0; layer < pDevEvo->head[head].numLayers; layer++) {
+        if (pFlipState->layer[layer].hdrStaticMetadata.enabled) {
+            if (!pFlipState->layer[layer].tmoLut.pLutSurfaceEvo) {
+                pFlipState->layer[layer].tmoLut.pLutSurfaceEvo =
+                    AllocLutSurfaceEvo(pDevEvo);
+                if (!pFlipState->layer[layer].tmoLut.pLutSurfaceEvo) {
+                    return FALSE;
+                }
+
+                // Will be referenced via nvRefTmoLutSurfacesEvo() on new state
+                pFlipState->layer[layer].tmoLut.pLutSurfaceEvo->allocRefCnt = 0;
+            }
+        } else {
+            // Will be freed via nvUnrefTmoLutSurfacesEvo() on old state
+            pFlipState->layer[layer].tmoLut.pLutSurfaceEvo = NULL;
+        }
+    }
+
+    return TRUE;
+}
+
+void nvRefTmoLutSurfacesEvo(NVDevEvoPtr pDevEvo,
+                            NVFlipEvoHwState *pFlipState,
+                            NvU32 head)
+{
+    // Reference new state layers that have hdrStaticMetadata enabled.
+    NvU32 layer;
+    for (layer = 0; layer < pDevEvo->head[head].numLayers; layer++) {
+        if (pFlipState->layer[layer].hdrStaticMetadata.enabled) {
+            nvAssert(pFlipState->layer[layer].tmoLut.pLutSurfaceEvo);
+            pFlipState->layer[layer].tmoLut.pLutSurfaceEvo->allocRefCnt++;
+        }
+    }
+}
+
+void nvUnrefTmoLutSurfacesEvo(NVDevEvoPtr pDevEvo,
+                              NVFlipEvoHwState *pFlipState,
+                              NvU32 head)
+{
+    // Unref old state layers that had hdrStaticMetadata enabled.
+    NvU32 layer;
+    for (layer = 0; layer < pDevEvo->head[head].numLayers; layer++) {
+        if (pFlipState->layer[layer].hdrStaticMetadata.enabled) {
+            nvAssert(pFlipState->layer[layer].tmoLut.pLutSurfaceEvo);
+
+            if (pFlipState->layer[layer].tmoLut.pLutSurfaceEvo->allocRefCnt <= 1) {
+                // Wait for any outstanding LUT updates before freeing.
+                if (pDevEvo->core) {
+                    nvRMSyncEvoChannel(pDevEvo, pDevEvo->core, __LINE__);
+                }
+
+                FreeLutSurfaceEvo(
+                    pFlipState->layer[layer].tmoLut.pLutSurfaceEvo);
+
+                pFlipState->layer[layer].tmoLut.pLutSurfaceEvo = NULL;
+            } else {
+                pFlipState->layer[layer].tmoLut.pLutSurfaceEvo->allocRefCnt--;
+            }
+        }
+    }
+}
+
 NvBool nvAllocLutSurfacesEvo(NVDevEvoPtr pDevEvo)
 {
     NVDispEvoPtr pDispEvo;
-    NvU32 head, dispIndex, i;
+    NvU32 apiHead, dispIndex, i, sd;
 
-    for (head = 0; head < pDevEvo->numHeads; head++) {
-        for (i = 0; i < ARRAY_LEN(pDevEvo->lut.head[head].LUT); i++) {
-            pDevEvo->lut.head[head].LUT[i] = AllocLutSurfaceEvo(pDevEvo);
+    for (apiHead = 0; apiHead < pDevEvo->numApiHeads; apiHead++) {
+        for (i = 0; i < ARRAY_LEN(pDevEvo->lut.apiHead[apiHead].LUT); i++) {
+            pDevEvo->lut.apiHead[apiHead].LUT[i] = AllocLutSurfaceEvo(pDevEvo);
 
-            if (pDevEvo->lut.head[head].LUT[i] == NULL) {
+            if (pDevEvo->lut.apiHead[apiHead].LUT[i] == NULL) {
                 nvFreeLutSurfacesEvo(pDevEvo);
                 return FALSE;
             }
@@ -305,9 +381,9 @@ NvBool nvAllocLutSurfacesEvo(NVDevEvoPtr pDevEvo)
 
         FOR_ALL_EVO_DISPLAYS(pDispEvo, dispIndex, pDevEvo) {
             // No palette has been loaded yet, so disable the LUT.
-            pDevEvo->lut.head[head].disp[dispIndex].waitForPreviousUpdate = FALSE;
-            pDevEvo->lut.head[head].disp[dispIndex].curBaseLutEnabled = FALSE;
-            pDevEvo->lut.head[head].disp[dispIndex].curOutputLutEnabled = FALSE;
+            pDevEvo->lut.apiHead[apiHead].disp[dispIndex].waitForPreviousUpdate = FALSE;
+            pDevEvo->lut.apiHead[apiHead].disp[dispIndex].curBaseLutEnabled = FALSE;
+            pDevEvo->lut.apiHead[apiHead].disp[dispIndex].curOutputLutEnabled = FALSE;
         }
     }
 
@@ -318,6 +394,12 @@ NvBool nvAllocLutSurfacesEvo(NVDevEvoPtr pDevEvo)
             return FALSE;
         }
 
+        for (sd = 0; sd < NVKMS_MAX_SUBDEVICES; sd++) {
+            pDevEvo->lut.defaultBaseLUTState[sd] =
+            pDevEvo->lut.defaultOutputLUTState[sd] =
+                NvKmsLUTStateUninitialized;
+        }
+
         pDevEvo->hal->InitDefaultLut(pDevEvo);
     }
 
@@ -326,13 +408,13 @@ NvBool nvAllocLutSurfacesEvo(NVDevEvoPtr pDevEvo)
 
 void nvFreeLutSurfacesEvo(NVDevEvoPtr pDevEvo)
 {
-    NvU32 head, i, dispIndex;
+    NvU32 head, i, dispIndex, apiHead;
     NVDispEvoPtr pDispEvo;
 
     /* Cancel any queued LUT update timers */
     FOR_ALL_EVO_DISPLAYS(pDispEvo, dispIndex, pDevEvo) {
-        for (head = 0; head < pDevEvo->numHeads; head++) {
-            nvCancelLutUpdateEvo(pDispEvo, head);
+        for (apiHead = 0; apiHead < pDevEvo->numApiHeads; apiHead++) {
+            nvCancelLutUpdateEvo(pDispEvo, apiHead);
         }
     }
 
@@ -341,16 +423,25 @@ void nvFreeLutSurfacesEvo(NVDevEvoPtr pDevEvo)
         nvRMSyncEvoChannel(pDevEvo, pDevEvo->core, __LINE__);
     }
 
+    /* Clear the current lut surface stored in the hardware head state */
+    FOR_ALL_EVO_DISPLAYS(pDispEvo, dispIndex, pDevEvo) {
+        for (head = 0; head < pDevEvo->numHeads; head++) {
+            pDispEvo->headState[head].lut.pCurrSurface = NULL;
+            pDispEvo->headState[head].lut.baseLutEnabled = FALSE;
+            pDispEvo->headState[head].lut.outputLutEnabled = FALSE;
+        }
+    }
+
     if (pDevEvo->lut.defaultLut != NULL) {
         FreeLutSurfaceEvo(pDevEvo->lut.defaultLut);
         pDevEvo->lut.defaultLut = NULL;
     }
 
-    for (head = 0; head < pDevEvo->numHeads; head++) {
-        for (i = 0; i < ARRAY_LEN(pDevEvo->lut.head[head].LUT); i++) {
-            if (pDevEvo->lut.head[head].LUT[i] != NULL) {
-                FreeLutSurfaceEvo(pDevEvo->lut.head[head].LUT[i]);
-                pDevEvo->lut.head[head].LUT[i] = NULL;
+    for (apiHead = 0; apiHead < pDevEvo->numApiHeads; apiHead++) {
+        for (i = 0; i < ARRAY_LEN(pDevEvo->lut.apiHead[apiHead].LUT); i++) {
+            if (pDevEvo->lut.apiHead[apiHead].LUT[i] != NULL) {
+                FreeLutSurfaceEvo(pDevEvo->lut.apiHead[apiHead].LUT[i]);
+                pDevEvo->lut.apiHead[apiHead].LUT[i] = NULL;
             }
         }
     }

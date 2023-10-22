@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -128,7 +128,9 @@ void       RmI2cAddGpuPorts(nv_state_t *);
 
 NV_STATUS  RmInitX86EmuState(OBJGPU *);
 void       RmFreeX86EmuState(OBJGPU *);
-NV_STATUS  RmSystemEvent(nv_state_t *, NvU32, NvU32);
+NV_STATUS  RmPowerSourceChangeEvent(nv_state_t *, NvU32);
+
+void       RmRequestDNotifierState(nv_state_t *);
 
 const NvU8 *RmGetGpuUuidRaw(nv_state_t *);
 
@@ -144,7 +146,7 @@ NV_STATUS  rm_free_os_event         (NvHandle, NvU32);
 NV_STATUS  rm_get_event_data        (nv_file_private_t *, NvP64, NvU32 *);
 void       rm_client_free_os_events (NvHandle);
 
-NV_STATUS  rm_create_mmap_context   (nv_state_t *, NvHandle, NvHandle, NvHandle, NvP64, NvU64, NvU64, NvU32, NvU32);
+NV_STATUS  rm_create_mmap_context   (NvHandle, NvHandle, NvHandle, NvP64, NvU64, NvU64, NvU32, NvU32);
 NV_STATUS  rm_update_device_mapping_info  (NvHandle, NvHandle, NvHandle, void *, void *);
 
 NV_STATUS  rm_access_registry       (NvHandle, NvHandle, NvU32, NvP64, NvU32, NvP64, NvU32, NvP64, NvU32 *, NvU32 *, NvU32 *);

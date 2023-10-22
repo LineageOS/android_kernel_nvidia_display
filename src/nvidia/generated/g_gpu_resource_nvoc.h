@@ -80,10 +80,7 @@ typedef struct Subdevice Subdevice;
 #define GPU_RES_GET_DEVICE(pRes) staticCastNoPtrCheck((pRes), GpuResource)->pDevice
 #define GPU_RES_GET_SUBDEVICE(pRes) staticCastNoPtrCheck((pRes), GpuResource)->pSubdevice
 
-#define GPU_RES_SET_THREAD_BC_STATE(pRes) do { \
-    gpuSetThreadBcState(staticCastNoPtrCheck((pRes), GpuResource)->pGpu, \
-                        staticCastNoPtrCheck((pRes), GpuResource)->bBcResource); \
-    } while(0)
+#define GPU_RES_SET_THREAD_BC_STATE(pRes) PORT_UNREFERENCED_VARIABLE(pRes)
 
 /*!
  * Abstract base class for common CPU mapping operations
@@ -115,11 +112,14 @@ struct GpuResource {
     NvU32 (*__gpuresGetRefCount__)(struct GpuResource *);
     NV_STATUS (*__gpuresControlFilter__)(struct GpuResource *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     void (*__gpuresAddAdditionalDependants__)(struct RsClient *, struct GpuResource *, RsResourceRef *);
+    NV_STATUS (*__gpuresUnmapFrom__)(struct GpuResource *, RS_RES_UNMAP_FROM_PARAMS *);
+    NV_STATUS (*__gpuresControlSerialization_Prologue__)(struct GpuResource *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NV_STATUS (*__gpuresControl_Prologue__)(struct GpuResource *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NvBool (*__gpuresCanCopy__)(struct GpuResource *);
-    NV_STATUS (*__gpuresMapTo__)(struct GpuResource *, RS_RES_MAP_TO_PARAMS *);
     void (*__gpuresPreDestruct__)(struct GpuResource *);
-    NV_STATUS (*__gpuresUnmapFrom__)(struct GpuResource *, RS_RES_UNMAP_FROM_PARAMS *);
+    NV_STATUS (*__gpuresMapTo__)(struct GpuResource *, RS_RES_MAP_TO_PARAMS *);
+    NV_STATUS (*__gpuresIsDuplicate__)(struct GpuResource *, NvHandle, NvBool *);
+    void (*__gpuresControlSerialization_Epilogue__)(struct GpuResource *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     void (*__gpuresControl_Epilogue__)(struct GpuResource *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NV_STATUS (*__gpuresControlLookup__)(struct GpuResource *, struct RS_RES_CONTROL_PARAMS_INTERNAL *, const struct NVOC_EXPORTED_METHOD_DEF **);
     NvBool (*__gpuresAccessCallback__)(struct GpuResource *, struct RsClient *, void *, RsAccessRight);
@@ -172,11 +172,14 @@ NV_STATUS __nvoc_objCreate_GpuResource(GpuResource**, Dynamic*, NvU32, struct CA
 #define gpuresGetRefCount(pResource) gpuresGetRefCount_DISPATCH(pResource)
 #define gpuresControlFilter(pResource, pCallContext, pParams) gpuresControlFilter_DISPATCH(pResource, pCallContext, pParams)
 #define gpuresAddAdditionalDependants(pClient, pResource, pReference) gpuresAddAdditionalDependants_DISPATCH(pClient, pResource, pReference)
+#define gpuresUnmapFrom(pResource, pParams) gpuresUnmapFrom_DISPATCH(pResource, pParams)
+#define gpuresControlSerialization_Prologue(pResource, pCallContext, pParams) gpuresControlSerialization_Prologue_DISPATCH(pResource, pCallContext, pParams)
 #define gpuresControl_Prologue(pResource, pCallContext, pParams) gpuresControl_Prologue_DISPATCH(pResource, pCallContext, pParams)
 #define gpuresCanCopy(pResource) gpuresCanCopy_DISPATCH(pResource)
-#define gpuresMapTo(pResource, pParams) gpuresMapTo_DISPATCH(pResource, pParams)
 #define gpuresPreDestruct(pResource) gpuresPreDestruct_DISPATCH(pResource)
-#define gpuresUnmapFrom(pResource, pParams) gpuresUnmapFrom_DISPATCH(pResource, pParams)
+#define gpuresMapTo(pResource, pParams) gpuresMapTo_DISPATCH(pResource, pParams)
+#define gpuresIsDuplicate(pResource, hMemory, pDuplicate) gpuresIsDuplicate_DISPATCH(pResource, hMemory, pDuplicate)
+#define gpuresControlSerialization_Epilogue(pResource, pCallContext, pParams) gpuresControlSerialization_Epilogue_DISPATCH(pResource, pCallContext, pParams)
 #define gpuresControl_Epilogue(pResource, pCallContext, pParams) gpuresControl_Epilogue_DISPATCH(pResource, pCallContext, pParams)
 #define gpuresControlLookup(pResource, pParams, ppEntry) gpuresControlLookup_DISPATCH(pResource, pParams, ppEntry)
 #define gpuresAccessCallback(pResource, pInvokingClient, pAllocParams, accessRight) gpuresAccessCallback_DISPATCH(pResource, pInvokingClient, pAllocParams, accessRight)
@@ -252,6 +255,14 @@ static inline void gpuresAddAdditionalDependants_DISPATCH(struct RsClient *pClie
     pResource->__gpuresAddAdditionalDependants__(pClient, pResource, pReference);
 }
 
+static inline NV_STATUS gpuresUnmapFrom_DISPATCH(struct GpuResource *pResource, RS_RES_UNMAP_FROM_PARAMS *pParams) {
+    return pResource->__gpuresUnmapFrom__(pResource, pParams);
+}
+
+static inline NV_STATUS gpuresControlSerialization_Prologue_DISPATCH(struct GpuResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return pResource->__gpuresControlSerialization_Prologue__(pResource, pCallContext, pParams);
+}
+
 static inline NV_STATUS gpuresControl_Prologue_DISPATCH(struct GpuResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
     return pResource->__gpuresControl_Prologue__(pResource, pCallContext, pParams);
 }
@@ -260,16 +271,20 @@ static inline NvBool gpuresCanCopy_DISPATCH(struct GpuResource *pResource) {
     return pResource->__gpuresCanCopy__(pResource);
 }
 
-static inline NV_STATUS gpuresMapTo_DISPATCH(struct GpuResource *pResource, RS_RES_MAP_TO_PARAMS *pParams) {
-    return pResource->__gpuresMapTo__(pResource, pParams);
-}
-
 static inline void gpuresPreDestruct_DISPATCH(struct GpuResource *pResource) {
     pResource->__gpuresPreDestruct__(pResource);
 }
 
-static inline NV_STATUS gpuresUnmapFrom_DISPATCH(struct GpuResource *pResource, RS_RES_UNMAP_FROM_PARAMS *pParams) {
-    return pResource->__gpuresUnmapFrom__(pResource, pParams);
+static inline NV_STATUS gpuresMapTo_DISPATCH(struct GpuResource *pResource, RS_RES_MAP_TO_PARAMS *pParams) {
+    return pResource->__gpuresMapTo__(pResource, pParams);
+}
+
+static inline NV_STATUS gpuresIsDuplicate_DISPATCH(struct GpuResource *pResource, NvHandle hMemory, NvBool *pDuplicate) {
+    return pResource->__gpuresIsDuplicate__(pResource, hMemory, pDuplicate);
+}
+
+static inline void gpuresControlSerialization_Epilogue_DISPATCH(struct GpuResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    pResource->__gpuresControlSerialization_Epilogue__(pResource, pCallContext, pParams);
 }
 
 static inline void gpuresControl_Epilogue_DISPATCH(struct GpuResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
@@ -285,8 +300,10 @@ static inline NvBool gpuresAccessCallback_DISPATCH(struct GpuResource *pResource
 }
 
 NV_STATUS gpuresConstruct_IMPL(struct GpuResource *arg_pGpuResource, struct CALL_CONTEXT *arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL *arg_pParams);
+
 #define __nvoc_gpuresConstruct(arg_pGpuResource, arg_pCallContext, arg_pParams) gpuresConstruct_IMPL(arg_pGpuResource, arg_pCallContext, arg_pParams)
 NV_STATUS gpuresCopyConstruct_IMPL(struct GpuResource *pGpuResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL *pParams);
+
 #ifdef __nvoc_gpu_resource_h_disabled
 static inline NV_STATUS gpuresCopyConstruct(struct GpuResource *pGpuResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL *pParams) {
     NV_ASSERT_FAILED_PRECOMP("GpuResource was disabled!");
@@ -297,6 +314,7 @@ static inline NV_STATUS gpuresCopyConstruct(struct GpuResource *pGpuResource, st
 #endif //__nvoc_gpu_resource_h_disabled
 
 void gpuresSetGpu_IMPL(struct GpuResource *pGpuResource, struct OBJGPU *pGpu, NvBool bBcResource);
+
 #ifdef __nvoc_gpu_resource_h_disabled
 static inline void gpuresSetGpu(struct GpuResource *pGpuResource, struct OBJGPU *pGpu, NvBool bBcResource) {
     NV_ASSERT_FAILED_PRECOMP("GpuResource was disabled!");
@@ -306,6 +324,7 @@ static inline void gpuresSetGpu(struct GpuResource *pGpuResource, struct OBJGPU 
 #endif //__nvoc_gpu_resource_h_disabled
 
 void gpuresControlSetup_IMPL(struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams, struct GpuResource *pGpuResource);
+
 #ifdef __nvoc_gpu_resource_h_disabled
 static inline void gpuresControlSetup(struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams, struct GpuResource *pGpuResource) {
     NV_ASSERT_FAILED_PRECOMP("GpuResource was disabled!");
@@ -315,8 +334,10 @@ static inline void gpuresControlSetup(struct RS_RES_CONTROL_PARAMS_INTERNAL *pPa
 #endif //__nvoc_gpu_resource_h_disabled
 
 NV_STATUS gpuresGetByHandle_IMPL(struct RsClient *pClient, NvHandle hResource, struct GpuResource **ppGpuResource);
+
 #define gpuresGetByHandle(pClient, hResource, ppGpuResource) gpuresGetByHandle_IMPL(pClient, hResource, ppGpuResource)
 NV_STATUS gpuresGetByDeviceOrSubdeviceHandle_IMPL(struct RsClient *pClient, NvHandle hResource, struct GpuResource **ppGpuResource);
+
 #define gpuresGetByDeviceOrSubdeviceHandle(pClient, hResource, ppGpuResource) gpuresGetByDeviceOrSubdeviceHandle_IMPL(pClient, hResource, ppGpuResource)
 #undef PRIVATE_FIELD
 

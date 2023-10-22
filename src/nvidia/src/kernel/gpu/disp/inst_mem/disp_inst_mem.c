@@ -21,7 +21,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-/**************************** Instmem Rotuines *****************************\
+/**************************** Instmem Routines *****************************\
 *                                                                          *
 *         Display instance memory object function Definitions.             *
 *                                                                          *
@@ -339,17 +339,12 @@ instmemDestroy
 )
 {
     // Free up the inst mem descriptors
-    if (pInstMem->pInstMemDesc != NULL)
-    {
-        memdescDestroy(pInstMem->pInstMemDesc);
-        pInstMem->pInstMemDesc = NULL;
-    }
-    if (pInstMem->pAllocedInstMemDesc != NULL)
-    {
-        memdescFree(pInstMem->pAllocedInstMemDesc);
-        memdescDestroy(pInstMem->pAllocedInstMemDesc);
-        pInstMem->pAllocedInstMemDesc = NULL;
-    }
+    memdescDestroy(pInstMem->pInstMemDesc);
+    pInstMem->pInstMemDesc = NULL;
+
+    memdescFree(pInstMem->pAllocedInstMemDesc);
+    memdescDestroy(pInstMem->pAllocedInstMemDesc);
+    pInstMem->pAllocedInstMemDesc = NULL;
 
     if (pInstMem->pInstHeap != NULL)
     {
@@ -426,37 +421,6 @@ instmemStateLoad_IMPL
 )
 {
     NvBool bPersistent;
-    NV_STATUS status = NV_OK;
-    RM_API   *pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
-    NvU32     hClient = pGpu->hInternalClient;
-    NvU32     hSubdevice = pGpu->hInternalSubdevice;
-    NvU32     instMemSize, hashTableSize;
-    NV2080_CTRL_INTERNAL_DISPLAY_WRITE_INST_MEM_PARAMS ctrlParams;
-
-    if (pGpu->getProperty(pGpu, PDB_PROP_GPU_IN_PM_RESUME_CODEPATH))
-    {
-        instmemGetSize_HAL(pGpu, pInstMem, &instMemSize, &hashTableSize);
-
-        NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
-            instmemInitHashTable(pGpu, pInstMem, hashTableSize), exit);
-
-        NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
-            instmemInitBitmap(pGpu, pInstMem, instMemSize, hashTableSize), exit);
-
-        NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
-            instmemInitMemDesc(pGpu, pInstMem, instMemSize), exit);
-
-        // Make internal RPC to write the instance memory register
-        ctrlParams.instMemAddrSpace    = memdescGetAddressSpace(pInstMem->pInstMemDesc);
-        ctrlParams.instMemCpuCacheAttr = memdescGetCpuCacheAttrib(pInstMem->pInstMemDesc);
-        ctrlParams.instMemPhysAddr     = memdescGetPhysAddr(pInstMem->pInstMemDesc, AT_GPU, 0);
-        ctrlParams.instMemSize         = memdescGetSize(pInstMem->pInstMemDesc);
-
-        NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
-            pRmApi->Control(pRmApi, hClient, hSubdevice,
-                            NV2080_CTRL_CMD_INTERNAL_DISPLAY_WRITE_INST_MEM,
-                            &ctrlParams, sizeof(ctrlParams)), exit);
-    }
 
     //
     // We keep a persistent mapping to instance memory in two cases:
@@ -475,15 +439,6 @@ instmemStateLoad_IMPL
                                                 TRANSFER_FLAGS_PERSISTENT_CPU_MAPPING);
         if (pInstMem->pInstMem == NULL)
             return NV_ERR_NO_MEMORY;
-    }
-
-exit:
-    if (pGpu->getProperty(pGpu, PDB_PROP_GPU_IN_PM_RESUME_CODEPATH))
-    {
-        if (status != NV_OK)
-        {
-            instmemDestroy(pGpu, pInstMem);
-        }
     }
 
     return NV_OK;

@@ -28,8 +28,6 @@
 
 #include "dce_rm_client_ipc.h"
 
-
-
 #if defined(NV_LINUX_PLATFORM_TEGRA_DCE_DCE_CLIENT_IPC_H_PRESENT)
 #include <linux/platform/tegra/dce/dce-client-ipc.h>
 
@@ -154,5 +152,4 @@ NV_STATUS nv_tegra_dce_unregister_ipc_client(NvU32 clientId)
     return NV_ERR_NOT_SUPPORTED;
 }
 #endif
-
 

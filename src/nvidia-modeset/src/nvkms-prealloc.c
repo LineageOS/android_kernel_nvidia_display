@@ -47,8 +47,18 @@ static size_t GetSizeForType(NVDevEvoPtr pDevEvo, enum NVPreallocType type)
     case PREALLOC_TYPE_PROPOSED_MODESET_HW_STATE: /* fallthrough */
     case PREALLOC_TYPE_VALIDATE_PROPOSED_MODESET_HW_STATE:
         return sizeof(NVProposedModeSetHwState);
-    case PREALLOC_TYPE_VALIDATE_MODE_HW_MODE_TIMINGS:
+    case PREALLOC_TYPE_VALIDATE_MODE_HW_MODE_TIMINGS: /* fallthrough */
         return sizeof(NVHwModeTimingsEvo);
+    case PREALLOC_TYPE_VALIDATE_MODE_HDMI_FRL_CONFIG:
+        return sizeof(HDMI_FRL_CONFIG);
+    case PREALLOC_TYPE_VALIDATE_MODE_DSC_INFO:
+        return sizeof(NVDscInfoEvoRec);
+    case PREALLOC_TYPE_MODE_SET_REPLY_TMP_USAGE_BOUNDS:
+        return sizeof(struct NvKmsUsageBounds);
+    case PREALLOC_TYPE_VALIDATE_MODE_IMP_OUT_HW_MODE_TIMINGS:
+        return sizeof(NVHwModeTimingsEvo) * NVKMS_MAX_HEADS_PER_DISP;
+    case PREALLOC_TYPE_VALIDATE_MODE_TMP_USAGE_BOUNDS:
+        return sizeof(struct NvKmsUsageBounds);
     case PREALLOC_TYPE_MAX:
         /* Not a real option, but added for -Wswitch-enum */
         break;

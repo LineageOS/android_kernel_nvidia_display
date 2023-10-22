@@ -79,6 +79,7 @@ struct Object {
     struct Object *pParent;
     struct NVOC_CHILD_TREE childTree;
     NvU32 ipVersion;
+    NvU32 createFlags;
 };
 
 #ifndef __NVOC_CLASS_Object_TYPEDEF__
@@ -110,6 +111,7 @@ NV_STATUS __nvoc_objCreate_Object(Object**, Dynamic*, NvU32);
     __nvoc_objCreate_Object((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
 
 void objAddChild_IMPL(struct Object *pObj, struct Object *pChild);
+
 #ifdef __nvoc_object_h_disabled
 static inline void objAddChild(struct Object *pObj, struct Object *pChild) {
     NV_ASSERT_FAILED_PRECOMP("Object was disabled!");
@@ -119,6 +121,7 @@ static inline void objAddChild(struct Object *pObj, struct Object *pChild) {
 #endif //__nvoc_object_h_disabled
 
 void objRemoveChild_IMPL(struct Object *pObj, struct Object *pChild);
+
 #ifdef __nvoc_object_h_disabled
 static inline void objRemoveChild(struct Object *pObj, struct Object *pChild) {
     NV_ASSERT_FAILED_PRECOMP("Object was disabled!");
@@ -128,6 +131,7 @@ static inline void objRemoveChild(struct Object *pObj, struct Object *pChild) {
 #endif //__nvoc_object_h_disabled
 
 struct Object *objGetChild_IMPL(struct Object *pObj);
+
 #ifdef __nvoc_object_h_disabled
 static inline struct Object *objGetChild(struct Object *pObj) {
     NV_ASSERT_FAILED_PRECOMP("Object was disabled!");
@@ -138,6 +142,7 @@ static inline struct Object *objGetChild(struct Object *pObj) {
 #endif //__nvoc_object_h_disabled
 
 struct Object *objGetSibling_IMPL(struct Object *pObj);
+
 #ifdef __nvoc_object_h_disabled
 static inline struct Object *objGetSibling(struct Object *pObj) {
     NV_ASSERT_FAILED_PRECOMP("Object was disabled!");
@@ -148,6 +153,7 @@ static inline struct Object *objGetSibling(struct Object *pObj) {
 #endif //__nvoc_object_h_disabled
 
 struct Object *objGetDirectParent_IMPL(struct Object *pObj);
+
 #ifdef __nvoc_object_h_disabled
 static inline struct Object *objGetDirectParent(struct Object *pObj) {
     NV_ASSERT_FAILED_PRECOMP("Object was disabled!");
@@ -160,10 +166,10 @@ static inline struct Object *objGetDirectParent(struct Object *pObj) {
 #undef PRIVATE_FIELD
 
 
-// 
-// IP versioning definitions are temporary until NVOC halspec support is 
-// finished. 
-//  
+//
+// IP versioning definitions are temporary until NVOC halspec support is
+// finished.
+//
 // IP_VERSION format as defined by the hardware engines.
 // A _MAJOR value of 0 means the object has no version number.
 //
@@ -174,8 +180,6 @@ static inline struct Object *objGetDirectParent(struct Object *pObj) {
 #define NV_ODB_IP_VER_MAJOR                                   31:24 /* R-IVF */
 
 #define IPVersion(pObj)                            staticCast((pObj), Object)->ipVersion
-#define IsIPVersionValid(pObj)                     (DRF_VAL(_ODB, _IP_VER, _MAJOR, IPVersion(pObj)) != 0)
-#define IsIPVersionOrLater(pObj, v0)               (IPVersion(pObj) >= (v0))
 //  v0 .. v1  inclusive
 #define IsIPVersionInRange(pObj, v0, v1)           ((IPVersion(pObj) >= (v0)) && (IPVersion(pObj) <= (v1)))
 

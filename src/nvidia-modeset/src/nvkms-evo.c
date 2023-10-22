@@ -25,6 +25,7 @@
 
 #include "nvkms-evo-states.h"
 #include "dp/nvdp-connector.h"
+#include "dp/nvdp-device.h"
 #include "nvkms-console-restore.h"
 #include "nvkms-rm.h"
 #include "nvkms-dpy.h"
@@ -34,6 +35,7 @@
 #include "nvkms-modepool.h"
 #include "nvkms-evo.h"
 #include "nvkms-flip.h"
+#include "nvkms-hw-flip.h"
 #include "nvkms-dma.h"
 #include "nvkms-framelock.h"
 #include "nvkms-utils.h"
@@ -77,13 +79,29 @@
 /*
  * This struct is used to describe a single set of GPUs to lock together by
  * GetRasterLockTopologies().
- * It is initialized to pDispEvoOrder[i] == NULL, and when filled in NULL is
- * used as a terminator.
  */
-typedef struct {
+typedef struct _NVEvoRasterLockTopology {
+    NvU32 numDisps;
     NVDispEvoPtr pDispEvoOrder[NVKMS_MAX_SUBDEVICES];
 } RasterLockTopology;
 
+/*
+ * These are used hold additional state for each DispEvo during building of
+ * topologies.
+ */
+typedef struct
+{
+    NVDispEvoPtr pDispEvo;
+    NvU32 gpuId;
+    RasterLockTopology *topo;
+} DispEntry;
+
+typedef struct
+{
+    /* Array of DispEvos and their assigned topologies. */
+    NvU32 numDisps;
+    DispEntry disps[NVKMS_MAX_SUBDEVICES];
+} DispEvoList;
 
 static void EvoSetViewportPointIn(NVDispEvoPtr pDispEvo, NvU32 head,
                                   NvU16 x, NvU16 y,
@@ -91,8 +109,9 @@ static void EvoSetViewportPointIn(NVDispEvoPtr pDispEvo, NvU32 head,
 static void GetRasterLockPin(NVDispEvoPtr pDispEvo0, NvU32 head0,
                              NVDispEvoPtr pDispEvo1, NvU32 head1,
                              NVEvoLockPin *serverPin, NVEvoLockPin *clientPin);
-static NvBool EvoWaitForLock(NVDevEvoPtr pDevEvo,
-                             NvU32 sd, NvU32 head, NvU32 type);
+static NvBool EvoWaitForLock(const NVDevEvoRec *pDevEvo, const NvU32 sd,
+                             const NvU32 head, const NvU32 type,
+                             NvU64 *pStartTime);
 static void EvoUpdateHeadParams(const NVDispEvoRec *pDispEvo, NvU32 head,
                                 NVEvoUpdateState *updateState);
 
@@ -109,8 +128,13 @@ static void SyncEvoLockState(void);
 static void UpdateEvoLockState(void);
 
 static void ScheduleLutUpdate(NVDispEvoRec *pDispEvo,
-                              const NvU32 head, const NvU32 data,
+                              const NvU32 apiHead, const NvU32 data,
                               const NvU64 usec);
+
+static NvBool DowngradeColorBpc(
+    const enum NvKmsDpyAttributeCurrentColorSpaceValue colorSpace,
+    enum NvKmsDpyAttributeColorBpcValue *pColorBpc,
+    enum NvKmsDpyAttributeColorRangeValue *pColorRange);
 
 NVEvoGlobal nvEvoGlobal = {
     .clientHandle = 0,
@@ -120,6 +144,8 @@ NVEvoGlobal nvEvoGlobal = {
     .debugMemoryAllocationList =
         NV_LIST_INIT(&nvEvoGlobal.debugMemoryAllocationList),
 #endif /* DEBUG */
+    .globalTopologies = NULL,
+    .numGlobalTopos = 0
 };
 
 /*
@@ -195,8 +221,9 @@ static void BlankHeadEvo(NVDispEvoPtr pDispEvo, const NvU32 head,
 {
     NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
     const NVDispHeadStateEvoRec *pHeadState = &pDispEvo->headState[head];
-    struct NvKmsCompositionParams emptyCursorCompParams = { };
-
+    struct NvKmsCompositionParams emptyCursorCompParams = 
+        nvDefaultCursorCompositionParams(pDevEvo);
+    
     /*
      * If core channel surface is supported, ->SetSurface()
      * disables Lut along with core channel surface. Otherwise need to disable
@@ -244,10 +271,19 @@ void nvEvoDetachConnector(NVConnectorEvoRec *pConnectorEvo, const NvU32 head,
     const NVDispHeadStateEvoRec *pHeadState = &pDispEvo->headState[head];
     const NVHwModeTimingsEvo *pTimings = &pHeadState->timings;
     NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
-    const NvU32 orIndex = nvEvoConnectorGetPrimaryOr(pConnectorEvo);
+    NvU32 orIndex;
 
-    nvAssert(orIndex != NV_INVALID_OR);
-    nvAssert(pConnectorEvo->or.ownerHeadMask[orIndex] & NVBIT(head));
+    for (orIndex = 0;
+            orIndex < ARRAY_LEN(pConnectorEvo->or.ownerHeadMask); orIndex++) {
+        if ((pConnectorEvo->or.ownerHeadMask[orIndex] & NVBIT(head)) != 0x0) {
+            break;
+        }
+    }
+
+    if (orIndex >= ARRAY_LEN(pConnectorEvo->or.ownerHeadMask)) {
+        nvAssert(!"Not found attached OR");
+        return;
+    }
 
     pConnectorEvo->or.ownerHeadMask[orIndex] &= ~NVBIT(head);
 
@@ -276,8 +312,35 @@ void nvEvoDetachConnector(NVConnectorEvoRec *pConnectorEvo, const NvU32 head,
                               pModesetUpdateState->connectorIds);
 }
 
+static
+NvU32 GetSorIndexToAttachConnector(const NVConnectorEvoRec *pConnectorEvo,
+                                   const NvBool isPrimaryHead)
+{
+    NvU32 orIndex = NV_INVALID_OR;
+
+    nvAssert(isPrimaryHead ||
+                (pConnectorEvo->or.type == NV0073_CTRL_SPECIFIC_OR_TYPE_SOR));
+
+    if (isPrimaryHead ||
+            (pConnectorEvo->or.type != NV0073_CTRL_SPECIFIC_OR_TYPE_SOR)) {
+        orIndex = pConnectorEvo->or.primary;
+    } else {
+        NvU32 i;
+
+        FOR_EACH_INDEX_IN_MASK(32, i, pConnectorEvo->or.secondaryMask) {
+            if (pConnectorEvo->or.ownerHeadMask[i] == 0x0) {
+                orIndex = i;
+                break;
+            }
+        } FOR_EACH_INDEX_IN_MASK_END;
+    }
+
+    return orIndex;
+}
+
 void nvEvoAttachConnector(NVConnectorEvoRec *pConnectorEvo,
                           const NvU32 head,
+                          const NvU32 isPrimaryHead,
                           NVDPLibModesetStatePtr pDpLibModesetState,
                           NVEvoModesetUpdateState *pModesetUpdateState)
 {
@@ -286,7 +349,8 @@ void nvEvoAttachConnector(NVConnectorEvoRec *pConnectorEvo,
     const NVDispHeadStateEvoRec *pHeadState = &pDispEvo->headState[head];
     const NVHwModeTimingsEvo *pTimings = &pHeadState->timings;
     NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
-    const NvU32 orIndex = nvEvoConnectorGetPrimaryOr(pConnectorEvo);
+    NvU32 orIndex =
+        GetSorIndexToAttachConnector(pConnectorEvo, isPrimaryHead);
     NvU32 i;
 
     nvAssert(orIndex != NV_INVALID_OR);
@@ -779,6 +843,15 @@ static void SetOverscanColor(NVEvoColorPtr pOverscanColor, NvBool yuv420)
 #endif
 }
 
+void nvEvoDisableHwYUV420Packer(const NVDispEvoRec *pDispEvo,
+                                const NvU32 head,
+                                NVEvoUpdateState *pUpdateState)
+{
+    NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
+    pDevEvo->gpus[pDispEvo->displayOwner].headControl[head].hwYuv420 = FALSE;
+    EvoUpdateHeadParams(pDispEvo, head, pUpdateState);
+}
+
 /*
  * Send the raster timings for the pDpyEvo to EVO.
  */
@@ -789,6 +862,8 @@ void nvEvoSetTimings(NVDispEvoPtr pDispEvo,
     NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
     const NVDispHeadStateEvoRec *pHeadState = &pDispEvo->headState[head];
     const NVHwModeTimingsEvo *pTimings = &pHeadState->timings;
+    const NVDscInfoEvoRec *pDscInfo = &pHeadState->dscInfo;
+    const enum nvKmsPixelDepth pixelDepth = pHeadState->pixelDepth;
     NVEvoColorRec overscanColor;
 
     nvPushEvoSubDevMaskDisp(pDispEvo);
@@ -796,7 +871,8 @@ void nvEvoSetTimings(NVDispEvoPtr pDispEvo,
                                       NV_YUV420_MODE_SW));
 
     pDevEvo->hal->SetRasterParams(pDevEvo, head,
-                                  pTimings, &overscanColor, updateState);
+                                  pTimings, pHeadState->tilePosition,
+                                  pDscInfo, &overscanColor, updateState);
 
     // Set the head parameters
     pDevEvo->gpus[pDispEvo->displayOwner].headControl[head].interlaced =
@@ -812,15 +888,14 @@ void nvEvoSetTimings(NVDispEvoPtr pDispEvo,
      * the HDMI library.
      */
     nvAssert(!((pTimings->yuv420Mode == NV_YUV420_MODE_HW) &&
-               (pTimings->dpDsc.enable ||
-                pTimings->hdmiFrlConfig.dscInfo.bEnableDSC)));
+               (pDscInfo->type != NV_DSC_INFO_EVO_TYPE_DISABLED)));
 
     pDevEvo->gpus[pDispEvo->displayOwner].headControl[head].hwYuv420 =
         (pTimings->yuv420Mode == NV_YUV420_MODE_HW);
 
     EvoUpdateHeadParams(pDispEvo, head, updateState);
 
-    pDevEvo->hal->SetDscParams(pDispEvo, head, pTimings);
+    pDevEvo->hal->SetDscParams(pDispEvo, head, pDscInfo, pixelDepth);
 
     nvPopEvoSubDevMask(pDevEvo);
 }
@@ -832,11 +907,11 @@ void nvEvoSetTimings(NVDispEvoPtr pDispEvo,
  * This involves incrementing *numTopologies, reallocating the topos array, and
  * initializing the new entry.
  */
-static RasterLockTopology *growTopologies(RasterLockTopology *topos,
+static RasterLockTopology *GrowTopologies(RasterLockTopology *topos,
                                           unsigned int *numTopologies)
 {
     RasterLockTopology *newTopos, *topo;
-    unsigned int i, numTopos;
+    unsigned int numTopos;
 
     numTopos = *numTopologies;
 
@@ -844,26 +919,290 @@ static RasterLockTopology *growTopologies(RasterLockTopology *topos,
     newTopos = nvRealloc(topos, numTopos * sizeof(RasterLockTopology));
     if (!newTopos) {
         nvFree(topos);
+        *numTopologies = 0;
         return NULL;
     }
 
     topo = &newTopos[numTopos - 1];
-
-    for (i = 0; i < NVKMS_MAX_SUBDEVICES; i++) {
-        topo->pDispEvoOrder[i] = NULL;
-    }
+    topo->numDisps = 0;
 
     *numTopologies = numTopos;
 
     return newTopos;
 
-} /* growTopologies() */
+} /* GrowTopologies() */
+
+static RasterLockTopology *CopyAndAppendTopology(RasterLockTopology *topos,
+                                                 unsigned int *numTopos,
+                                                 const RasterLockTopology *source)
+{
+    RasterLockTopology *dest;
+
+    topos = GrowTopologies(topos, numTopos);
+    if (topos) {
+        dest = &topos[*numTopos - 1];
+        nvkms_memcpy(dest, source, sizeof(RasterLockTopology));
+    }
+
+    return topos;
+}
+
+static void AddDispEvoIntoTopology(RasterLockTopology *topo, NVDispEvoPtr pDispEvo)
+{
+    NvU32 i;
+
+    /*
+     * The extent of a topology is the largest number of GPUs that can be
+     * linked together.
+     */
+    nvAssert(topo->numDisps < NVKMS_MAX_SUBDEVICES);
+
+    /* Caller should keep track of not adding duplicate entries. */
+    for (i = 0; i < topo->numDisps; i++) {
+        nvAssert(topo->pDispEvoOrder[i] != pDispEvo);
+    }
+
+    /* Add to the end of the array. */
+    topo->pDispEvoOrder[topo->numDisps] = pDispEvo;
+    topo->numDisps++;
+}
+
+static const RasterLockTopology *FindTopologyForDispEvo(
+    const RasterLockTopology *topos,
+    unsigned int numTopologies,
+    const NVDispEvoPtr pDispEvo)
+{
+    const RasterLockTopology *topo;
+    NvU32 i;
+
+    for (topo = topos; topo < topos + numTopologies; topo++) {
+        for (i = 0; i < topo->numDisps; i++) {
+            if (topo->pDispEvoOrder[i] == pDispEvo) {
+                return topo;
+            }
+        }
+    }
+
+    return NULL;
+}
+
+static DispEntry *DispEvoListFindDispByGpuId (DispEvoList *list, NvU32 gpuId)
+{
+    NvU32 i;
+
+    for (i = 0; i < list->numDisps; i++) {
+        if (list->disps[i].gpuId == gpuId) {
+            return &list->disps[i];
+        }
+    }
+
+    return NULL;
+}
+
+static void DispEvoListInit(DispEvoList *list)
+{
+    list->numDisps = 0;
+}
+
+static void DispEvoListAppend(DispEvoList *list, NVDispEvoPtr pDispEvo)
+{
+    nvAssert(DispEvoListFindDispByGpuId(
+                 list, nvGpuIdOfDispEvo(pDispEvo)) == NULL);
+
+    nvAssert(list->numDisps < ARRAY_LEN(list->disps));
+    list->disps[list->numDisps].pDispEvo = pDispEvo;
+    list->disps[list->numDisps].gpuId = nvGpuIdOfDispEvo(pDispEvo);
+    list->disps[list->numDisps].topo = NULL;
+    list->numDisps++;
+}
+
+/*
+ * Helper function to look up, for a gpuId, the list of connected GPUs in
+ * NV0000_CTRL_GPU_GET_VIDEO_LINKS_PARAMS.
+ */
+static NV0000_CTRL_GPU_VIDEO_LINKS *FindLinksForGpuId(
+    NV0000_CTRL_GPU_GET_VIDEO_LINKS_PARAMS *vidLinksParams,
+    NvU32 gpuId)
+{
+    NvU32 i;
+
+    for (i = 0; i < NV0000_CTRL_GPU_MAX_ATTACHED_GPUS; i++) {
+        if (vidLinksParams->links[i].gpuId == NV0000_CTRL_GPU_INVALID_ID) {
+            break;
+        }
+
+        if (vidLinksParams->links[i].gpuId == gpuId) {
+            return &vidLinksParams->links[i];
+        }
+    }
+
+    return NULL;
+}
+
+static void BuildTopologyFromVideoLinks(DispEvoList *list,
+                                        RasterLockTopology *topo,
+                                        NvU32 gpuId,
+                                        NV0000_CTRL_GPU_GET_VIDEO_LINKS_PARAMS *vidLinksParams)
+{
+    DispEntry *dispEntry;
+    NV0000_CTRL_GPU_VIDEO_LINKS *links;
+    NvU32 i;
+
+    /* Find the correct DispEntry for the gpuId. If we can't find one the
+     * gpuId must be pointing to a DevEvo that was not listed in our
+     * DevEvoList: ignore these links at this point. */
+    dispEntry = DispEvoListFindDispByGpuId(list, gpuId);
+    if (!dispEntry) {
+        return;
+    }
+
+    /*
+     * Unless we've seen this gpuId already add into current topology and
+     * try to discover bridged GPUs.
+     */
+    if (!dispEntry->topo) {
+        /* Assign in the current topology. */
+        AddDispEvoIntoTopology(topo, dispEntry->pDispEvo);
+        dispEntry->topo = topo;
+
+        /* First, get the links for this gpuId. */
+        links = FindLinksForGpuId(vidLinksParams, gpuId);
+
+        /* Recurse into connected GPUs. */
+        if (links) {
+            for (i = 0; i < NV0000_CTRL_GPU_MAX_VIDEO_LINKS; i++) {
+                if (links->connectedGpuIds[i] == NV0000_CTRL_GPU_INVALID_ID) {
+                    break;
+                }
+
+                BuildTopologyFromVideoLinks(list,
+                                            topo,
+                                            links->connectedGpuIds[i],
+                                            vidLinksParams);
+            }
+        }
+    }
+}
+
+/*
+ * Stateless (RM SLI/client SLI agnostic) discovery of bridged GPUs: build
+ * topologies for all non-RM SLI devices based on the found GPU links.
+ *
+ * This function and BuildTopologyFromVideoLinks() implement a simple
+ * algorithm that puts clusters of bridged GPUs into distinct topologies.
+ * Here's an outline of how we basically generate the final topologies:
+ *
+ * 1. Create a DispEvoList array to hold topology state for all the DispEvo
+ *    objects in the system.
+ *
+ * 2. Query RM for an array of video links for each GPU.
+ *
+ * 3. As long as the DispEvoList contains DispEvos of the given pDevEvo
+ *    without a topology, find the first occurrence of such, create a new
+ *    topology, and populate it by recursively adding the DispEvo and all
+ *    its connected DispEvos into the new topology.
+ *
+ * 4. Once all known DispEvos are assigned the result will be a list of
+ *    global RasterLockTopologies, each of which hosts <N> DispEvos that are
+ *    connected together.
+ *
+ * The result of this function should be cached once and later used to
+ * cheaply look up the appropriate, immutable topology for a DispEvo.
+ *
+ */
+static RasterLockTopology *GetGpuTopologyStateless(unsigned int *numTopologies)
+{
+    RasterLockTopology *topos = NULL;
+    RasterLockTopology *topo;
+    DispEvoList evoList;
+    NVDevEvoPtr pCurDev;
+    NVDispEvoPtr pCurDisp;
+    NV0000_CTRL_GPU_GET_VIDEO_LINKS_PARAMS *vidLinksParams;
+    NvU32 sd;
+    NvU32 i;
+
+    DispEvoListInit(&evoList);
+
+    /*
+     * First create an array of DispEntries to hold some state for all the
+     * DispEvos in the system.
+     */
+    FOR_ALL_EVO_DEVS(pCurDev) {
+        /*
+         * Only include non RM SLI devices so as to not clash with multi-GPU
+         * RM SLI devices.
+         */
+        if (pCurDev->numSubDevices == 1) {
+            FOR_ALL_EVO_DISPLAYS(pCurDisp, sd, pCurDev) {
+                DispEvoListAppend(&evoList, pCurDisp);
+            }
+        }
+    }
+
+    /*
+     * Ask RM about the currently known video links.
+     */
+    vidLinksParams = nvCalloc(1, sizeof(*vidLinksParams));
+    if (!vidLinksParams) {
+        return NULL;
+    }
+
+    if (nvRmApiControl(nvEvoGlobal.clientHandle,
+                       nvEvoGlobal.clientHandle,
+                       NV0000_CTRL_CMD_GPU_GET_VIDEO_LINKS,
+                       vidLinksParams,
+                       sizeof(*vidLinksParams)) == NVOS_STATUS_SUCCESS) {
+
+        for (i = 0; i < evoList.numDisps; i++) {
+            /*
+             * Create a new topology starting from the first DispEvo not yet
+             * assigned into a topology, and all GPUs possibly reachable
+             * from it through bridges.
+             *
+             * TODO: Consider if we should only ever start a new topology
+             * with a GPU that has only one connection and not two. Then the
+             * topology's pDispEvoOrder would always start from a "leaf" GPU
+             * of a linkage graph. But will the GPU links always be linear
+             * and non-branching? NV0000_CTRL_GPU_GET_VIDEO_LINKS_PARAMS
+             * makes it possible to represent GPUs with any number of links.
+             * Either FinishModesetOneTopology() must be able to handle that
+             * (in which case this is not a concern) or we must be able to
+             * trust that only 0-2 links will be reported per GPU.
+             */
+            if (evoList.disps[i].topo) {
+                continue;
+            }
+
+            topos = GrowTopologies(topos, numTopologies);
+            if (!topos) {
+                nvFree(vidLinksParams);
+                return NULL;
+            }
+
+            topo = &topos[*numTopologies - 1];
+
+            BuildTopologyFromVideoLinks(&evoList,
+                                        topo,
+                                        evoList.disps[i].gpuId,
+                                        vidLinksParams);
+        }
+
+        nvFree(vidLinksParams);
+        nvAssert(*numTopologies > 0);
+        return topos;
+    }
+
+    nvFree(vidLinksParams);
+    nvFree(topos);
+    return NULL;
+}
 
 /*
  * GetRasterLockTopologies() - Determine which GPUs to consider for locking (or
  * unlocking) displays.  This is one of the following:
  * 1. SLI video bridge order, if SLI is enabled;
- * 2. A single GPU,
+ * 2. GPUs linked through rasterlock pins, no SLI (like in clientSLI);
+ * 3. A single GPU,
  * in that order.
  *
  * Note that we still go through the same codepaths for the last degenerate
@@ -896,7 +1235,7 @@ static RasterLockTopology *GetRasterLockTopologies(NVDevEvoPtr pDevEvo,
 
         if (params.ConnectionCount > 0) {
             RasterLockTopology *topo;
-            topos = growTopologies(topos, numTopologies);
+            topos = GrowTopologies(topos, numTopologies);
 
             if (!topos) {
                 return NULL;
@@ -922,28 +1261,64 @@ static RasterLockTopology *GetRasterLockTopologies(NVDevEvoPtr pDevEvo,
                 nvAssert(pDevEvo->pDispEvo[sd] != NULL);
 
                 /* SLI Mosaic. */
-                topo->pDispEvoOrder[i] = pDevEvo->pDispEvo[sd];
+                AddDispEvoIntoTopology(topo, pDevEvo->pDispEvo[sd]);
             }
         }
-    } else {
-        /* Single GPU or bridgeless SLI */
 
-        NVDispEvoPtr pDispEvo;
-        unsigned int sd;
-
-        FOR_ALL_EVO_DISPLAYS(pDispEvo, sd, pDevEvo) {
-
-            RasterLockTopology *topo;
-            topos = growTopologies(topos, numTopologies);
-
-            if (!topos) {
-                return NULL;
-            }
-
-            topo = &topos[*numTopologies - 1];
-
-            topo->pDispEvoOrder[0] = pDispEvo;
+        if (*numTopologies > 0) {
+            return topos;
         }
+    }
+
+    /*
+     * Client SLI: Create a RasterLockTopology from pDevEvo's only DispEvo
+     * and other DispEvos potentially bridged to that.
+     */
+
+    if (pDevEvo->numSubDevices == 1) {
+        /* Get-or-create cached rasterlock topology for this device. */
+        if (!nvEvoGlobal.globalTopologies) {
+            nvEvoGlobal.globalTopologies =
+                GetGpuTopologyStateless(&nvEvoGlobal.numGlobalTopos);
+        }
+
+        /* Look for a cached topo containing this device's DispEvo. */
+        if (nvEvoGlobal.globalTopologies && nvEvoGlobal.numGlobalTopos > 0) {
+            const RasterLockTopology *foundTopo =
+                FindTopologyForDispEvo(nvEvoGlobal.globalTopologies,
+                                       nvEvoGlobal.numGlobalTopos,
+                                       pDevEvo->pDispEvo[0]);
+
+            /* Make a copy of it and add to 'topos'. */
+            if (foundTopo) {
+                topos = CopyAndAppendTopology(topos, numTopologies, foundTopo);
+            }
+        }
+
+        if (*numTopologies > 0) {
+            return topos;
+        }
+    }
+
+    /*
+     * Single GPU or bridgeless SLI. We create a topology for each
+     * individual DispEvo.
+     */
+
+    NVDispEvoPtr pDispEvo;
+    unsigned int sd;
+
+    FOR_ALL_EVO_DISPLAYS(pDispEvo, sd, pDevEvo) {
+        RasterLockTopology *topo;
+        topos = GrowTopologies(topos, numTopologies);
+
+        if (!topos) {
+            return NULL;
+        }
+
+        topo = &topos[*numTopologies - 1];
+
+        AddDispEvoIntoTopology(topo, pDispEvo);
     }
 
     return topos;
@@ -1051,13 +1426,9 @@ static void UnlockRasterLockGroup(NVDevEvoPtr pDevEvo) {
     }
 
     for (topo = topos; topo < topos + numTopos; topo++) {
-        int maxDisps = 0, i;
+        int i;
 
-        for (i = 0; i < NVKMS_MAX_SUBDEVICES && topo->pDispEvoOrder[i]; i++) {
-            maxDisps = i;
-        }
-
-        for (i = maxDisps; i >= 0; i--) {
+        for (i = (int)topo->numDisps - 1; i >= 0; i--) {
             NVDispEvoPtr pDispEvo = topo->pDispEvoOrder[i];
             NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
             NvU32 sd = pDispEvo->displayOwner;
@@ -1246,6 +1617,55 @@ void nvEvoUpdateSliVideoBridge(NVDevEvoPtr pDevEvo)
     pDevEvo->sli.bridge.powered = enable;
 }
 
+void nvEvoLockStateSetMergeMode(NVDispEvoPtr pDispEvo)
+{
+    NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
+    NVEvoSubDevPtr pEvoSubDev = &pDevEvo->gpus[pDispEvo->displayOwner];
+    NvU32 activeHeads[NVKMS_MAX_HEADS_PER_DISP + 1];
+    NvU32 mergeModeHeads[NVKMS_MAX_HEADS_PER_DISP + 1];
+    NvU32 numMergeModeHeads = 0;
+    NvU32 numActiveHeads = 0;
+    NvBool needUpdate = FALSE;
+
+    for (NvU32 head = 0; head < NVKMS_MAX_HEADS_PER_DISP; head++) {
+        if (nvHeadIsActive(pDispEvo, head)) {
+            if (pDispEvo->headState[head].mergeMode !=
+                    NV_EVO_MERGE_MODE_DISABLED) {
+                mergeModeHeads[numMergeModeHeads++] = head;
+            }
+            activeHeads[numActiveHeads++] = head;
+        }
+    }
+    mergeModeHeads[numMergeModeHeads] = NV_INVALID_HEAD;
+    activeHeads[numActiveHeads] = NV_INVALID_HEAD;
+
+    SyncEvoLockState();
+
+    if (pEvoSubDev->scanLockState(pDispEvo, pEvoSubDev,
+                                  NV_EVO_DISABLE_MERGE_MODE, NULL)) {
+        pEvoSubDev->scanLockState(pDispEvo, pEvoSubDev,
+                                  NV_EVO_DISABLE_MERGE_MODE, activeHeads);
+        needUpdate = TRUE;
+    }
+
+    if (numMergeModeHeads > 0) {
+        nvAssert(pDevEvo->hal->caps.supportsMergeMode);
+        if (pEvoSubDev->scanLockState(pDispEvo,
+                                      pEvoSubDev,
+                                      NV_EVO_ENABLE_MERGE_MODE,
+                                      mergeModeHeads)) {
+            needUpdate = TRUE;
+        } else {
+            nvEvoLogDispDebug(pDispEvo, EVO_LOG_ERROR,
+                              "Failed to enable lock state merge mode");
+        }
+    }
+
+    if (needUpdate) {
+        UpdateEvoLockState();
+    }
+}
+
 /*
  * FinishModesetOneTopology() - Set up raster lock between GPUs, if applicable,
  * for one RasterLockTopology.  Called in a loop from nvFinishModesetEvo().
@@ -1262,12 +1682,17 @@ static void FinishModesetOneTopology(RasterLockTopology *topo)
     NvBool flipLockPossible = TRUE;
     unsigned int i, j;
     NvU8 allowFlipLockGroup = 0;
+    NVDevEvoPtr pDevEvoFlipLockGroup = NULL;
+    NvBool mergeModeInUse = FALSE;
 
     /*
-     * First, look for devices with VRR enabled.  If we find any, go into the
-     * special VRR framelock mode and don't try to rasterlock any other heads.
+     * First, look for devices with VRR enabled. If we find any, go into the
+     * special VRR framelock mode.
+     *
+     * If we find devices with VRR or merge mode enabled, don't try to
+     * rasterlock any other heads.
      */
-    for (i = 0; i < NVKMS_MAX_SUBDEVICES && pDispEvoOrder[i]; i++) {
+    for (i = 0; i < topo->numDisps; i++) {
         NVDispEvoPtr pDispEvo = pDispEvoOrder[i];
         NvU32 sd = pDispEvo->displayOwner;
         NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
@@ -1275,7 +1700,20 @@ static void FinishModesetOneTopology(RasterLockTopology *topo)
         unsigned int numVrrHeads = 0;
         NvU32 head;
 
-        if (!pDevEvo->gpus || !pDevEvo->vrr.enabled) {
+        if (!pDevEvo->gpus) {
+            continue;
+        }
+
+        for (head = 0; head < NVKMS_MAX_HEADS_PER_DISP; head++) {
+            if (nvHeadIsActive(pDispEvo, head)) {
+                if (pDispEvo->headState[head].mergeMode !=
+                        NV_EVO_MERGE_MODE_DISABLED) {
+                    mergeModeInUse = TRUE;
+                }
+            }
+        }
+
+        if (!pDevEvo->vrr.enabled) {
             continue;
         }
 
@@ -1295,7 +1733,7 @@ static void FinishModesetOneTopology(RasterLockTopology *topo)
         }
     }
 
-    if (vrrInUse) {
+    if (vrrInUse || mergeModeInUse) {
         return;
     }
 
@@ -1306,7 +1744,7 @@ static void FinishModesetOneTopology(RasterLockTopology *topo)
      * use.  For now, only attempt locking if all heads on the device have
      * compatible timings and consecutive in the video bridge order.
      */
-    for (i = 0; i < NVKMS_MAX_SUBDEVICES && pDispEvoOrder[i]; i++) {
+    for (i = 0; i < topo->numDisps; i++) {
         NVDispEvoPtr pDispEvo = pDispEvoOrder[i];
         NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
         NvU32 head;
@@ -1346,10 +1784,16 @@ static void FinishModesetOneTopology(RasterLockTopology *topo)
             /*
              * Only flip lock if all of the heads are in the same
              * allowFlipLockGroup.
+             *
+             * Also, for now, only allow fliplocking if all heads are on
+             * GPUs with the same pDevEvo (i.e., single GPU or RM-linked
+             * SLI).
              */
             if (allowFlipLockGroup == 0) {
                 allowFlipLockGroup = pHeadState->allowFlipLockGroup;
-            } else if (allowFlipLockGroup != pHeadState->allowFlipLockGroup) {
+                pDevEvoFlipLockGroup = pDevEvo;
+            } else if (allowFlipLockGroup != pHeadState->allowFlipLockGroup ||
+                       pDevEvoFlipLockGroup != pDevEvo) {
                 flipLockPossible = FALSE;
             }
 
@@ -1378,7 +1822,7 @@ exitHeadLoop:
      * Finally, actually set up locking: go through the video bridge order
      * setting it up.
      */
-    for (i = 0; i < NVKMS_MAX_SUBDEVICES && pDispEvoOrder[i]; i++) {
+    for (i = 0; i < topo->numDisps; i++) {
         NVDispEvoPtr pDispEvo = pDispEvoOrder[i];
         NvU32 sd = pDispEvo->displayOwner;
         NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
@@ -1539,6 +1983,7 @@ exitHeadLoop:
 
                 for (j = 0; j < usedHeads; j++) {
                     NvU32 tmpHead = head[j];
+                    NvU64 startTime = 0;
 
                     NVEvoLockPin pin =
                         nvEvoGetPinForSignal(pDispEvo, &pDevEvo->gpus[sd],
@@ -1546,7 +1991,8 @@ exitHeadLoop:
 
                     /* Wait for the raster lock to sync in.. */
                     if (pin == NV_EVO_LOCK_PIN_ERROR ||
-                        !EvoWaitForLock(pDevEvo, sd, tmpHead, EVO_RASTER_LOCK)) {
+                        !EvoWaitForLock(pDevEvo, sd, tmpHead, EVO_RASTER_LOCK,
+                                        &startTime)) {
                         flipLockPossible = FALSE;
                         break;
                     }
@@ -1581,8 +2027,10 @@ exitHeadLoop:
                  * flips in the base channel.
                  */
                 for (j = 0; j < usedHeads; j++) {
+                    NvU64 startTime = 0;
                     if (flipLockPossible &&
-                        !EvoWaitForLock(pDevEvo, sd, head[j], EVO_FLIP_LOCK)) {
+                        !EvoWaitForLock(pDevEvo, sd, head[j], EVO_FLIP_LOCK,
+                                        &startTime)) {
                         flipLockPossible = FALSE;
                         break;
                     }
@@ -1637,46 +2085,91 @@ void nvEnableMidFrameAndDWCFWatermark(NVDevEvoPtr pDevEvo,
                                                  pUpdateState);
 }
 
+NvBool nvGetDefaultColorSpace(
+    const NVColorFormatInfoRec *pColorFormatsInfo,
+    enum NvKmsDpyAttributeCurrentColorSpaceValue *pColorSpace,
+    enum NvKmsDpyAttributeColorBpcValue *pColorBpc)
+{
+    if (pColorFormatsInfo->rgb444.maxBpc !=
+            NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_UNKNOWN) {
+        *pColorSpace = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB;
+        *pColorBpc = pColorFormatsInfo->rgb444.maxBpc;
+        return TRUE;
+    }
+
+    if (pColorFormatsInfo->yuv444.maxBpc !=
+            NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_UNKNOWN) {
+        *pColorSpace = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr444;
+        *pColorBpc = pColorFormatsInfo->yuv444.maxBpc;
+        return TRUE;
+    }
+
+    if (pColorFormatsInfo->yuv422.maxBpc !=
+            NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_UNKNOWN) {
+        *pColorSpace = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr422;
+        *pColorBpc = pColorFormatsInfo->yuv422.maxBpc;
+        return TRUE;
+    }
+
+    return FALSE;
+}
 
 /*!
- * Choose current colorSpace and colorRange based on the current mode timings
- * and the requested color space and range, and notify clients of any changes.
+ * Choose current colorSpace and colorRange for the given dpy based on
+ * the dpy's color format capailities, the given modeset parameters (YUV420
+ * mode and output transfer function) and the requested color space and range.
  *
- * This needs to be called during a modeset when YUV420 mode may have been
- * enabled or disabled, as well as when the requested color space or range have
- * changed.
- *
- * RGB/YUV would be selected for DFP, only RGB would be selected for CRT and
- * only YUV would be selected for TV.
+ * This needs to be called during a modeset as well as when the requested color
+ * space or range have changed.
  *
  * If SW YUV420 mode is enabled, EVO HW is programmed with default (RGB color
  * space, FULL color range) values, and the real values are used in a
  * headSurface composite shader.
  */
-void nvChooseCurrentColorSpaceAndRangeEvo(
-    enum nvKmsPixelDepth pixelDepth,
-    enum NvYuv420Mode yuv420Mode,
+NvBool nvChooseCurrentColorSpaceAndRangeEvo(
+    const NVDpyEvoRec *pDpyEvo,
+    const NVHwModeTimingsEvo *pHwTimings,
+    NvU8 hdmiFrlBpc,
+    enum NvKmsOutputTf tf,
     const enum NvKmsDpyAttributeRequestedColorSpaceValue requestedColorSpace,
     const enum NvKmsDpyAttributeColorRangeValue requestedColorRange,
     enum NvKmsDpyAttributeCurrentColorSpaceValue *pCurrentColorSpace,
+    enum NvKmsDpyAttributeColorBpcValue *pCurrentColorBpc,
     enum NvKmsDpyAttributeColorRangeValue *pCurrentColorRange)
 {
     enum NvKmsDpyAttributeCurrentColorSpaceValue newColorSpace =
         NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB;
+    enum NvKmsDpyAttributeColorBpcValue newColorBpc =
+        NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_10;
     enum NvKmsDpyAttributeColorRangeValue newColorRange =
         NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_FULL;
+    const NVColorFormatInfoRec colorFormatsInfo =
+        nvGetColorFormatInfo(pDpyEvo);
 
-    /* At depth 18 only RGB and full range are allowed */
-    if (pixelDepth == NVKMS_PIXEL_DEPTH_18_444) {
-        goto done;
-    }
+    // XXX HDR TODO: Handle other transfer functions
+    // XXX HDR TODO: Handle YUV
+    if (tf == NVKMS_OUTPUT_TF_PQ) {
+        /*
+         * If the head is currently in PQ output mode, we override the
+         * requested color space with RGB.  We cannot support yuv420Mode in
+         * that configuration, so fail in that case.
+         */
+        if (pHwTimings->yuv420Mode != NV_YUV420_MODE_NONE) {
+            return FALSE;
+        }
 
-    /*
-     * If the current mode timing requires YUV420 compression, we override the
-     * requested color space with YUV420.
-     */
-    if (yuv420Mode != NV_YUV420_MODE_NONE) {
+        newColorSpace = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB;
+        newColorBpc = colorFormatsInfo.rgb444.maxBpc;
+    } else if (pHwTimings->yuv420Mode != NV_YUV420_MODE_NONE) {
+        /*
+         * If the current mode timing requires YUV420 compression, we override the
+         * requested color space with YUV420.
+         */
         newColorSpace = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr420;
+        newColorBpc = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8;
+
+        nvAssert(colorFormatsInfo.rgb444.maxBpc >=
+                    NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8);
     } else {
         /*
          * Note this is an assignment between different enum types. Checking the
@@ -1686,30 +2179,73 @@ void nvChooseCurrentColorSpaceAndRangeEvo(
         switch (requestedColorSpace) {
         case NV_KMS_DPY_ATTRIBUTE_REQUESTED_COLOR_SPACE_RGB:
             newColorSpace = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB;
+            newColorBpc = colorFormatsInfo.rgb444.maxBpc;
             break;
         case NV_KMS_DPY_ATTRIBUTE_REQUESTED_COLOR_SPACE_YCbCr422:
             newColorSpace = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr422;
+            newColorBpc = colorFormatsInfo.yuv422.maxBpc;
             break;
         case NV_KMS_DPY_ATTRIBUTE_REQUESTED_COLOR_SPACE_YCbCr444:
             newColorSpace = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr444;
+            newColorBpc = colorFormatsInfo.yuv444.maxBpc;
             break;
         default:
             nvAssert(!"Invalid Requested ColorSpace");
         }
+
+        if ((newColorBpc ==
+                NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_UNKNOWN) &&
+            !nvGetDefaultColorSpace(&colorFormatsInfo, &newColorSpace,
+                                    &newColorBpc)) {
+            return FALSE;
+        }
     }
 
-    /* Only limited color range is allowed in YUV colorimetry. */
+    /* Hardware supports BPC_6 only for RGB */
+    nvAssert((newColorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB) ||
+                (newColorBpc != NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_6));
+    /*
+     * Both YUV and NVKMS_OUTPUT_TF_PQ requires limited color range.
+     */
     if ((newColorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr444) ||
         (newColorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr422) ||
-        (newColorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr420)) {
+        (newColorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr420) ||
+        (tf == NVKMS_OUTPUT_TF_PQ)) {
         newColorRange = NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_LIMITED;
+    } else if ((newColorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB) &&
+               (newColorBpc == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_6)) {
+        /* At depth 18 only RGB and full range are allowed */
+        newColorRange = NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_FULL;
     } else {
         newColorRange = requestedColorRange;
     }
 
-done:
+    /*
+     * Downgrade BPC if HDMI configuration does not support current selection
+     * with TMDS or FRL.
+     */
+    if (nvDpyIsHdmiEvo(pDpyEvo) &&
+        nvHdmiTimingsNeedFrl(pDpyEvo, pHwTimings, newColorBpc) &&
+        (newColorBpc > hdmiFrlBpc))  {
+
+        newColorBpc =
+            hdmiFrlBpc ? hdmiFrlBpc : NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8;
+        nvAssert(newColorBpc >= NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8);
+    }
+
+    // 10 BPC required for HDR
+    // XXX HDR TODO: Handle other transfer functions
+    // XXX HDR TODO: Handle YUV
+    if ((tf == NVKMS_OUTPUT_TF_PQ) &&
+        (newColorBpc < NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_10)) {
+        return FALSE;
+    }
+
     *pCurrentColorSpace = newColorSpace;
     *pCurrentColorRange = newColorRange;
+    *pCurrentColorBpc = newColorBpc;
+
+    return TRUE;
 }
 
 void nvUpdateCurrentHardwareColorSpaceAndRangeEvo(
@@ -1725,11 +2261,21 @@ void nvUpdateCurrentHardwareColorSpaceAndRangeEvo(
 
     nvAssert(pConnectorEvo != NULL);
 
-    // In SW YUV420 mode, HW is programmed with RGB color space and full color
-    // range.  The color space conversion and color range compression happen
-    // in a headSurface composite shader.
-    if ((pHeadState->timings.yuv420Mode == NV_YUV420_MODE_SW) &&
+    if (pHeadState->tf == NVKMS_OUTPUT_TF_PQ) {
+        nvAssert(pHeadState->timings.yuv420Mode == NV_YUV420_MODE_NONE);
+        nvAssert(colorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB);
+        nvAssert(colorRange == NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_LIMITED);
+
+        pHeadState->procAmp.colorimetry =  NVT_COLORIMETRY_BT2020RGB;
+        pHeadState->procAmp.colorRange = NVT_COLOR_RANGE_LIMITED;
+        pHeadState->procAmp.colorFormat = NVT_COLOR_FORMAT_RGB;
+    } else if ((pHeadState->timings.yuv420Mode == NV_YUV420_MODE_SW) &&
         (colorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr420)) {
+        /*
+         * In SW YUV420 mode, HW is programmed with RGB color space and full
+         * color range.  The color space conversion and color range compression
+         * happen in a headSurface composite shader.
+         */
         pHeadState->procAmp.colorimetry = NVT_COLORIMETRY_RGB;
         pHeadState->procAmp.colorRange = NVT_COLOR_RANGE_FULL;
         pHeadState->procAmp.colorFormat = NVT_COLOR_FORMAT_RGB;
@@ -1790,17 +2336,17 @@ void nvUpdateCurrentHardwareColorSpaceAndRangeEvo(
             nvAssert(!"ERROR: invalid pDpyEvo->type");
         }
 
-        // Only advertise YCbCr444 or YCbCr422 when the corresponding
-        // colorSpaceCaps is TRUE.
-        if ((colorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr444) &&
-            !pConnectorEvo->colorSpaceCaps.ycbcr444Capable) {
-            nvAssert(!"!pConnectorEvo->colorSpaceCaps.ycbcr444Capable");
-        }
+        /* YCbCr444 should be advertise only for DisplayPort and HDMI */
+        nvAssert((colorSpace != NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr444) ||
+                    nvConnectorUsesDPLib(pConnectorEvo) ||
+                    pConnectorEvo->isHdmiEnabled);
 
-        if ((colorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr422) &&
-            !pConnectorEvo->colorSpaceCaps.ycbcr422Capable) {
-            nvAssert(!"!pConnectorEvo->colorSpaceCaps.ycbcr422Capable");
-        }
+        /* YcbCr422 should be advertised only for HDMI and DP on supported GPUs */
+        nvAssert((colorSpace != NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr422) ||
+                     (((pDevEvo->caps.hdmiYCbCr422MaxBpc != 0) &&
+                       pConnectorEvo->isHdmiEnabled)) ||
+                      ((pDevEvo->caps.dpYCbCr422MaxBpc != 0) &&
+                       nvConnectorUsesDPLib(pConnectorEvo)));
 
         switch (colorRange) {
         case NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_FULL:
@@ -1820,7 +2366,7 @@ void nvUpdateCurrentHardwareColorSpaceAndRangeEvo(
                (pHeadState->procAmp.colorRange != NVT_COLOR_RANGE_LIMITED)));
 
     // Limited color range is not allowed with 18bpp mode
-    nvAssert(!((pHeadState->timings.pixelDepth == NVKMS_PIXEL_DEPTH_18_444) &&
+    nvAssert(!((pHeadState->pixelDepth == NVKMS_PIXEL_DEPTH_18_444) &&
                (pHeadState->procAmp.colorRange == NVT_COLOR_RANGE_LIMITED)));
 
     nvPushEvoSubDevMaskDisp(pDispEvo);
@@ -1838,6 +2384,7 @@ void nvEvoHeadSetControlOR(NVDispEvoPtr pDispEvo,
     NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
     const NVDispHeadStateEvoPtr pHeadState = &pDispEvo->headState[head];
     const NVHwModeTimingsEvo *pTimings = &pHeadState->timings;
+    const enum nvKmsPixelDepth pixelDepth = pHeadState->pixelDepth;
     NvBool colorSpaceOverride = FALSE;
 
     /*
@@ -1858,7 +2405,7 @@ void nvEvoHeadSetControlOR(NVDispEvoPtr pDispEvo,
     // Only set up the actual output for SLI primary.
     nvPushEvoSubDevMask(pDevEvo, 1 << pDispEvo->displayOwner);
 
-    pDevEvo->hal->HeadSetControlOR(pDevEvo, head, pTimings,
+    pDevEvo->hal->HeadSetControlOR(pDevEvo, head, pTimings, pixelDepth,
                                    colorSpaceOverride,
                                    pUpdateState);
 
@@ -1897,7 +2444,7 @@ static const struct {
  */
 void nvChooseDitheringEvo(
     const NVConnectorEvoRec *pConnectorEvo,
-    const enum nvKmsPixelDepth pixelDepth,
+    enum NvKmsDpyAttributeColorBpcValue bpc,
     const NVDpyAttributeRequestedDitheringConfig *pReqDithering,
     NVDpyAttributeCurrentDitheringConfig *pCurrDithering)
 {
@@ -1973,10 +2520,9 @@ void nvChooseDitheringEvo(
          * which lowers the color depth, consider that while applying
          * dithering effects.
          */
-        NvU32 dpBits = nvPixelDepthToBitsPerComponent(pixelDepth);
-        if (dpBits == 0) {
+        if (bpc == 0) {
             nvAssert(!"Unknown dpBits");
-            dpBits = 8;
+            bpc = 8;
         }
 
         /*
@@ -1986,7 +2532,7 @@ void nvChooseDitheringEvo(
          *
          * XXX TODO: nvdisplay can dither to 10 bpc.
          */
-        if ((dpBits <= 8) && (lutBits > dpBits)) {
+        if ((bpc <= 8) && (lutBits > bpc)) {
             if (pReqDithering->state ==
                     NV_KMS_DPY_ATTRIBUTE_REQUESTED_DITHERING_AUTO) {
                 currDithering.enabled = TRUE;
@@ -1995,11 +2541,11 @@ void nvChooseDitheringEvo(
 
         if (pReqDithering->depth ==
                 NV_KMS_DPY_ATTRIBUTE_REQUESTED_DITHERING_DEPTH_AUTO) {
-            if (dpBits <= 6) {
-                currDithering.mode =
+            if (bpc <= 6) {
+                currDithering.depth =
                     NV_KMS_DPY_ATTRIBUTE_CURRENT_DITHERING_DEPTH_6_BITS;
-            } else if (dpBits <= 8) {
-                currDithering.mode =
+            } else if (bpc <= 8) {
+                currDithering.depth =
                     NV_KMS_DPY_ATTRIBUTE_CURRENT_DITHERING_DEPTH_8_BITS;
             }
         }
@@ -2088,7 +2634,7 @@ static NvBool HeadCanStereoLock(NVDevEvoPtr pDevEvo, int sd, int head)
 {
     NVEvoHeadControlPtr pHC = &pDevEvo->gpus[sd].headControlAssy[head];
 
-    return (!pHC->interlaced &&
+    return (!pHC->interlaced && !pHC->mergeMode &&
             ((pHC->serverLock != NV_EVO_NO_LOCK) ||
              (pHC->clientLock != NV_EVO_NO_LOCK)));
 }
@@ -2976,12 +3522,20 @@ NvBool nvQueryRasterLockEvo(const NVDpyEvoRec *pDpyEvo, NvS64 *val)
     NVDispEvoPtr pDispEvo = pDpyEvo->pDispEvo;
     NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
     NVEvoSubDevPtr pEvoSubDev;
-    /*
-     * XXX[2Heads1OR] Loop over hardware heads to determine if this api-head
-     * is rasterlocked with any other api-head.
-     */
-    const NvU32 head = pDpyEvo->apiHead;
+    const NvU32 apiHead = pDpyEvo->apiHead;
+    const NvU32 head = nvGetPrimaryHwHead(pDispEvo, apiHead);
     NVEvoHeadControlPtr pHC;
+
+    /*
+     * XXX[2Heads1OR] The EVO lock state machine is not currently supported with
+     * 2Heads1OR, the api head is expected to be mapped onto a single
+     * hardware head (which is the primary hardware head) if 2Heads1OR is not
+     * active and the EVO lock state machine is in use.
+     */
+    if ((apiHead == NV_INVALID_HEAD) ||
+            (nvPopCount32(pDispEvo->apiHeadState[apiHead].hwHeadsMask) != 1)) {
+        return FALSE;
+    }
 
     if ((head == NV_INVALID_HEAD) || (pDevEvo->gpus == NULL)) {
         return FALSE;
@@ -2994,6 +3548,16 @@ NvBool nvQueryRasterLockEvo(const NVDpyEvoRec *pDpyEvo, NvS64 *val)
            pHC->clientLock == NV_EVO_RASTER_LOCK;
 
     return TRUE;
+}
+
+void nvInvalidateTopologiesEvo(void)
+{
+    if (nvEvoGlobal.globalTopologies) {
+        nvFree(nvEvoGlobal.globalTopologies);
+
+        nvEvoGlobal.globalTopologies = NULL;
+        nvEvoGlobal.numGlobalTopos = 0;
+    }
 }
 
 /*
@@ -3077,6 +3641,7 @@ NvBool nvUpdateFlipLockEvoOneHead(NVDispEvoPtr pDispEvo, const NvU32 head,
 
         if (setVal ^ pHC->flipLock) {
             NvBool isMethodPending;
+            NvBool changed = FALSE;
 
             if (!pDevEvo->hal->
                     IsChannelMethodPending(pDevEvo,
@@ -3089,19 +3654,31 @@ NvBool nvUpdateFlipLockEvoOneHead(NVDispEvoPtr pDispEvo, const NvU32 head,
             }
 
             if (setVal) {
-                // make sure flip lock is not prohibited and raster lock is enabled
+                /* make sure flip lock is not prohibited and raster lock is enabled
+                 *
+                 * XXX: [2Heads1OR] If head is locked in the merge mode then
+                 * its flip-lock state can not be changed.
+                 */
                 if ((pHC->serverLock == NV_EVO_NO_LOCK &&
                      pHC->clientLock == NV_EVO_NO_LOCK) ||
                     HEAD_MASK_QUERY(pEvoSubDev->flipLockProhibitedHeadMask,
-                                    head)) {
+                                    head) ||
+                    pHC->mergeMode) {
                     return FALSE;
                 }
                 pHC->flipLock = TRUE;
+                changed = TRUE;
             } else {
-                /* Only actually disable fliplock if it's not needed for SLI */
-                if (!HEAD_MASK_QUERY(pEvoSubDev->flipLockEnabledForSliHeadMask,
+                /* Only actually disable fliplock if it's not needed for SLI.
+                 *
+                 * XXX: [2Heads1OR] If head is locked in the merge mode then
+                 * its flip-lock state can not be changed.
+                 */
+                if (!pHC->mergeMode &&
+                    !HEAD_MASK_QUERY(pEvoSubDev->flipLockEnabledForSliHeadMask,
                                      head)) {
                     pHC->flipLock = FALSE;
+                    changed = TRUE;
 
                     /*
                      * When disabling fliplock during a modeset, the core
@@ -3117,7 +3694,9 @@ NvBool nvUpdateFlipLockEvoOneHead(NVDispEvoPtr pDispEvo, const NvU32 head,
                 }
             }
 
-            EvoUpdateHeadParams(pDispEvo, head, updateState);
+            if (changed) {
+                EvoUpdateHeadParams(pDispEvo, head, updateState);
+            }
         }
 
         /* Remember if we currently need fliplock enabled for framelock */
@@ -3142,12 +3721,8 @@ static NvBool UpdateFlipLock50(const NVDpyEvoRec *pDpyEvo,
                                NvU32 *val, NvBool set)
 {
     NVDispEvoPtr pDispEvo = pDpyEvo->pDispEvo;
-    /*
-     * XXX[2Heads1OR] Loop over hardware heads to determine is this api-head
-     * is rasterlocked with any other api-head and flip lock is not prohibited
-     * on its corresponding hardware heads.
-     */
-    const NvU32 head = pDpyEvo->apiHead;
+    const NvU32 apiHead = pDpyEvo->apiHead;
+    const NvU32 head = nvGetPrimaryHwHead(pDispEvo, apiHead);
     NVEvoUpdateState updateState = { };
     NvBool ret;
 
@@ -3196,9 +3771,12 @@ static void ProhibitFlipLock50(NVDispEvoPtr pDispEvo)
     NVEvoSubDevPtr pEvoSubDev = &pDevEvo->gpus[pDispEvo->displayOwner];
 
     for (head = 0; head < NVKMS_MAX_HEADS_PER_DISP; head++) {
-        NVEvoHeadControlPtr pHC = NULL;
-
-        if (!nvHeadIsActive(pDispEvo, head)) {
+        NVEvoHeadControlPtr pHC = &pEvoSubDev->headControl[head];
+        /*
+         * XXX: [2Heads1OR] If head is locked in the merge mode then its flip-lock
+         * state can not be changed.
+         */
+        if (!nvHeadIsActive(pDispEvo, head) || pHC->mergeMode) {
             continue;
         }
 
@@ -3208,8 +3786,6 @@ static void ProhibitFlipLock50(NVDispEvoPtr pDispEvo)
                       "because it is already enabled for frame lock");
             continue;
         }
-
-        pHC = &pEvoSubDev->headControl[head];
 
         if (pHC->flipLock) {
             needUpdate = TRUE;
@@ -3237,13 +3813,15 @@ static void AllowFlipLock50(NVDispEvoPtr pDispEvo)
     NVEvoSubDevPtr pEvoSubDev = &pDevEvo->gpus[pDispEvo->displayOwner];
 
     for (head = 0; head < NVKMS_MAX_HEADS_PER_DISP; head++) {
-        NVEvoHeadControlPtr pHC = NULL;
+        NVEvoHeadControlPtr pHC = &pEvoSubDev->headControl[head];
 
-        if (!nvHeadIsActive(pDispEvo, head)) {
+        /*
+         * XXX: [2Heads1OR] If head is locked in the merge mode then its flip-lock
+         * state can not be changed.
+         */
+        if (!nvHeadIsActive(pDispEvo, head) || pHC->mergeMode) {
             continue;
         }
-
-        pHC = &pEvoSubDev->headControl[head];
 
         if (!pHC->flipLock &&
             HEAD_MASK_QUERY(pEvoSubDev->flipLockEnabledForSliHeadMask,
@@ -3396,47 +3974,46 @@ static void EvoSetViewportPointIn(NVDispEvoPtr pDispEvo, const NvU32 head,
     nvPopEvoSubDevMask(pDevEvo);
 }
 
-static inline NvU32 LUTNotifierForHead(const NvU32 head)
+static inline NvU32 LUTNotifierForApiHead(const NvU32 apiHead)
 {
-    nvAssert(head != NV_INVALID_HEAD);
-    return 1 + head;
+    nvAssert(apiHead != NV_INVALID_HEAD);
+    return 1 + apiHead;
 }
 
-//******************************************************************************
-//
-//  Function:       EvoUpdateCurrentPalette
-//
-//  Description:    Setting the palette
-//
-//  Arguments:
-//
-//  Return Value:   None.
-//
-//******************************************************************************
-void nvEvoUpdateCurrentPalette(NVDispEvoPtr pDispEvo,
-                               NvU32 head, NvBool kickOff)
+void nvEvoSetLUTContextDma(NVDispEvoPtr pDispEvo,
+                           const NvU32 head, NVEvoUpdateState *pUpdateState)
 {
     NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
     const NVDispHeadStateEvoRec *pHeadState = &pDispEvo->headState[head];
+
+    pDevEvo->hal->SetLUTContextDma(pDispEvo,
+                                   head,
+                                   pHeadState->lut.pCurrSurface,
+                                   pHeadState->lut.baseLutEnabled,
+                                   pHeadState->lut.outputLutEnabled,
+                                   pUpdateState,
+                                   pHeadState->bypassComposition);
+}
+
+static void EvoUpdateCurrentPalette(NVDispEvoPtr pDispEvo, const NvU32 apiHead)
+{
+    NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
+    NVDispApiHeadStateEvoRec *pApiHeadState =
+                              &pDispEvo->apiHeadState[apiHead];
     const int dispIndex = pDispEvo->displayOwner;
-    NvU8 lutIndex = pDevEvo->lut.head[head].disp[dispIndex].curLUTIndex;
+    NvU32 head;
     NVEvoUpdateState updateState = { };
 
-    pDevEvo->hal->SetLUTContextDma(
-                     pDispEvo,
-                     head,
-                     pDevEvo->lut.head[head].LUT[lutIndex],
-                     pDevEvo->lut.head[head].disp[dispIndex].curBaseLutEnabled,
-                     pDevEvo->lut.head[head].disp[dispIndex].curOutputLutEnabled,
-                     &updateState,
-                     pHeadState->bypassComposition);
+    FOR_EACH_EVO_HW_HEAD_IN_MASK(pApiHeadState->hwHeadsMask, head) {
+        nvEvoSetLUTContextDma(pDispEvo, head, &updateState);
+    }
 
     /*
      * EVO2 does not set LUT context DMA if the core channel
      * doesn't have a scanout surface set, in that case there is no update
      * state to kickoff.
      */
-    if (kickOff && !nvIsUpdateStateEmpty(pDevEvo, &updateState)) {
+    if (!nvIsUpdateStateEmpty(pDevEvo, &updateState)) {
         // Clear the completion notifier and kick off an update.  Wait for it
         // here if NV_CTRL_SYNCHRONOUS_PALETTE_UPDATES is enabled.  Otherwise,
         // don't wait for the notifier -- it'll be checked the next time a LUT
@@ -3444,10 +4021,10 @@ void nvEvoUpdateCurrentPalette(NVDispEvoPtr pDispEvo,
         EvoUpdateAndKickOffWithNotifier(pDispEvo,
                                         TRUE, /* notify */
                                         FALSE, /* sync */
-                                        LUTNotifierForHead(head),
+                                        LUTNotifierForApiHead(apiHead),
                                         &updateState,
                                         TRUE /* releaseElv */);
-        pDevEvo->lut.head[head].disp[dispIndex].waitForPreviousUpdate = TRUE;
+        pDevEvo->lut.apiHead[apiHead].disp[dispIndex].waitForPreviousUpdate = TRUE;
     }
 }
 
@@ -3500,10 +4077,33 @@ static NvBool AllocEvoSubDevs(NVDevEvoPtr pDevEvo)
             for (i = 0; i < ARRAY_LEN(pSdHeadState->layer); i++) {
                 pSdHeadState->layer[i].cscMatrix = NVKMS_IDENTITY_CSC_MATRIX;
             }
+
+            pSdHeadState->cursor.cursorCompParams =
+                nvDefaultCursorCompositionParams(pDevEvo);
         }
     }
 
     return TRUE;
+}
+
+
+// Replace default cursor composition params when zeroed-out values are unsupported.
+struct NvKmsCompositionParams nvDefaultCursorCompositionParams(const NVDevEvoRec *pDevEvo)
+{
+    const struct NvKmsCompositionCapabilities *pCaps =
+        &pDevEvo->caps.cursorCompositionCaps;
+    const NvU32 supportedBlendMode =
+        pCaps->colorKeySelect[NVKMS_COMPOSITION_COLOR_KEY_SELECT_DISABLE].supportedBlendModes[1];
+
+    struct NvKmsCompositionParams params = { };
+
+    if ((supportedBlendMode & NVBIT(NVKMS_COMPOSITION_BLENDING_MODE_OPAQUE)) != 0x0) {
+        params.blendingMode[1] = NVKMS_COMPOSITION_BLENDING_MODE_OPAQUE;
+    } else {
+        params.blendingMode[1] = NVKMS_COMPOSITION_BLENDING_MODE_PREMULT_ALPHA;
+    }
+
+    return params;
 }
 
 static NvBool ValidateConnectorTypes(const NVDevEvoRec *pDevEvo)
@@ -3527,6 +4127,296 @@ static NvBool ValidateConnectorTypes(const NVDevEvoRec *pDevEvo)
         }
     }
     return TRUE;
+}
+
+static void UnregisterFlipOccurredEventOneHead(NVDispEvoRec *pDispEvo,
+                                               const NvU32 head)
+{
+    NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
+    NvU32 layer;
+
+    /* XXX NVKMS TODO: need disp-scope in event */
+    if (pDispEvo->displayOwner != 0) {
+        return;
+    }
+
+    for (layer = 0; layer < pDevEvo->head[head].numLayers; layer++) {
+        NVEvoChannelPtr pChannel = pDevEvo->head[head].layer[layer];
+
+        nvAssert((pChannel->completionNotifierEventHandle == 0) ||
+                    (pChannel->completionNotifierEventRefPtr != NULL));
+
+        if (pChannel->completionNotifierEventHandle != 0) {
+            nvRmApiFree(nvEvoGlobal.clientHandle,
+                        pChannel->pb.channel_handle,
+                        pChannel->completionNotifierEventHandle);
+            nvFreeUnixRmHandle(&pDevEvo->handleAllocator,
+                               pChannel->completionNotifierEventHandle);
+            pChannel->completionNotifierEventHandle = 0;
+            pChannel->completionNotifierEventRefPtr = NULL;
+        }
+    }
+}
+
+static void ClearApiHeadStateOneDisp(NVDispEvoRec *pDispEvo)
+{
+    NvU32 apiHead;
+
+    /*
+     * Unregister all the flip-occurred event callbacks which are
+     * registered with the (api-head, layer) pair event data,
+     * before destroying the api-head states.
+     */
+    for (NvU32 head = 0; head < pDispEvo->pDevEvo->numHeads; head++) {
+        UnregisterFlipOccurredEventOneHead(pDispEvo, head);
+    }
+
+    for (apiHead = 0; apiHead < ARRAY_LEN(pDispEvo->apiHeadState); apiHead++) {
+        NvU32 layer;
+        NVDispApiHeadStateEvoRec *pApiHeadState =
+            &pDispEvo->apiHeadState[apiHead];
+        nvAssert(nvListIsEmpty(&pApiHeadState->vblankCallbackList));
+        for (layer = 0; layer < ARRAY_LEN(pApiHeadState->flipOccurredEvent); layer++) {
+            if (pApiHeadState->flipOccurredEvent[layer].ref_ptr != NULL) {
+                nvkms_free_ref_ptr(pApiHeadState->flipOccurredEvent[layer].ref_ptr);
+                pApiHeadState->flipOccurredEvent[layer].ref_ptr = NULL;
+            }
+        }
+    }
+
+    nvkms_memset(pDispEvo->apiHeadState, 0, sizeof(pDispEvo->apiHeadState));
+}
+
+static void ClearApiHeadState(NVDevEvoRec *pDevEvo)
+{
+    NvU32 dispIndex;
+    NVDispEvoRec *pDispEvo;
+
+    nvRmFreeCoreRGSyncpts(pDevEvo);
+
+    FOR_ALL_EVO_DISPLAYS(pDispEvo, dispIndex, pDevEvo) {
+        ClearApiHeadStateOneDisp(pDispEvo);
+    }
+
+    nvkms_memset(pDevEvo->apiHead, 0, sizeof(pDevEvo->apiHead));
+}
+
+static NvBool InitApiHeadStateOneDisp(NVDispEvoRec *pDispEvo)
+{
+    NvU32 usedApiHeadsMask = 0x0;
+    const NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
+
+    for (NvU32 apiHead = 0; apiHead < ARRAY_LEN(pDispEvo->apiHeadState); apiHead++) {
+        NvU32 layer;
+        NVDispApiHeadStateEvoRec *pApiHeadState =
+            &pDispEvo->apiHeadState[apiHead];
+
+        pApiHeadState->activeDpys = nvEmptyDpyIdList();
+        pApiHeadState->attributes = NV_EVO_DEFAULT_ATTRIBUTES_SET;
+
+        nvListInit(&pApiHeadState->vblankCallbackList);
+
+        for (layer = 0; layer < ARRAY_LEN(pApiHeadState->flipOccurredEvent); layer++) {
+            pApiHeadState->flipOccurredEvent[layer].ref_ptr =
+                nvkms_alloc_ref_ptr(&pApiHeadState->flipOccurredEvent[layer].data);
+            if (pApiHeadState->flipOccurredEvent[layer].ref_ptr == NULL) {
+                goto failed;
+            }
+
+            pApiHeadState->flipOccurredEvent[layer].data =
+                (NVDispFlipOccurredEventDataEvoRec) {
+                .pDispEvo = pDispEvo,
+                .apiHead = apiHead,
+                .layer = layer,
+            };
+        }
+    }
+
+    for (NvU32 head = 0; head < pDevEvo->numHeads; head++) {
+        if (pDispEvo->headState[head].pConnectorEvo != NULL) {
+            NvU32 apiHead;
+            const NVConnectorEvoRec *pConnectorEvo =
+                pDispEvo->headState[head].pConnectorEvo;
+
+            /* Find unused api-head which support the equal number of layers */
+            for (apiHead = 0; apiHead < pDevEvo->numApiHeads; apiHead++) {
+                if ((NVBIT(apiHead) & usedApiHeadsMask) != 0x0) {
+                    continue;
+                }
+
+                if (pDevEvo->apiHead[apiHead].numLayers ==
+                        pDevEvo->head[head].numLayers) {
+                    usedApiHeadsMask |= NVBIT(apiHead);
+                    break;
+                }
+            }
+            nvAssert(apiHead < pDevEvo->numApiHeads);
+
+            /*
+             * Use the pDpyEvo for the connector, since we may not have one
+             * for display id if it's a dynamic one.
+             */
+            NVDpyEvoRec *pDpyEvo = nvGetDpyEvoFromDispEvo(pDispEvo,
+                pConnectorEvo->displayId);
+
+            nvAssert(pDpyEvo->apiHead == NV_INVALID_HEAD);
+
+            pDpyEvo->apiHead = apiHead;
+            nvAssignHwHeadsMaskApiHeadState(
+                &pDispEvo->apiHeadState[apiHead],
+                NVBIT(head));
+            pDispEvo->apiHeadState[apiHead].activeDpys =
+                nvAddDpyIdToEmptyDpyIdList(pConnectorEvo->displayId);
+        }
+    }
+
+    return TRUE;
+
+failed:
+    ClearApiHeadStateOneDisp(pDispEvo);
+
+    return FALSE;
+}
+
+static void
+CompletionNotifierEventDeferredWork(void *dataPtr, NvU32 dataU32)
+{
+    NVDispFlipOccurredEventDataEvoRec *pEventData = dataPtr;
+
+    nvSendFlipOccurredEventEvo(pEventData->pDispEvo, pEventData->apiHead,
+                               pEventData->layer);
+}
+
+static void CompletionNotifierEvent(void *arg, void *pEventDataVoid,
+                                    NvU32 hEvent, NvU32 Data, NV_STATUS Status)
+{
+  (void) nvkms_alloc_timer_with_ref_ptr(
+        CompletionNotifierEventDeferredWork, /* callback */
+        arg, /* argument (this is a ref_ptr to NVDispFlipOccurredEventDataEvoRec) */
+        0,   /* dataU32 */
+        0);  /* timeout: schedule the work immediately */
+}
+
+void nvEvoPreModesetRegisterFlipOccurredEvent(NVDispEvoRec *pDispEvo,
+                                              const NvU32 head,
+                                              const NVEvoModesetUpdateState
+                                                  *pModesetUpdate)
+{
+    NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
+    NvU32 layer;
+
+    /* XXX NVKMS TODO: need disp-scope in event */
+    if (pDispEvo->displayOwner != 0) {
+        return;
+    }
+
+    for (layer = 0; layer < pDevEvo->head[head].numLayers; layer++) {
+        NVEvoChannelPtr pChannel = pDevEvo->head[head].layer[layer];
+        const struct _NVEvoModesetUpdateStateOneLayer *pLayer =
+             &pModesetUpdate->flipOccurredEvent[head].layer[layer];
+
+        if (!pLayer->changed ||
+                (pLayer->ref_ptr == NULL) ||
+                (pLayer->ref_ptr == pChannel->completionNotifierEventRefPtr)) {
+            continue;
+        }
+
+        nvAssert((pChannel->completionNotifierEventHandle == 0) &&
+                    (pChannel->completionNotifierEventRefPtr == NULL));
+
+        pChannel->completionNotifierEventHandle =
+            nvGenerateUnixRmHandle(&pDevEvo->handleAllocator);
+
+        if (!nvRmRegisterCallback(pDevEvo,
+                                  &pChannel->completionNotifierEventCallback,
+                                  pLayer->ref_ptr,
+                                  pChannel->pb.channel_handle,
+                                  pChannel->completionNotifierEventHandle,
+                                  CompletionNotifierEvent,
+                                  0)) {
+            nvFreeUnixRmHandle(&pDevEvo->handleAllocator,
+                               pChannel->completionNotifierEventHandle);
+            pChannel->completionNotifierEventHandle = 0;
+        } else {
+            pChannel->completionNotifierEventRefPtr = pLayer->ref_ptr;
+        }
+    }
+}
+
+void nvEvoPostModesetUnregisterFlipOccurredEvent(NVDispEvoRec *pDispEvo,
+                                                   const NvU32 head,
+                                                   const NVEvoModesetUpdateState
+                                                       *pModesetUpdate)
+{
+    NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
+    NvU32 layer;
+
+    /* XXX NVKMS TODO: need disp-scope in event */
+    if (pDispEvo->displayOwner != 0) {
+        return;
+    }
+
+    for (layer = 0; layer < pDevEvo->head[head].numLayers; layer++) {
+        NVEvoChannelPtr pChannel = pDevEvo->head[head].layer[layer];
+        const struct _NVEvoModesetUpdateStateOneLayer *pLayer =
+             &pModesetUpdate->flipOccurredEvent[head].layer[layer];
+
+        if (!pLayer->changed ||
+                (pLayer->ref_ptr != NULL) ||
+                (pChannel->completionNotifierEventHandle == 0)) {
+
+            /*
+             * If the flip occurred event of this layer is updated to get
+             * enabled (pLayer->ref_ptr != NULL) then that update should have
+             * been already processed by
+             * nvEvoPreModesetRegisterFlipOccurredEvent() and
+             * pChannel->completionNotifierEventRefPtr == pLayer->ref_ptr.
+             */
+            nvAssert(!pLayer->changed ||
+                        (pChannel->completionNotifierEventHandle == 0) ||
+                        (pChannel->completionNotifierEventRefPtr ==
+                            pLayer->ref_ptr));
+            continue;
+        }
+
+        nvRmApiFree(nvEvoGlobal.clientHandle,
+                    pChannel->pb.channel_handle,
+                    pChannel->completionNotifierEventHandle);
+        nvFreeUnixRmHandle(&pDevEvo->handleAllocator,
+                           pChannel->completionNotifierEventHandle);
+        pChannel->completionNotifierEventHandle = 0;
+        pChannel->completionNotifierEventRefPtr = NULL;
+    }
+}
+
+static NvBool InitApiHeadState(NVDevEvoRec *pDevEvo)
+{
+    NVDispEvoRec *pDispEvo;
+    NvU32 dispIndex;
+
+    /*
+     * For every hardware head, there should be at least one api-head
+     * which supports the equal number of layer.
+     */
+    nvAssert(pDevEvo->numApiHeads == pDevEvo->numHeads);
+    for (NvU32 head = 0; head < pDevEvo->numHeads; head++) {
+        pDevEvo->apiHead[head].numLayers = pDevEvo->head[head].numLayers;
+    }
+
+    FOR_ALL_EVO_DISPLAYS(pDispEvo, dispIndex, pDevEvo) {
+        if (!InitApiHeadStateOneDisp(pDispEvo)) {
+            goto failed;
+        }
+    }
+
+    nvRmAllocCoreRGSyncpts(pDevEvo);
+
+    return TRUE;
+
+failed:
+    ClearApiHeadState(pDevEvo);
+
+    return FALSE;
 }
 
 /*!
@@ -3694,6 +4584,12 @@ NvBool nvAllocCoreChannelEvo(NVDevEvoPtr pDevEvo)
         goto failed;
     }
 
+    if (!InitApiHeadState(pDevEvo)) {
+        nvEvoLogDev(pDevEvo, EVO_LOG_ERROR,
+                    "Failed to initialize the api heads.");
+        goto failed;
+    }
+
     FOR_ALL_EVO_DISPLAYS(pDispEvo, dispIndex, pDevEvo) {
         nvRmRegisterBacklight(pDispEvo);
     }
@@ -3715,9 +4611,10 @@ failed:
 }
 
 /*!
- * Clear the pConnectorEvo->or.mask tracking.
+ * Clear the pConnectorEvo->or.primary and pConnectorEvo->or.secondaryMask
+ * tracking.
  */
-static void ClearSORAssignmentsOneDisp(NVDispEvoPtr pDispEvo)
+static void ClearSORAssignmentsOneDisp(const NVDispEvoRec *pDispEvo)
 {
     NVConnectorEvoPtr pConnectorEvo;
 
@@ -3729,14 +4626,16 @@ static void ClearSORAssignmentsOneDisp(NVDispEvoPtr pDispEvo)
             continue;
         }
 
-        pConnectorEvo->or.mask = 0x0;
+        pConnectorEvo->or.primary = NV_INVALID_OR;
+        pConnectorEvo->or.secondaryMask = 0x0;
     }
 }
 
 /*!
- * Update pConnectorEvo->or.mask from the list given to us by RM.
+ * Update pConnectorEvo->or.primary and pConnectorEvo->or.secondaryMask from
+ * the list given to us by RM.
  */
-static void RefreshSORAssignments(NVDispEvoPtr pDispEvo,
+static void RefreshSORAssignments(const NVDispEvoRec *pDispEvo,
                                   const NV0073_CTRL_DFP_ASSIGN_SOR_PARAMS *pParams)
 {
     NVConnectorEvoPtr pConnectorEvo;
@@ -3755,22 +4654,38 @@ static void RefreshSORAssignments(NVDispEvoPtr pDispEvo,
              sorIndex < ARRAY_LEN(pParams->sorAssignList) &&
              sorIndex < ARRAY_LEN(pConnectorEvo->or.ownerHeadMask);
              sorIndex++) {
-            if ((pParams->sorAssignList[sorIndex] & displayId) == displayId) {
-                pConnectorEvo->or.mask |= NVBIT(sorIndex);
+            if ((pParams->sorAssignListWithTag[sorIndex].displayMask &
+                    displayId) == displayId) {
+                if ((pParams->sorAssignListWithTag[sorIndex].sorType ==
+                        NV0073_CTRL_DFP_SOR_TYPE_SINGLE) ||
+                        (pParams->sorAssignListWithTag[sorIndex].sorType ==
+                         NV0073_CTRL_DFP_SOR_TYPE_2H1OR_PRIMARY)) {
+                    pConnectorEvo->or.primary = sorIndex;
+                } else {
+                    nvAssert(pParams->sorAssignListWithTag[sorIndex].sorType ==
+                                NV0073_CTRL_DFP_SOR_TYPE_2H1OR_SECONDARY);
+                    pConnectorEvo->or.secondaryMask |= NVBIT(sorIndex);
+                }
             }
         }
+
+        nvAssert((pConnectorEvo->or.secondaryMask == 0) ||
+                    (pConnectorEvo->or.primary != NV_INVALID_OR));
     }
 }
 
 /*
- * Ask RM to assign an SOR for the given connector.
+ * Ask RM to assign an SOR to given displayId.
+ *
+ * In 2Heads1OR MST case, this function gets called with the dynamic displayId.
  *
  * Note that this assignment may be temporary.  This function will always call
  * RM, and unless the connector is currently in use (i.e., being driven by a
  * head), a previously-assigned SOR may be reused.
  *
  * The RM will either:
- * a) return an SOR that's already assigned/attached to this connector, or
+ * a) return an SOR that's already assigned/attached
+ *    to root port of this displayId, or
  * b) pick a new "unused" SOR, assign and attach it to this connector, and
  *    return that -- where "unused" means both not being actively driven by a
  *    head and not in the "exclude mask" argument.
@@ -3795,39 +4710,25 @@ static void RefreshSORAssignments(NVDispEvoPtr pDispEvo,
  * finishes the "assessment", the SOR is again eligible for reuse.
  *
  * Because of the potential for SOR reuse, nvAssignSOREvo() will always call
- * RefreshSORAssignments() to update pConnectorEvo->or.mask on *every*
- * connector after calling NV0073_CTRL_CMD_DFP_ASSIGN_SOR for *any* connector.
+ * RefreshSORAssignments() to update pConnectorEvo->or.primary and
+ * pConnectorEvo->or.secondaryMask on *every* connector after calling
+ * NV0073_CTRL_CMD_DFP_ASSIGN_SOR for *any* connector.
  */
-NvBool nvAssignSOREvo(NVConnectorEvoPtr pConnectorEvo, NvU32 sorExcludeMask)
+NvBool nvAssignSOREvo(const NVDispEvoRec *pDispEvo, const NvU32 displayId,
+                      const NvBool b2Heads1Or, const NvU32 sorExcludeMask)
 {
-    NVDispEvoPtr pDispEvo = pConnectorEvo->pDispEvo;
-    NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
-
-    NvU32 displayId = 0x0;
-
+    const NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
     NV0073_CTRL_DFP_ASSIGN_SOR_PARAMS params = { 0 };
     NvU32 ret;
-
-    /*
-     * Skip assigning an SOR for non-SOR connectors or if an SOR is already
-     * assigned.
-     */
-    if (pConnectorEvo->or.type != NV0073_CTRL_SPECIFIC_OR_TYPE_SOR) {
-        return TRUE;
-    }
 
     if (!NV0073_CTRL_SYSTEM_GET_CAP(pDevEvo->commonCapsBits,
                 NV0073_CTRL_SYSTEM_CAPS_CROSS_BAR_SUPPORTED)) {
         return TRUE;
     }
 
-    /* Mode-set is not possible without SOR */
-    nvAssert(!nvIsConnectorActiveEvo(pConnectorEvo));
-
-    displayId = nvDpyIdToNvU32(pConnectorEvo->displayId);
-
     params.subDeviceInstance = pDispEvo->displayOwner;
     params.displayId = displayId;
+    params.bIs2Head1Or = b2Heads1Or;
     params.sorExcludeMask = sorExcludeMask;
 
     ret = nvRmApiControl(nvEvoGlobal.clientHandle,
@@ -3841,77 +4742,126 @@ NvBool nvAssignSOREvo(NVConnectorEvoPtr pConnectorEvo, NvU32 sorExcludeMask)
     }
 
     RefreshSORAssignments(pDispEvo, &params);
-    nvAssert(pConnectorEvo->or.mask != 0);
 
     return TRUE;
 }
 
-void nvRestoreSORAssigmentsEvo(NVDevEvoRec *pDevEvo)
+static void CacheSorAssignList(const NVDispEvoRec *pDispEvo,
+    const NVConnectorEvoRec *sorAssignList[NV0073_CTRL_CMD_DFP_ASSIGN_SOR_MAX_SORS])
 {
+    const NVConnectorEvoRec *pConnectorEvo;
+
+    FOR_ALL_EVO_CONNECTORS(pConnectorEvo, pDispEvo) {
+        if ((pConnectorEvo->or.type != NV0073_CTRL_SPECIFIC_OR_TYPE_SOR) ||
+                (pConnectorEvo->or.primary == NV_INVALID_OR)) {
+            continue;
+        }
+
+        /*
+         * RM populates same sor index into more than one connectors if
+         * they are are DCC partners, this checks make sure SOR
+         * assignment happens only for a single connector. The sor
+         * assignment call before modeset/dp-link-training makes sure
+         * assignment happens for the correct connector.
+         */
+        if (sorAssignList[pConnectorEvo->or.primary] != NULL) {
+            continue;
+        }
+        sorAssignList[pConnectorEvo->or.primary] =
+            pConnectorEvo;
+    }
+}
+
+static void RestoreSorAssignList(NVDispEvoRec *pDispEvo,
+    const NVConnectorEvoRec *sorAssignList[NV0073_CTRL_CMD_DFP_ASSIGN_SOR_MAX_SORS])
+{
+    NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
+    NvU32 sorIndex;
+
+    for (sorIndex = 0;
+         sorIndex < NV0073_CTRL_CMD_DFP_ASSIGN_SOR_MAX_SORS; sorIndex++) {
+
+        if (sorAssignList[sorIndex] == NULL) {
+            continue;
+        }
+
+        NV0073_CTRL_DFP_ASSIGN_SOR_PARAMS params = {
+            .subDeviceInstance = pDispEvo->displayOwner,
+            .displayId = nvDpyIdToNvU32(sorAssignList[sorIndex]->displayId),
+            .sorExcludeMask = ~NVBIT(sorIndex),
+        };
+        NvU32 ret;
+
+        ret = nvRmApiControl(nvEvoGlobal.clientHandle,
+                             pDevEvo->displayCommonHandle,
+                             NV0073_CTRL_CMD_DFP_ASSIGN_SOR,
+                             &params,
+                             sizeof(params));
+
+        if (ret != NVOS_STATUS_SUCCESS) {
+            nvEvoLogDispDebug(pDispEvo,
+                              EVO_LOG_ERROR,
+                              "Failed to restore SOR-%u -> %s assignment.",
+                              sorIndex, sorAssignList[sorIndex]->name);
+        } else {
+            RefreshSORAssignments(pDispEvo, &params);
+        }
+    }
+}
+
+NvBool nvResumeDevEvo(NVDevEvoRec *pDevEvo)
+{
+    struct {
+        const NVConnectorEvoRec *
+            sorAssignList[NV0073_CTRL_CMD_DFP_ASSIGN_SOR_MAX_SORS];
+    } disp[NVKMS_MAX_SUBDEVICES] = { };
     NVDispEvoRec *pDispEvo;
     NvU32 dispIndex;
 
-    if (!NV0073_CTRL_SYSTEM_GET_CAP(pDevEvo->commonCapsBits,
+    if (NV0073_CTRL_SYSTEM_GET_CAP(pDevEvo->commonCapsBits,
                 NV0073_CTRL_SYSTEM_CAPS_CROSS_BAR_SUPPORTED)) {
-        return;
-    }
-
-    FOR_ALL_EVO_DISPLAYS(pDispEvo, dispIndex, pDevEvo) {
-        const NVConnectorEvoRec *
-            sorAssignList[NV0073_CTRL_CMD_DFP_ASSIGN_SOR_MAX_SORS] = { };
-        const NVConnectorEvoRec *pConnectorEvo;
-        NvU32 sorIndex;
-
-        FOR_ALL_EVO_CONNECTORS(pConnectorEvo, pDispEvo) {
-            NvU32 i;
-
-            if (pConnectorEvo->or.type != NV0073_CTRL_SPECIFIC_OR_TYPE_SOR) {
-                continue;
-            }
-
-            FOR_EACH_INDEX_IN_MASK(32, i, pConnectorEvo->or.mask) {
-                /*
-                 * RM populates same sor index into more than one connectors if
-                 * they are are DCC partners, this checks make sure SOR
-                 * assignment happens only for a single connector. The sor
-                 * assignment call before modeset/dp-link-training makes sure
-                 * assignment happens for the correct connector.
-                 */
-                if (sorAssignList[i] != NULL) {
-                    continue;
-                }
-                sorAssignList[i] = pConnectorEvo;
-            } FOR_EACH_INDEX_IN_MASK_END
-        }
-
-        for (sorIndex = 0; sorIndex < ARRAY_LEN(sorAssignList); sorIndex++) {
-            if (sorAssignList[sorIndex] == NULL) {
-                continue;
-            }
-
-            NV0073_CTRL_DFP_ASSIGN_SOR_PARAMS params = {
-                .subDeviceInstance = pDispEvo->displayOwner,
-                .displayId = nvDpyIdToNvU32(sorAssignList[sorIndex]->displayId),
-                .sorExcludeMask = ~NVBIT(sorIndex),
-            };
-            NvU32 ret;
-
-            ret = nvRmApiControl(nvEvoGlobal.clientHandle,
-                                 pDevEvo->displayCommonHandle,
-                                 NV0073_CTRL_CMD_DFP_ASSIGN_SOR,
-                                 &params,
-                                 sizeof(params));
-
-            if (ret != NVOS_STATUS_SUCCESS) {
-                nvEvoLogDispDebug(pDispEvo,
-                                  EVO_LOG_ERROR,
-                                  "Failed to restore SOR-%u -> %s assigment.",
-                                  sorIndex, sorAssignList[sorIndex]->name);
-            } else {
-                RefreshSORAssignments(pDispEvo, &params);
-            }
+        FOR_ALL_EVO_DISPLAYS(pDispEvo, dispIndex, pDevEvo) {
+            CacheSorAssignList(pDispEvo, disp[dispIndex].sorAssignList);
         }
     }
+
+    if (!nvAllocCoreChannelEvo(pDevEvo)) {
+        return FALSE;
+    }
+
+    /*
+     * During the hibernate-resume cycle vbios or GOP driver programs
+     * the display engine to lit up the boot display. In
+     * hibernate-resume path, doing NV0073_CTRL_CMD_DFP_ASSIGN_SOR
+     * rm-control call before the core channel allocation causes display
+     * channel hang because at that stage RM is not aware of the boot
+     * display actived by vbios and it ends up unrouting active SOR
+     * assignments. Therefore restore the SOR assignment only after the
+     * core channel allocation.
+     */
+
+    if (NV0073_CTRL_SYSTEM_GET_CAP(pDevEvo->commonCapsBits,
+                NV0073_CTRL_SYSTEM_CAPS_CROSS_BAR_SUPPORTED)) {
+
+        /*
+         * Shutdown all heads before restoring the SOR assignments because in
+         * case of hibernate-resume the SOR, for which NVKMS is trying to
+         * restore the assignment, might be in use by the boot display setup
+         * by vbios/gop driver.
+         */
+        nvShutDownApiHeads(pDevEvo, NULL /* pTestFunc, shut down all heads */);
+
+        FOR_ALL_EVO_DISPLAYS(pDispEvo, dispIndex, pDevEvo) {
+            RestoreSorAssignList(pDispEvo, disp[dispIndex].sorAssignList);
+        }
+    }
+
+    return TRUE;
+}
+
+void nvSuspendDevEvo(NVDevEvoRec *pDevEvo)
+{
+    nvFreeCoreChannelEvo(pDevEvo);
 }
 
 /*!
@@ -3924,6 +4874,8 @@ void nvFreeCoreChannelEvo(NVDevEvoPtr pDevEvo)
     NVDispEvoPtr pDispEvo;
     NvU32 dispIndex;
     NvU32 head;
+
+    ClearApiHeadState(pDevEvo);
 
     nvEvoCancelPostFlipIMPTimer(pDevEvo);
     nvCancelVrrFrameReleaseTimers(pDevEvo);
@@ -4149,6 +5101,37 @@ void nvSetImageSharpeningEvo(NVDispEvoRec *pDispEvo, const NvU32 head,
     nvPopEvoSubDevMask(pDevEvo);
 }
 
+static void LayerSetPositionOneApiHead(NVDispEvoRec *pDispEvo,
+                                       const NvU32 apiHead,
+                                       const NvU32 layer,
+                                       const NvS16 x,
+                                       const NvS16 y,
+                                       NVEvoUpdateState *pUpdateState)
+{
+    NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
+    const NVDispApiHeadStateEvoRec *pApiHeadState =
+        &pDispEvo->apiHeadState[apiHead];
+    const NvU32 sd = pDispEvo->displayOwner;
+    NvU32 head;
+
+    FOR_EACH_EVO_HW_HEAD_IN_MASK(pApiHeadState->hwHeadsMask, head) {
+        NVEvoSubDevHeadStateRec *pSdHeadState =
+            &pDevEvo->gpus[sd].headState[head];
+
+        if ((pSdHeadState->layer[layer].outputPosition.x != x) ||
+            (pSdHeadState->layer[layer].outputPosition.y != y)) {
+            NVEvoChannelPtr pChannel =
+                pDevEvo->head[head].layer[layer];
+
+            pSdHeadState->layer[layer].outputPosition.x = x;
+            pSdHeadState->layer[layer].outputPosition.y = y;
+
+            pDevEvo->hal->SetImmPointOut(pDevEvo, pChannel, sd, pUpdateState,
+                                         x, y);
+        }
+    }
+}
+
 NvBool nvLayerSetPositionEvo(
     NVDevEvoPtr pDevEvo,
     const struct NvKmsSetLayerPositionRequest *pRequest)
@@ -4163,29 +5146,29 @@ NvBool nvLayerSetPositionEvo(
      * state.
      */
     FOR_ALL_EVO_DISPLAYS(pDispEvo, sd, pDevEvo) {
-        NvU32 head;
+        NvU32 apiHead;
 
         if ((pRequest->requestedDispsBitMask & NVBIT(sd)) == 0) {
             continue;
         }
 
-        for (head = 0; head < NVKMS_MAX_HEADS_PER_DISP; head++) {
+        for (apiHead = 0; apiHead < NVKMS_MAX_HEADS_PER_DISP; apiHead++) {
             NvU32 layer;
 
             if ((pRequest->disp[sd].requestedHeadsBitMask &
-                 NVBIT(head)) == 0) {
+                 NVBIT(apiHead)) == 0) {
                 continue;
             }
 
-            if (!nvHeadIsActive(pDispEvo, head)) {
+            if (!nvApiHeadIsActive(pDispEvo, apiHead)) {
                 continue;
             }
 
-            for (layer = 0; layer < pDevEvo->head[head].numLayers; layer++) {
-                const NvS16 x = pRequest->disp[sd].head[head].layerPosition[layer].x;
-                const NvS16 y = pRequest->disp[sd].head[head].layerPosition[layer].y;
+            for (layer = 0; layer < pDevEvo->apiHead[apiHead].numLayers; layer++) {
+                const NvS16 x = pRequest->disp[sd].head[apiHead].layerPosition[layer].x;
+                const NvS16 y = pRequest->disp[sd].head[apiHead].layerPosition[layer].y;
 
-                if ((pRequest->disp[sd].head[head].requestedLayerBitMask &
+                if ((pRequest->disp[sd].head[apiHead].requestedLayerBitMask &
                         NVBIT(layer)) == 0x0) {
                     continue;
                 }
@@ -4206,47 +5189,36 @@ NvBool nvLayerSetPositionEvo(
 
     /* Checks in above block passed, so make the requested changes. */
     FOR_ALL_EVO_DISPLAYS(pDispEvo, sd, pDevEvo) {
-        NvU32 head;
+        NvU32 apiHead;
 
         if ((pRequest->requestedDispsBitMask & NVBIT(sd)) == 0) {
             continue;
         }
 
-        for (head = 0; head < NVKMS_MAX_HEADS_PER_DISP; head++) {
+        for (apiHead = 0; apiHead < NVKMS_MAX_HEADS_PER_DISP; apiHead++) {
             NVEvoUpdateState updateState = { };
-            NVEvoSubDevHeadStateRec *pSdHeadState =
-                &pDevEvo->gpus[sd].headState[head];
             NvU32 layer;
 
             if ((pRequest->disp[sd].requestedHeadsBitMask &
-                 NVBIT(head)) == 0) {
+                 NVBIT(apiHead)) == 0) {
                 continue;
             }
 
-            if (!nvHeadIsActive(pDispEvo, head)) {
+            if (!nvApiHeadIsActive(pDispEvo, apiHead)) {
                 continue;
             }
 
-            for (layer = 0; layer < pDevEvo->head[head].numLayers; layer++) {
-                const NvS16 x = pRequest->disp[sd].head[head].layerPosition[layer].x;
-                const NvS16 y = pRequest->disp[sd].head[head].layerPosition[layer].y;
+            for (layer = 0; layer < pDevEvo->apiHead[apiHead].numLayers; layer++) {
+                const NvS16 x = pRequest->disp[sd].head[apiHead].layerPosition[layer].x;
+                const NvS16 y = pRequest->disp[sd].head[apiHead].layerPosition[layer].y;
 
-                if ((pRequest->disp[sd].head[head].requestedLayerBitMask &
+                if ((pRequest->disp[sd].head[apiHead].requestedLayerBitMask &
                         NVBIT(layer)) == 0x0) {
                     continue;
                 }
 
-                if ((pSdHeadState->layer[layer].outputPosition.x != x) ||
-                    (pSdHeadState->layer[layer].outputPosition.y != y)) {
-
-                    NVEvoChannelPtr pChannel = pDevEvo->head[head].layer[layer];
-
-                    pSdHeadState->layer[layer].outputPosition.x = x;
-                    pSdHeadState->layer[layer].outputPosition.y = y;
-
-                    pDevEvo->hal->SetImmPointOut(pDevEvo, pChannel, sd,
-                                                 &updateState, x, y);
-                }
+                LayerSetPositionOneApiHead(pDispEvo, apiHead, layer, x, y,
+                                           &updateState);
             }
 
             pDevEvo->hal->Update(pDevEvo, &updateState, TRUE /* releaseElv */);
@@ -4267,11 +5239,19 @@ NvBool nvLayerSetPositionEvo(
 
 NvBool nvConstructHwModeTimingsImpCheckEvo(
     const NVConnectorEvoRec                *pConnectorEvo,
-    NVHwModeTimingsEvoPtr                   pTimings,
+    const NVHwModeTimingsEvo               *pTimings,
+    const NvBool                            enableDsc,
+    const NvBool                            b2Heads1Or,
+    const enum NvKmsDpyAttributeCurrentColorSpaceValue colorSpace,
+    const enum NvKmsDpyAttributeColorBpcValue colorBpc,
     const struct NvKmsModeValidationParams *pParams,
-    NVEvoInfoStringPtr                      pInfoString,
-    const int                               head)
+    NVHwModeTimingsEvo                      timings[NVKMS_MAX_HEADS_PER_DISP],
+    NvU32                                  *pNumHeads,
+    NVEvoInfoStringPtr                      pInfoString)
 {
+    NvU32 head;
+    NvU32 activeRmId;
+    const NvU32 numHeads = b2Heads1Or ? 2 : 1;
     NVValidateImpOneDispHeadParamsRec timingsParams[NVKMS_MAX_HEADS_PER_DISP];
     NvBool requireBootClocks = !!(pParams->overrides &
                                   NVKMS_MODE_VALIDATION_REQUIRE_BOOT_CLOCKS);
@@ -4284,32 +5264,46 @@ NvBool nvConstructHwModeTimingsImpCheckEvo(
         return TRUE;
     }
 
-    nvkms_memset(&timingsParams, 0, sizeof(timingsParams));
-
-    timingsParams[head].pConnectorEvo = pConnectorEvo;
-    timingsParams[head].activeRmId =
-        nvRmAllocDisplayId(
-            pConnectorEvo->pDispEvo,
-            nvAddDpyIdToEmptyDpyIdList(pConnectorEvo->displayId));
-    if (timingsParams[head].activeRmId == 0x0) {
+    activeRmId = nvRmAllocDisplayId(pConnectorEvo->pDispEvo,
+                    nvAddDpyIdToEmptyDpyIdList(pConnectorEvo->displayId));
+    if (activeRmId == 0x0) {
         return FALSE;
     }
-    timingsParams[head].pTimings = pTimings;
-    timingsParams[head].pUsage = &pTimings->viewPort.guaranteedUsage;
+
+    nvkms_memset(&timingsParams, 0, sizeof(timingsParams));
+
+    for (head = 0; head < numHeads; head++) {
+        timingsParams[head].pConnectorEvo = pConnectorEvo;
+        timingsParams[head].activeRmId = activeRmId;
+        timingsParams[head].pixelDepth =
+            nvEvoColorSpaceBpcToPixelDepth(colorSpace, colorBpc);
+        if (!nvEvoGetSingleTileHwModeTimings(pTimings, numHeads,
+                                             &timings[head])) {
+            ret = FALSE;
+            goto done;
+        }
+        timingsParams[head].pTimings = &timings[head];
+        timingsParams[head].enableDsc = enableDsc;
+        timingsParams[head].b2Heads1Or = b2Heads1Or;
+        timingsParams[head].pUsage = &timings[head].viewPort.guaranteedUsage;
+    }
 
     ret = nvValidateImpOneDispDowngrade(pConnectorEvo->pDispEvo, timingsParams,
                                         requireBootClocks,
                                         NV_EVO_REALLOCATE_BANDWIDTH_MODE_NONE,
                                         /* downgradePossibleHeadsBitMask */
                                         (NVBIT(NVKMS_MAX_HEADS_PER_DISP) - 1UL));
-    if (!ret) {
+    if (ret) {
+        *pNumHeads = numHeads;
+    } else {
         nvEvoLogInfoString(pInfoString,
                            "ViewPort %dx%d exceeds hardware capabilities.",
                            pTimings->viewPort.out.width,
                            pTimings->viewPort.out.height);
     }
 
-    nvRmFreeDisplayId(pConnectorEvo->pDispEvo, timingsParams[head].activeRmId);
+done:
+    nvRmFreeDisplayId(pConnectorEvo->pDispEvo, activeRmId);
 
     return ret;
 }
@@ -4527,27 +5521,6 @@ static NvBool ApplyDualLinkRequirements(const NVDpyEvoRec *pDpyEvo,
 
     nvEvoLogInfoString(pInfoString,
         "Adjusted mode timings for dual link DVI requirements.");
-
-    return TRUE;
-}
-
-/* Query the HDMI 2.1 FRL configuration, if applicable. */
-static NvBool QueryHdmiFrlConfig(const NVDpyEvoRec *pDpyEvo,
-                                 const struct
-                                 NvKmsModeValidationParams *pParams,
-                                 const NvModeTimings *pModeTimings,
-                                 NVHwModeTimingsEvoPtr pTimings,
-                                 NVEvoInfoStringPtr pInfoString)
-{
-    /* TODO: apply any overrides from ModeValidationParams. */
-    if (!nvHdmiFrlQueryConfig(pDpyEvo,
-                              pModeTimings,
-                              pTimings,
-                              pParams)) {
-        nvEvoLogInfoString(pInfoString,
-            "Unable to determine HDMI 2.1 Fixed Rate Link configuration.");
-        return FALSE;
-    }
 
     return TRUE;
 }
@@ -4845,13 +5818,17 @@ void nvAssignDefaultUsageBounds(const NVDispEvoRec *pDispEvo,
     for (i = 0; i < ARRAY_LEN(pPossible->layer); i++) {
         struct NvKmsScalingUsageBounds *pScaling = &pPossible->layer[i].scaling;
 
-        pPossible->layer[i].usable = TRUE;
         pPossible->layer[i].supportedSurfaceMemoryFormats =
             pDevEvo->caps.layerCaps[i].supportedSurfaceMemoryFormats;
+        pPossible->layer[i].usable =
+            (pPossible->layer[i].supportedSurfaceMemoryFormats != 0);
+        if (!pPossible->layer[i].usable) {
+            continue;
+        }
+
         nvInitScalingUsageBounds(pDevEvo, pScaling);
 
-        /* Scaling is not currently supported for the main layer. Bug 3488083 */
-        if (i != NVKMS_MAIN_LAYER && pDevEvo->hal->GetWindowScalingCaps) {
+        if (pDevEvo->hal->GetWindowScalingCaps) {
             const NVEvoScalerCaps *pScalerCaps =
                 pDevEvo->hal->GetWindowScalingCaps(pDevEvo);
             int j;
@@ -4995,12 +5972,12 @@ ConstructHwModeTimingsViewPort(const NVDispEvoRec *pDispEvo,
 
 
 /*
- * nvGetDfpProtocol()- determine the protocol to use on the given pDpy
+ * GetDfpProtocol()- determine the protocol to use on the given pDpy
  * with the given pTimings; assigns pTimings->protocol.
  */
 
-NvBool nvGetDfpProtocol(const NVDpyEvoRec *pDpyEvo,
-                        NVHwModeTimingsEvoPtr pTimings)
+static NvBool GetDfpProtocol(const NVDpyEvoRec *pDpyEvo,
+                             NVHwModeTimingsEvoPtr pTimings)
 {
     NVConnectorEvoPtr pConnectorEvo = pDpyEvo->pConnectorEvo;
     const NvU32 rmProtocol = pConnectorEvo->or.protocol;
@@ -5011,7 +5988,19 @@ NvBool nvGetDfpProtocol(const NVDpyEvoRec *pDpyEvo,
 
     if (pConnectorEvo->or.type == NV0073_CTRL_SPECIFIC_OR_TYPE_SOR) {
         /* Override protocol if this mode requires HDMI FRL. */
-        if (pTimings->hdmiFrlConfig.frlRate != HDMI_FRL_DATA_RATE_NONE) {
+        if (nvDpyIsHdmiEvo(pDpyEvo) &&
+            /* If FRL is supported, use it for 10 BPC if needed. */
+            ((nvHdmiDpySupportsFrl(pDpyEvo) &&
+              nvDpyIsHdmiDepth30Evo(pDpyEvo) &&
+              nvHdmiTimingsNeedFrl(pDpyEvo, pTimings, HDMI_BPC10)) ||
+            /* Fall back to 8 BPC, use FRL if needed. */
+             nvHdmiTimingsNeedFrl(pDpyEvo, pTimings, HDMI_BPC8))) {
+
+            /* If FRL is needed for 8 BPC, but not supported, fail. */
+            if (!nvHdmiDpySupportsFrl(pDpyEvo)) {
+                return FALSE;
+            }
+
             nvAssert(nvDpyIsHdmiEvo(pDpyEvo));
             nvAssert(rmProtocol == NV0073_CTRL_SPECIFIC_OR_PROTOCOL_SOR_SINGLE_TMDS_A ||
                      rmProtocol == NV0073_CTRL_SPECIFIC_OR_PROTOCOL_SOR_SINGLE_TMDS_B);
@@ -5131,24 +6120,16 @@ static NvBool ConstructHwModeTimingsEvoDfp(const NVDpyEvoRec *pDpyEvo,
 
     ConstructHwModeTimingsFromNvModeTimings(pModeTimings, pTimings);
 
-    ret = QueryHdmiFrlConfig(pDpyEvo, pParams,
-                             pModeTimings, pTimings,
-                             pInfoString);
+    ret = GetDfpProtocol(pDpyEvo, pTimings);
 
     if (!ret) {
-        return FALSE;
-    }
-
-    ret = nvGetDfpProtocol(pDpyEvo, pTimings);
-
-    if (!ret) {
-        return FALSE;
+        return ret;
     }
 
     ret = ApplyDualLinkRequirements(pDpyEvo, pParams, pTimings, pInfoString);
 
     if (!ret) {
-        return FALSE;
+        return ret;
     }
 
     return ConstructHwModeTimingsViewPort(pDpyEvo->pDispEvo, pTimings,
@@ -5156,36 +6137,59 @@ static NvBool ConstructHwModeTimingsEvoDfp(const NVDpyEvoRec *pDpyEvo,
                                           pViewPortOut);
 }
 
-NvBool nvDowngradeHwModeTimingsDpPixelDepthEvo(
-    NVHwModeTimingsEvoPtr pTimings,
-    const enum NvKmsDpyAttributeCurrentColorSpaceValue colorSpace)
+static NvBool DowngradeColorBpc(
+    const enum NvKmsDpyAttributeCurrentColorSpaceValue colorSpace,
+    enum NvKmsDpyAttributeColorBpcValue *pColorBpc,
+    enum NvKmsDpyAttributeColorRangeValue *pColorRange)
 {
-    /*
-     * In YUV420, HW is programmed with RGB color space and full color range.
-     * The color space conversion and color range compression happen in a
-     * headSurface composite shader.
-     *
-     * XXX Add support for
-     * NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr422 over DP.
-     */
-    nvAssert(colorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr420 ||
-             colorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr444 ||
-             colorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB);
-
-    switch (pTimings->pixelDepth) {
-    case NVKMS_PIXEL_DEPTH_18_444:
-        /* Cannot downgrade pixelDepth further. */
-        return FALSE;
-
-    case NVKMS_PIXEL_DEPTH_24_444:
-        pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_18_444;
-        break;
-    case NVKMS_PIXEL_DEPTH_30_444:
-        pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_24_444;
-        break;
+    switch (*pColorBpc) {
+        case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_10:
+            *pColorBpc = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8;
+            break;
+        case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8:
+            /* At depth 18 only RGB and full range are allowed */
+            if (colorSpace == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB) {
+                *pColorBpc = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_6;
+                *pColorRange = NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_FULL;
+            } else {
+                return FALSE;
+            }
+            break;
+        case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_UNKNOWN:
+        case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_6:
+            return FALSE;
     }
 
     return TRUE;
+}
+
+NvBool nvDowngradeColorSpaceAndBpc(
+    const NVColorFormatInfoRec *pSupportedColorFormats,
+    enum NvKmsDpyAttributeCurrentColorSpaceValue *pColorSpace,
+    enum NvKmsDpyAttributeColorBpcValue *pColorBpc,
+    enum NvKmsDpyAttributeColorRangeValue *pColorRange)
+{
+    if (DowngradeColorBpc(*pColorSpace, pColorBpc, pColorRange)) {
+        return TRUE;
+    }
+
+    switch (*pColorSpace) {
+        case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB: /* fallthrough */
+        case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr444:
+            if (pSupportedColorFormats->yuv422.maxBpc !=
+                    NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_UNKNOWN) {
+                *pColorSpace = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr422;
+                *pColorBpc = pSupportedColorFormats->yuv422.maxBpc;
+                *pColorRange = NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_LIMITED;
+                return TRUE;
+            }
+            break;
+        case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr422: /* fallthrough */
+        case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr420:
+            break;
+    }
+
+    return FALSE;
 }
 
 /*
@@ -5196,15 +6200,16 @@ NvBool nvDowngradeHwModeTimingsDpPixelDepthEvo(
 
 NvBool nvDPValidateModeEvo(NVDpyEvoPtr pDpyEvo,
                            NVHwModeTimingsEvoPtr pTimings,
+                           const NvBool b2Heads1Or,
+                           NVDscInfoEvoRec *pDscInfo,
                            const struct NvKmsModeValidationParams *pParams)
 {
     NVConnectorEvoPtr pConnectorEvo = pDpyEvo->pConnectorEvo;
-    /* XXX Add support for
-     * NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr422 over DP. */
-    const enum NvKmsDpyAttributeCurrentColorSpaceValue colorSpace =
-        (pTimings->yuv420Mode != NV_YUV420_MODE_NONE) ?
-            NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr420 :
-            NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB;
+    enum NvKmsDpyAttributeCurrentColorSpaceValue colorSpace;
+    enum NvKmsDpyAttributeColorBpcValue colorBpc;
+    enum NvKmsDpyAttributeColorRangeValue colorRange;
+    const NVColorFormatInfoRec supportedColorFormats =
+        nvGetColorFormatInfo(pDpyEvo);
 
     /* Only do this for DP devices. */
     if (!nvConnectorUsesDPLib(pConnectorEvo)) {
@@ -5216,17 +6221,29 @@ NvBool nvDPValidateModeEvo(NVDpyEvoPtr pDpyEvo,
         return TRUE;
     }
 
+    if (pTimings->yuv420Mode != NV_YUV420_MODE_NONE) {
+        colorSpace = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr420;
+        colorBpc = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8;
+    } else if (!nvGetDefaultColorSpace(&supportedColorFormats, &colorSpace,
+                                       &colorBpc)) {
+        return FALSE;
+    }
+
+    if (colorSpace != NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB) {
+        colorRange = NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_LIMITED;
+    } else {
+        colorRange = NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_FULL;
+    }
+
     nvAssert(nvDpyUsesDPLib(pDpyEvo));
     nvAssert(pConnectorEvo->or.type == NV0073_CTRL_SPECIFIC_OR_TYPE_SOR);
 
-    nvAssert(pTimings->pixelDepth == NVKMS_PIXEL_DEPTH_30_444 ||
-             pTimings->pixelDepth == NVKMS_PIXEL_DEPTH_24_444 ||
-             pTimings->pixelDepth == NVKMS_PIXEL_DEPTH_18_444);
-
  tryAgain:
 
-    if (!nvDPValidateModeForDpyEvo(pDpyEvo, colorSpace, pParams, pTimings)) {
-        if (nvDowngradeHwModeTimingsDpPixelDepthEvo(pTimings, colorSpace)) {
+    if (!nvDPValidateModeForDpyEvo(pDpyEvo, colorSpace, colorBpc, pParams,
+                                   pTimings, b2Heads1Or, pDscInfo)) {
+        if (nvDowngradeColorSpaceAndBpc(&supportedColorFormats, &colorSpace,
+                                        &colorBpc, &colorRange)) {
              goto tryAgain;
         }
         /*
@@ -5239,8 +6256,6 @@ NvBool nvDPValidateModeEvo(NVDpyEvoPtr pDpyEvo,
 
     return TRUE;
 }
-
-
 
 /*
  * Construct the hardware values to program EVO for the specified
@@ -5287,69 +6302,6 @@ NvBool nvConstructHwModeTimingsEvo(const NVDpyEvoRec *pDpyEvo,
         // that the mode may not work well with frame lock
         TweakTimingsForGsync(pDpyEvo, pTimings, pInfoString, pParams->stereoMode);
     }
-
-    /* Defaults, should match EVO displayClass_02.mfs values for _DEFAULT */
-    if (pConnectorEvo->legacyType == NV0073_CTRL_SPECIFIC_DISPLAY_TYPE_CRT) {
-        pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_30_444;
-    } else if (pConnectorEvo->legacyType ==
-               NV0073_CTRL_SPECIFIC_DISPLAY_TYPE_DFP) {
-
-        if (pConnectorEvo->signalFormat == NVKMS_CONNECTOR_SIGNAL_FORMAT_DSI) {
-            switch (pDpyEvo->parsedEdid.info.input.u.digital.bpc) {
-                case 10:
-                    pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_30_444;
-                    break;
-                case 6:
-                    pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_18_444;
-                    break;
-                default:
-                    nvAssert(!"Invalid Pixel Depth for DSI");
-                    // fall through
-                case 8:
-                    pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_24_444;
-                    break;
-            }
-        } else if (nvConnectorUsesDPLib(pDpyEvo->pConnectorEvo)) {
-            // Pick displayport pixel depths for raster timings.
-            // Start off picking best possible depth based on monitor caps
-            // If the monitor doesn't have an EDID version 1.4 or higher, assume
-            // it's 8.
-            // For monitor with EDID version 1.4 or higher:
-            //      if bpc >= 10 configure pixel depth to 30bpp
-            //      if bpc is 8 or undefined configure pixel depth to 24bpp
-            //      if bpc is 6 use 18bpp as pixel depth
-            if (pDpyEvo->parsedEdid.valid &&
-                pDpyEvo->parsedEdid.info.input.isDigital &&
-                pDpyEvo->parsedEdid.info.version >= NVT_EDID_VER_1_4) {
-                switch (pDpyEvo->parsedEdid.info.input.u.digital.bpc) {
-                    case 16:
-                    case 14:
-                    case 12:
-                    case 10:
-                        pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_30_444;
-                        break;
-                    case 8:
-                    case 0:
-                        pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_24_444;
-                        break;
-                    case 6:
-                        pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_18_444;
-                        break;
-                    default:
-                        nvAssert(!"Invalid EDID bit depth for DP");
-                        return FALSE;
-                }
-            } else {
-                pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_24_444;
-            }
-        } else {
-            /* TMDS default */
-            pTimings->pixelDepth = NVKMS_PIXEL_DEPTH_24_444;
-        }
-    }
-
-    pTimings->stereo.mode = pParams->stereoMode;
-    pTimings->stereo.isAegis = pDpyEvo->stereo3DVision.isAegis;
 
     return TRUE;
 }
@@ -5914,6 +6866,9 @@ static void AssignNVEvoIsModePossibleDispInput(
         }
 
         pImpInput->head[head].pTimings = timingsParams[head].pTimings;
+        pImpInput->head[head].enableDsc = timingsParams[head].enableDsc;
+        pImpInput->head[head].b2Heads1Or = timingsParams[head].b2Heads1Or;
+        pImpInput->head[head].pixelDepth = timingsParams[head].pixelDepth;
         pImpInput->head[head].displayId = timingsParams[head].activeRmId;
         pImpInput->head[head].orType = pConnectorEvo->or.type;
         pImpInput->head[head].pUsage = timingsParams[head].pUsage;
@@ -5922,10 +6877,9 @@ static void AssignNVEvoIsModePossibleDispInput(
                 NV0073_CTRL_SYSTEM_CAPS_CROSS_BAR_SUPPORTED) ||
              pConnectorEvo->or.type != NV0073_CTRL_SPECIFIC_OR_TYPE_SOR) {
 
-            nvAssert(pConnectorEvo->or.mask != 0x0);
+            nvAssert(pConnectorEvo->or.primary != NV_INVALID_OR);
 
-            pImpInput->head[head].orIndex =
-                nvEvoConnectorGetPrimaryOr(pConnectorEvo);
+            pImpInput->head[head].orIndex = pConnectorEvo->or.primary;
             continue;
         }
 
@@ -6294,16 +7248,47 @@ static void GetRasterLockPin(NVDispEvoPtr pDispEvo0, NvU32 head0,
     }
 } /* GetRasterLockPin */
 
-static NvU32
-UpdateLUTTimer(NVDispEvoPtr pDispEvo, const NvU32 head, NvBool baseLutEnabled,
-               NvBool outputLutEnabled)
+static void EvoIncrementCurrentLutIndex(NVDispEvoRec *pDispEvo,
+                                        const NvU32 apiHead,
+                                        const NvBool baseLutEnabled,
+                                        const NvBool outputLutEnabled)
+{
+    NvU32 head;
+    const int dispIndex = pDispEvo->displayOwner;
+    NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
+    const int numLUTs = ARRAY_LEN(pDevEvo->lut.apiHead[apiHead].LUT);
+    NVDispApiHeadStateEvoRec *pApiHeadState =
+        &pDispEvo->apiHeadState[apiHead];
+
+    pDevEvo->lut.apiHead[apiHead].disp[dispIndex].curLUTIndex++;
+    pDevEvo->lut.apiHead[apiHead].disp[dispIndex].curLUTIndex %= numLUTs;
+    pDevEvo->lut.apiHead[apiHead].disp[dispIndex].curBaseLutEnabled = baseLutEnabled;
+    pDevEvo->lut.apiHead[apiHead].disp[dispIndex].curOutputLutEnabled = outputLutEnabled;
+
+    FOR_EACH_EVO_HW_HEAD_IN_MASK(pApiHeadState->hwHeadsMask, head) {
+        const NvU32 curLutIndex =
+            pDevEvo->lut.apiHead[apiHead].disp[dispIndex].curLUTIndex;
+        NVDispHeadStateEvoRec *pHeadState = &pDispEvo->headState[head];
+
+        pHeadState->lut.outputLutEnabled =
+            pDevEvo->lut.apiHead[apiHead].disp[dispIndex].curOutputLutEnabled;
+        pHeadState->lut.baseLutEnabled =
+            pDevEvo->lut.apiHead[apiHead].disp[dispIndex].curBaseLutEnabled;
+        pHeadState->lut.pCurrSurface =
+            pDevEvo->lut.apiHead[apiHead].LUT[curLutIndex];
+
+    }
+}
+
+static NvU32 UpdateLUTTimer(NVDispEvoPtr pDispEvo,
+                            const NvU32 apiHead,
+                            const NvBool baseLutEnabled,
+                            const NvBool outputLutEnabled)
 {
     NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
-    const int dispIndex = pDispEvo->displayOwner;
-    const int numLUTs = ARRAY_LEN(pDevEvo->lut.head[head].LUT);
 
     if (!pDevEvo->hal->IsCompNotifierComplete(pDispEvo,
-                                              LUTNotifierForHead(head))) {
+                                              LUTNotifierForApiHead(apiHead))) {
         // If the notifier is still pending, then the previous update is still
         // pending and further LUT changes should continue to go into the third
         // buffer.  Reschedule the timer for another 10 ms.
@@ -6311,12 +7296,10 @@ UpdateLUTTimer(NVDispEvoPtr pDispEvo, const NvU32 head, NvBool baseLutEnabled,
     }
 
     // Update the current LUT index and kick off an update.
-    pDevEvo->lut.head[head].disp[dispIndex].curLUTIndex++;
-    pDevEvo->lut.head[head].disp[dispIndex].curLUTIndex %= numLUTs;
-    pDevEvo->lut.head[head].disp[dispIndex].curBaseLutEnabled = baseLutEnabled;
-    pDevEvo->lut.head[head].disp[dispIndex].curOutputLutEnabled = outputLutEnabled;
+    EvoIncrementCurrentLutIndex(pDispEvo, apiHead, baseLutEnabled,
+                                outputLutEnabled);
 
-    nvEvoUpdateCurrentPalette(pDispEvo, head, TRUE);
+    EvoUpdateCurrentPalette(pDispEvo, apiHead);
 
     // Return 0 to cancel the timer.
     return 0;
@@ -6325,31 +7308,31 @@ UpdateLUTTimer(NVDispEvoPtr pDispEvo, const NvU32 head, NvBool baseLutEnabled,
 static void UpdateLUTTimerNVKMS(void *dataPtr, NvU32 dataU32)
 {
     NVDispEvoPtr pDispEvo = dataPtr;
-    const NvU32 head = DRF_VAL(UPDATE_LUT_TIMER_NVKMS, _DATAU32, _HEAD,
+    const NvU32 apiHead = DRF_VAL(UPDATE_LUT_TIMER_NVKMS, _DATAU32, _HEAD,
                                dataU32);
     const NvBool baseLutEnabled = FLD_TEST_DRF(UPDATE_LUT_TIMER_NVKMS, _DATAU32,
                                                _BASE_LUT, _ENABLE, dataU32);
     const NvBool outputLutEnabled = FLD_TEST_DRF(UPDATE_LUT_TIMER_NVKMS, _DATAU32,
                                                  _OUTPUT_LUT, _ENABLE, dataU32);
-    NvU32 ret = UpdateLUTTimer(pDispEvo, head, baseLutEnabled,
+    NvU32 ret = UpdateLUTTimer(pDispEvo, apiHead, baseLutEnabled,
                                outputLutEnabled);
 
     if (ret != 0) {
-        ScheduleLutUpdate(pDispEvo, head, dataU32, ret * 1000);
+        ScheduleLutUpdate(pDispEvo, apiHead, dataU32, ret * 1000);
     }
 }
 
 static void ScheduleLutUpdate(NVDispEvoRec *pDispEvo,
-                              const NvU32 head, const NvU32 data,
+                              const NvU32 apiHead, const NvU32 data,
                               const NvU64 usec)
 {
     NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
 
     /* Cancel previous update */
-    nvCancelLutUpdateEvo(pDispEvo, head);
+    nvCancelLutUpdateEvo(pDispEvo, apiHead);
 
     /* schedule a new timer */
-    pDevEvo->lut.head[head].disp[pDispEvo->displayOwner].updateTimer =
+    pDevEvo->lut.apiHead[apiHead].disp[pDispEvo->displayOwner].updateTimer =
         nvkms_alloc_timer(UpdateLUTTimerNVKMS,
                           pDispEvo, data,
                           usec);
@@ -6366,7 +7349,6 @@ static inline NvU16 GammaToEvo(NvU16 gamma)
 
 static NVEvoLutDataRec *GetNewLutBuffer(
     const NVDispEvoRec *pDispEvo,
-    NvU32 head,
     const struct NvKmsSetLutCommonParams *pParams)
 {
     const NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
@@ -6443,7 +7425,7 @@ done:
 
 
 /*
- * Update the head's LUT with the given colors.
+ * Update the api head's LUT with the given colors.
  *
  * The color LUT is triple-buffered.
  *
@@ -6464,21 +7446,21 @@ done:
  * kick off an update.  No new timer needs to be scheduled.
  */
 
-void nvEvoSetLut(NVDispEvoPtr pDispEvo, NvU32 head, NvBool kickoff,
+void nvEvoSetLut(NVDispEvoPtr pDispEvo, NvU32 apiHead, NvBool kickoff,
                  const struct NvKmsSetLutCommonParams *pParams)
 {
     NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
     const int dispIndex = pDispEvo->displayOwner;
-    const int curLUT = pDevEvo->lut.head[head].disp[dispIndex].curLUTIndex;
+    const int curLUT = pDevEvo->lut.apiHead[apiHead].disp[dispIndex].curLUTIndex;
     const NvBool waitForPreviousUpdate =
-        pDevEvo->lut.head[head].disp[dispIndex].waitForPreviousUpdate;
-    const int numLUTs = ARRAY_LEN(pDevEvo->lut.head[head].LUT);
+        pDevEvo->lut.apiHead[apiHead].disp[dispIndex].waitForPreviousUpdate;
+    const int numLUTs = ARRAY_LEN(pDevEvo->lut.apiHead[apiHead].LUT);
     const int lutToFill = (curLUT + 1) % numLUTs;
-    NVLutSurfaceEvoPtr pSurfEvo = pDevEvo->lut.head[head].LUT[lutToFill];
+    NVLutSurfaceEvoPtr pSurfEvo = pDevEvo->lut.apiHead[apiHead].LUT[lutToFill];
     NvBool baseLutEnabled =
-        pDevEvo->lut.head[head].disp[dispIndex].curBaseLutEnabled ;
+        pDevEvo->lut.apiHead[apiHead].disp[dispIndex].curBaseLutEnabled ;
     NvBool outputLutEnabled =
-        pDevEvo->lut.head[head].disp[dispIndex].curOutputLutEnabled;
+        pDevEvo->lut.apiHead[apiHead].disp[dispIndex].curOutputLutEnabled;
 
     if (!pParams->input.specified && !pParams->output.specified) {
         return;
@@ -6496,7 +7478,7 @@ void nvEvoSetLut(NVDispEvoPtr pDispEvo, NvU32 head, NvBool kickoff,
 
     if ((pParams->input.specified && pParams->input.end != 0) ||
         (pParams->output.specified && pParams->output.enabled)) {
-        NVEvoLutDataRec *pLUTBuffer = GetNewLutBuffer(pDispEvo, head, pParams);
+        NVEvoLutDataRec *pLUTBuffer = GetNewLutBuffer(pDispEvo, pParams);
 
         if (pLUTBuffer == NULL) {
             nvEvoLogDev(pDevEvo, EVO_LOG_WARN,
@@ -6511,12 +7493,11 @@ void nvEvoSetLut(NVDispEvoPtr pDispEvo, NvU32 head, NvBool kickoff,
     }
 
     /* Kill a pending timer */
-    nvCancelLutUpdateEvo(pDispEvo, head);
+    nvCancelLutUpdateEvo(pDispEvo, apiHead);
 
     if (!kickoff) {
-        pDevEvo->lut.head[head].disp[dispIndex].curBaseLutEnabled = baseLutEnabled;
-        pDevEvo->lut.head[head].disp[dispIndex].curOutputLutEnabled = outputLutEnabled;
-        pDevEvo->lut.head[head].disp[dispIndex].curLUTIndex = lutToFill;
+        EvoIncrementCurrentLutIndex(pDispEvo, apiHead, baseLutEnabled,
+                                    outputLutEnabled);
         return;
     }
 
@@ -6526,31 +7507,30 @@ void nvEvoSetLut(NVDispEvoPtr pDispEvo, NvU32 head, NvBool kickoff,
     // is synchronous.
     NvBool previousUpdateComplete =
         pDevEvo->hal->IsCompNotifierComplete(pDispEvo,
-                                             LUTNotifierForHead(head));
+                                             LUTNotifierForApiHead(apiHead));
     if (!waitForPreviousUpdate || previousUpdateComplete ||
         pParams->synchronous) {
         // Kick off an update now.
-        pDevEvo->lut.head[head].disp[dispIndex].curLUTIndex = lutToFill;
-        pDevEvo->lut.head[head].disp[dispIndex].curBaseLutEnabled = baseLutEnabled;
-        pDevEvo->lut.head[head].disp[dispIndex].curOutputLutEnabled = outputLutEnabled;
-        nvEvoUpdateCurrentPalette(pDispEvo, head, TRUE);
+        EvoIncrementCurrentLutIndex(pDispEvo, apiHead, baseLutEnabled,
+                                    outputLutEnabled);
+        EvoUpdateCurrentPalette(pDispEvo, apiHead);
 
         // If this LUT update is synchronous, then sync before returning.
         if (pParams->synchronous &&
-            pDevEvo->lut.head[head].disp[dispIndex].waitForPreviousUpdate) {
+            pDevEvo->lut.apiHead[apiHead].disp[dispIndex].waitForPreviousUpdate) {
 
             pDevEvo->hal->WaitForCompNotifier(pDispEvo,
-                                              LUTNotifierForHead(head));
-            pDevEvo->lut.head[head].disp[dispIndex].waitForPreviousUpdate =
+                                              LUTNotifierForApiHead(apiHead));
+            pDevEvo->lut.apiHead[apiHead].disp[dispIndex].waitForPreviousUpdate =
                 FALSE;
         }
     } else {
         // Schedule a timer to kick off an update later.
         // XXX 5 ms is a guess.  We could probably look at this pDpy's refresh
         // rate to come up with a more reasonable estimate.
-        NvU32 dataU32 = DRF_NUM(UPDATE_LUT_TIMER_NVKMS, _DATAU32, _HEAD, head);
+        NvU32 dataU32 = DRF_NUM(UPDATE_LUT_TIMER_NVKMS, _DATAU32, _HEAD, apiHead);
 
-        nvAssert((head & ~0xff) == 0);
+        nvAssert((apiHead & ~0xff) == 0);
 
         if (baseLutEnabled) {
             dataU32 |= DRF_DEF(UPDATE_LUT_TIMER_NVKMS, _DATAU32, _BASE_LUT,
@@ -6562,7 +7542,7 @@ void nvEvoSetLut(NVDispEvoPtr pDispEvo, NvU32 head, NvBool kickoff,
                                _ENABLE);
         }
 
-        ScheduleLutUpdate(pDispEvo, head, dataU32, 5 * 1000);
+        ScheduleLutUpdate(pDispEvo, apiHead, dataU32, 5 * 1000);
     }
 }
 
@@ -6783,6 +7763,11 @@ NvBool nvFreeDevEvo(NVDevEvoPtr pDevEvo)
     return TRUE;
 }
 
+static void AssignNumberOfApiHeads(NVDevEvoRec *pDevEvo)
+{
+    pDevEvo->numApiHeads = pDevEvo->numHeads;
+}
+
 NVDevEvoPtr nvAllocDevEvo(const struct NvKmsAllocDeviceRequest *pRequest,
                           enum NvKmsAllocDeviceStatus *pStatus)
 {
@@ -6869,6 +7854,8 @@ NVDevEvoPtr nvAllocDevEvo(const struct NvKmsAllocDeviceRequest *pRequest,
         goto done;
     }
 
+    AssignNumberOfApiHeads(pDevEvo);
+
     if (!nvAllocCoreChannelEvo(pDevEvo)) {
         status = NVKMS_ALLOC_DEVICE_STATUS_CORE_CHANNEL_ALLOC_FAILED;
         goto done;
@@ -6931,12 +7918,12 @@ done:
 // Note that we use pDev and subdevice here instead of pDisp since this is used
 // per-subdev in SLI (including the pDispEvo->numSubDevices > 1 case).
 //
-static NvBool EvoWaitForLock(NVDevEvoPtr pDevEvo,
-                             NvU32 sd, NvU32 head, NvU32 type)
+static NvBool EvoWaitForLock(const NVDevEvoRec *pDevEvo, const NvU32 sd,
+                             const NvU32 head, const NvU32 type,
+                             NvU64 *pStartTime)
 {
     NV5070_CTRL_CMD_GET_RG_STATUS_PARAMS status = { };
     NvU32 ret;
-    NvU64 startTime = 0;
 
     nvAssert(type == EVO_RASTER_LOCK || type == EVO_FLIP_LOCK);
 
@@ -6974,7 +7961,7 @@ static NvBool EvoWaitForLock(NVDevEvoPtr pDevEvo,
             break;
         }
 
-        if (nvExceedsTimeoutUSec(&startTime, LOCK_TIMEOUT)) {
+        if (nvExceedsTimeoutUSec(pDevEvo, pStartTime, LOCK_TIMEOUT)) {
             nvEvoLogDev(pDevEvo, EVO_LOG_ERROR,
                         "SLI lock timeout exceeded (type %d)", type);
             return FALSE;
@@ -7054,12 +8041,12 @@ NvBool nvReadCRC32Evo(NVDispEvoPtr pDispEvo, NvU32 head,
         return FALSE;
     }
 
-    // Bind the CRC32 notifier ctxDma
-    ret = nvRmEvoBindDispContextDMA(pDevEvo, pDevEvo->core, dma->ctxHandle);
+    // Bind the CRC32 notifier surface descriptor
+    ret = pDevEvo->hal->BindSurfaceDescriptor(pDevEvo, pDevEvo->core, &dma->surfaceDesc);
     if (ret != NVOS_STATUS_SUCCESS) {
         nvEvoLogDevDebug(pDevEvo, EVO_LOG_ERROR,
-                         "Failed to bind display engine CRC32 notify context "
-                         "DMA: 0x%x (%s)", ret, nvstatusToString(ret));
+                         "Failed to bind display engine CRC32 notify surface descriptor "
+                         ": 0x%x (%s)", ret, nvstatusToString(ret));
         res = FALSE;
         goto done;
     }
@@ -7107,7 +8094,7 @@ NvBool nvReadCRC32Evo(NVDispEvoPtr pDispEvo, NvU32 head,
                                     dma,
                                     pConnectorEvo,
                                     pTimings->protocol,
-                                    nvEvoConnectorGetPrimaryOr(pConnectorEvo),
+                                    pConnectorEvo->or.primary,
                                     head,
                                     pDispEvo->displayOwner,
                                     &updateState);
@@ -7152,9 +8139,14 @@ NvU32 nvGetActiveSorMask(const NVDispEvoRec *pDispEvo)
 
         if (pConnectorEvo != NULL &&
             pConnectorEvo->or.type == NV0073_CTRL_SPECIFIC_OR_TYPE_SOR) {
-            nvAssert(pConnectorEvo->or.mask != 0x0);
-
-            activeSorMask |= pConnectorEvo->or.mask;
+            NvU32 orIndex;
+            nvAssert(pConnectorEvo->or.primary != NV_INVALID_OR);
+            FOR_EACH_INDEX_IN_MASK(32, orIndex, nvConnectorGetORMaskEvo(pConnectorEvo)) {
+                if (pConnectorEvo->or.ownerHeadMask[orIndex] == 0x0) {
+                    continue;
+                }
+                activeSorMask |= NVBIT(orIndex);
+            } FOR_EACH_INDEX_IN_MASK_END;
         }
     }
 
@@ -7179,7 +8171,7 @@ NvBool nvEvoPollForNoMethodPending(NVDevEvoPtr pDevEvo,
             break;
         }
 
-        if (nvExceedsTimeoutUSec(pStartTime, timeout)) {
+        if (nvExceedsTimeoutUSec(pDevEvo, pStartTime, timeout)) {
             return FALSE;
         }
 
@@ -7213,7 +8205,7 @@ static void DPSerializerLinkTrain(NVDispEvoPtr pDispEvo,
                                   NvBool reTrain)
 {
     const NvU32 displayId = nvDpyIdToNvU32(pConnectorEvo->displayId);
-    const NvU32 sorNumber = nvEvoConnectorGetPrimaryOr(pConnectorEvo);
+    const NvU32 sorNumber = pConnectorEvo->or.primary;
     const NvU32 headMask = nvConnectorGetAttachedHeadMaskEvo(pConnectorEvo);
     NvBool force = NV_FALSE;
     NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
@@ -7367,4 +8359,403 @@ void nvDPSerializerPostSetMode(NVDispEvoPtr pDispEvo,
                               NV_FALSE /* enableLink */,
                               NV_FALSE /* reTrain */);
     }
+}
+
+NvBool nvIsHDRCapableHead(const NVDispEvoRec *pDispEvo,
+                          NvU32 apiHead)
+{
+    const NVDpyEvoRec *pDpyEvo;
+    NvU32 primaryHwHead = nvGetPrimaryHwHead(pDispEvo, apiHead);
+    NvU32 activeDpyCount = 0;
+
+    if (primaryHwHead != NV_INVALID_HEAD) {
+        const NVDispHeadStateEvoRec *pHeadState =
+            &pDispEvo->headState[primaryHwHead];
+        const NVConnectorEvoRec *pConnectorEvo = pHeadState->pConnectorEvo;
+
+        if (pConnectorEvo == NULL) {
+            return FALSE;
+        }
+
+        // Only supported on DP or HDMI
+        if (!nvConnectorUsesDPLib(pConnectorEvo) &&
+            !pConnectorEvo->isHdmiEnabled) {
+            return FALSE;
+        }
+    } else {
+        return FALSE;
+    }
+
+    FOR_ALL_EVO_DPYS(pDpyEvo,
+                     pDispEvo->apiHeadState[apiHead].activeDpys,
+                     pDispEvo) {
+        const NVT_EDID_INFO *pInfo = &pDpyEvo->parsedEdid.info;
+        const NVT_HDR_STATIC_METADATA *pHdrInfo =
+            &pInfo->hdr_static_metadata_info;
+
+        if (!pDpyEvo->parsedEdid.valid) {
+            return FALSE;
+        }
+
+        /*
+         * XXX HDR is not supported with HDMI 3D due to both using VSI
+         * infoframes.
+         */
+        if (pInfo->HDMI3DSupported) {
+            return FALSE;
+        }
+
+        // Sink should support ST2084 EOTF.
+        if (!pHdrInfo->supported_eotf.smpte_st_2084_eotf) {
+            return FALSE;
+        }
+
+        /*
+         * Sink should support static metadata type1. Nvtiming sets
+         * static_metadata_type to 1 if the sink supports static metadata type1.
+         */
+        if (pHdrInfo->static_metadata_type != 1) {
+            return FALSE;
+        }
+
+        activeDpyCount++;
+    }
+
+    return (activeDpyCount > 0);
+}
+
+NvU32 nvGetHDRSrcMaxLum(const NVFlipChannelEvoHwState *pHwState)
+{
+    if (!pHwState->hdrStaticMetadata.enabled) {
+        return 0;
+    }
+
+    if (pHwState->hdrStaticMetadata.val.maxCLL > 0) {
+        return pHwState->hdrStaticMetadata.val.maxCLL;
+    }
+
+    return pHwState->hdrStaticMetadata.val.maxDisplayMasteringLuminance;
+}
+
+NvBool nvNeedsTmoLut(NVDevEvoPtr pDevEvo,
+                     NVEvoChannelPtr pChannel,
+                     const NVFlipChannelEvoHwState *pHwState,
+                     NvU32 srcMaxLum,
+                     NvU32 targetMaxCLL)
+{
+    const NvU32 win = NV_EVO_CHANNEL_MASK_WINDOW_NUMBER(pChannel->channelMask);
+    const NvU32 head = pDevEvo->headForWindow[win];
+    const NvU32 sdMask = nvPeekEvoSubDevMask(pDevEvo);
+    const NvU32 sd = (sdMask == 0) ? 0 : nv_ffs(sdMask) - 1;
+    const NVDispHeadStateEvoRec *pHeadState =
+        &pDevEvo->pDispEvo[sd]->headState[head];
+#if defined(DEBUG)
+    const NVEvoWindowCaps *pWinCaps =
+        &pDevEvo->gpus[sd].capabilities.window[pChannel->instance];
+#endif
+
+    // Don't tone map if flipped to NULL.
+    if (!pHwState->pSurfaceEvo[NVKMS_LEFT]) {
+        return FALSE;
+    }
+
+    // Don't tone map if layer doesn't have static metadata.
+    // XXX HDR TODO: Support tone mapping SDR surfaces to HDR
+    if (!pHwState->hdrStaticMetadata.enabled) {
+        return FALSE;
+    }
+
+    // Don't tone map if output isn't HDR.
+    // XXX HDR TODO: Support tone mapping HDR surfaces to SDR
+    if (pHeadState->hdr.outputState != NVKMS_HDR_OUTPUT_STATE_HDR) {
+        return FALSE;
+    }
+
+    // Don't tone map if TMO not present, implied by NVKMS_HDR_OUTPUT_STATE_HDR.
+    nvAssert(pWinCaps->tmoPresent);
+
+    // Don't tone map if source or target max luminance is unspecified.
+    if ((srcMaxLum == 0) || (targetMaxCLL == 0)) {
+        return FALSE;
+    }
+
+    // Don't tone map unless source max luminance exceeds target by 10%.
+    if (srcMaxLum <= ((targetMaxCLL * 110) / 100)) {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+NvBool nvIsCscMatrixIdentity(const struct NvKmsCscMatrix *matrix)
+{
+    const struct NvKmsCscMatrix identity = NVKMS_IDENTITY_CSC_MATRIX;
+
+    int y;
+    for (y = 0; y < 3; y++) {
+        int x;
+
+        for (x = 0; x < 4; x++) {
+            if (matrix->m[y][x] != identity.m[y][x]) {
+                return FALSE;
+            }
+        }
+    }
+
+    return TRUE;
+}
+
+enum nvKmsPixelDepth nvEvoColorSpaceBpcToPixelDepth(
+    const enum NvKmsDpyAttributeCurrentColorSpaceValue colorSpace,
+    const enum NvKmsDpyAttributeColorBpcValue colorBpc)
+{
+    switch (colorSpace) {
+        case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_RGB:
+        case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr444:
+        case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr420:
+            switch (colorBpc) {
+                case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_10:
+                    return NVKMS_PIXEL_DEPTH_30_444;
+                case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8:
+                    return NVKMS_PIXEL_DEPTH_24_444;
+                case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_UNKNOWN: /* fallthrough */
+                case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_6:
+                    return NVKMS_PIXEL_DEPTH_18_444;
+            }
+            break;
+        case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr422:
+            nvAssert(colorBpc != NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_6);
+            switch (colorBpc) {
+                case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_10:
+                    return NVKMS_PIXEL_DEPTH_20_422;
+                case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_6: /* fallthrough */
+                case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_UNKNOWN: /* fallthrough */
+                case NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8:
+                    return NVKMS_PIXEL_DEPTH_16_422;
+            }
+            break;
+    }
+
+    return NVKMS_PIXEL_DEPTH_18_444;
+}
+
+void nvEvoEnableMergeModePreModeset(NVDispEvoRec *pDispEvo,
+                                    const NvU32 headsMask,
+                                    NVEvoUpdateState *pUpdateState)
+{
+    const NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
+    const NvU32 sd = pDispEvo->displayOwner;
+    const NvU32 primaryHead = nvGetPrimaryHwHeadFromMask(headsMask);
+    NvU32 head;
+
+    nvAssert(pDevEvo->hal->caps.supportsMergeMode);
+    nvAssert((nvPopCount32(headsMask) > 1) &&
+                (primaryHead != NV_INVALID_HEAD));
+
+    FOR_EACH_EVO_HW_HEAD_IN_MASK(headsMask, head) {
+        NVDispHeadStateEvoRec *pHeadState = &pDispEvo->headState[head];
+        const NVHwModeTimingsEvo *pTimings = &pHeadState->timings;
+        NVEvoHeadControl *pHC =
+            &pDevEvo->gpus[sd].headControl[head];
+
+        nvAssert(pHeadState->mergeMode ==
+                    NV_EVO_MERGE_MODE_DISABLED);
+
+        /*
+         * Heads requires to be raster locked before they transition to
+         * PRIMARY/SECONDARY merge mode.
+         *
+         * SETUP should be the intermediate state before head transition to
+         * PRIMARY/SECONDARY  merge mode. During SETUP state, there is no pixel
+         * transmission from secondary to primary head, RG fetches and drops
+         * pixels, viewport gets filled by the special gray/black pixels.
+         */
+        pHeadState->mergeMode = NV_EVO_MERGE_MODE_SETUP;
+        pDevEvo->hal->SetMergeMode(pDispEvo, head, pHeadState->mergeMode,
+                                   pUpdateState);
+
+        nvAssert((pHC->serverLock == NV_EVO_NO_LOCK) &&
+                    (pHC->clientLock == NV_EVO_NO_LOCK));
+
+        if (head == primaryHead) {
+            pHC->serverLock = NV_EVO_RASTER_LOCK;
+            pHC->serverLockPin = NV_EVO_LOCK_PIN_INTERNAL(primaryHead);
+            pHC->setLockOffsetX = TRUE;
+        } else {
+            pHC->clientLock = NV_EVO_RASTER_LOCK;
+            pHC->clientLockPin = NV_EVO_LOCK_PIN_INTERNAL(primaryHead);
+            if (pTimings->vrr.type != NVKMS_DPY_VRR_TYPE_NONE) {
+                pHC->clientLockoutWindow = 4;
+                pHC->useStallLockPin = TRUE;
+                pHC->stallLockPin = NV_EVO_LOCK_PIN_INTERNAL(primaryHead);
+            } else {
+                pHC->clientLockoutWindow = 2;
+            }
+        }
+
+        if (pTimings->vrr.type != NVKMS_DPY_VRR_TYPE_NONE) {
+            pHC->crashLockUnstallMode = TRUE;
+        }
+        pHC->stereoLocked = FALSE;
+
+        EvoUpdateHeadParams(pDispEvo, head, pUpdateState);
+    }
+}
+
+void nvEvoEnableMergeModePostModeset(NVDispEvoRec *pDispEvo,
+                                     const NvU32 headsMask,
+                                     NVEvoUpdateState *pUpdateState)
+{
+    const NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
+    const NvU32 sd = pDispEvo->displayOwner;
+    const NvU32 primaryHead = nvGetPrimaryHwHeadFromMask(headsMask);
+    NvU64 startTime = 0;
+    NvU32 head;
+
+    nvAssert(pDevEvo->hal->caps.supportsMergeMode);
+    nvAssert((nvPopCount32(headsMask) > 1) &&
+                (primaryHead != NV_INVALID_HEAD));
+
+    FOR_EACH_EVO_HW_HEAD_IN_MASK(headsMask, head) {
+        nvAssert(pDispEvo->headState[head].mergeMode ==
+                    NV_EVO_MERGE_MODE_SETUP);
+
+        if (!EvoWaitForLock(pDevEvo, sd, head, EVO_RASTER_LOCK,
+                            &startTime)) {
+            nvEvoLogDispDebug(pDispEvo, EVO_LOG_ERROR, "Raster lock timeout");
+            return;
+        }
+    }
+
+    FOR_EACH_EVO_HW_HEAD_IN_MASK(headsMask, head) {
+        NVDispHeadStateEvoRec *pHeadState = &pDispEvo->headState[head];
+        NVEvoHeadControl *pHC = &pDevEvo->gpus[sd].headControl[head];
+
+        pHC->flipLockPin = NV_EVO_LOCK_PIN_INTERNAL(primaryHead);
+        pHC->flipLock = TRUE;
+
+        EvoUpdateHeadParams(pDispEvo, head, pUpdateState);
+
+        pHeadState->mergeMode = (head == primaryHead) ?
+            NV_EVO_MERGE_MODE_PRIMARY : NV_EVO_MERGE_MODE_SECONDARY;
+        pDevEvo->hal->SetMergeMode(pDispEvo, head, pHeadState->mergeMode,
+                                   pUpdateState);
+    }
+}
+
+void nvEvoDisableMergeMode(NVDispEvoRec *pDispEvo,
+                           const NvU32 headsMask,
+                           NVEvoUpdateState *pUpdateState)
+{
+    const NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
+    const NvU32 sd = pDispEvo->displayOwner;
+    NvU32 head;
+
+    nvAssert(pDevEvo->hal->caps.supportsMergeMode);
+    nvAssert(nvPopCount32(headsMask) > 1);
+
+    FOR_EACH_EVO_HW_HEAD_IN_MASK(headsMask, head) {
+        NVDispHeadStateEvoRec *pHeadState = &pDispEvo->headState[head];
+        NVEvoHeadControl *pHC =
+            &pDevEvo->gpus[sd].headControl[head];
+
+        pHeadState->mergeMode = NV_EVO_MERGE_MODE_DISABLED;
+        pDevEvo->hal->SetMergeMode(pDispEvo, head, pHeadState->mergeMode,
+                                   pUpdateState);
+
+        pHC->serverLock = NV_EVO_NO_LOCK;
+        pHC->serverLockPin = NV_EVO_LOCK_PIN_INTERNAL(0);
+        pHC->clientLock = NV_EVO_NO_LOCK;
+        pHC->clientLockPin = NV_EVO_LOCK_PIN_INTERNAL(0);
+        pHC->clientLockoutWindow = 0;
+        pHC->setLockOffsetX = FALSE;
+        pHC->flipLockPin = NV_EVO_LOCK_PIN_INTERNAL(0);
+        pHC->flipLock = FALSE;
+        pHC->useStallLockPin = FALSE;
+        pHC->stallLockPin = NV_EVO_LOCK_PIN_INTERNAL(0);
+        pHC->crashLockUnstallMode = FALSE;
+
+
+        EvoUpdateHeadParams(pDispEvo, head, pUpdateState);
+    }
+}
+
+NvBool nvEvoGetSingleTileHwModeTimings(const NVHwModeTimingsEvo *pSrc,
+                                       const NvU32 numTiles,
+                                       NVHwModeTimingsEvo *pDst)
+{
+    if (numTiles == 1) {
+        *pDst = *pSrc;
+        return TRUE;
+    }
+
+    if ((numTiles == 0) ||
+            (pSrc->viewPort.out.xAdjust != 0) ||
+            (pSrc->viewPort.out.width != nvEvoVisibleWidth(pSrc))) {
+        return FALSE;
+    }
+
+    if (((pSrc->rasterSize.x % numTiles) != 0) ||
+            (((pSrc->rasterSyncEnd.x + 1) % numTiles) != 0) ||
+            (((pSrc->rasterBlankEnd.x + 1) % numTiles) != 0) ||
+            (((pSrc->rasterBlankStart.x + 1) % numTiles) != 0) ||
+            ((pSrc->pixelClock % numTiles) != 0) ||
+            ((pSrc->viewPort.in.width % numTiles) != 0)) {
+        return FALSE;
+    }
+
+    *pDst = *pSrc;
+
+    pDst->rasterSize.x /= numTiles;
+    pDst->rasterSyncEnd.x /= numTiles;
+    pDst->rasterBlankEnd.x /= numTiles;
+    pDst->rasterBlankStart.x /= numTiles;
+
+    pDst->pixelClock /= numTiles;
+
+    pDst->viewPort.out.width /= numTiles;
+    pDst->viewPort.in.width /= numTiles;
+
+    return TRUE;
+}
+
+NvBool nvEvoUse2Heads1OR(const NVDpyEvoRec *pDpyEvo,
+                         const NVHwModeTimingsEvo *pTimings,
+                         const struct NvKmsModeValidationParams *pParams)
+{
+    const NVDispEvoRec *pDispEvo = pDpyEvo->pDispEvo;
+    const NvU32 sd = pDispEvo->displayOwner;
+    const NVEvoHeadCaps *pHeadCaps =
+        &pDispEvo->pDevEvo->gpus[sd].capabilities.head[0];
+
+    /* The 2Heads1OR mode can not be used if GPU does not
+     * support merge mode, or */
+    if (!pDispEvo->pDevEvo->hal->caps.supportsMergeMode ||
+            /* the 2Heads1OR mode is forced disabled by client, or */
+            ((pParams->overrides &
+              NVKMS_MODE_VALIDATION_MAX_ONE_HARDWARE_HEAD) != 0) ||
+            /* the given dpy does not support the display stream compression
+             * and the given mode timings are not using the hardware YUV420
+             * packer, or */
+            (!nvDPDpyIsDscPossible(pDpyEvo) && !nvHdmiDpySupportsDsc(pDpyEvo) &&
+                (pTimings->yuv420Mode != NV_YUV420_MODE_HW)) ||
+            /* the non-centered viewport out does not work with 2Heads1OR mode
+             * an for simplicity disable all customized viewport out, or */
+            (pTimings->viewPort.out.width != nvEvoVisibleWidth(pTimings)) ||
+            (pTimings->viewPort.out.xAdjust != 0) ||
+            /* either HVisible, HSyncWidth, HBackPorch, HForntPorch,
+             * pixelClock, or viewPortIn width is odd and can not be split
+             * equally across two heads, or */
+            ((pTimings->rasterSize.x & 1 ) != 0) ||
+            ((pTimings->rasterSyncEnd.x & 1) != 1) ||
+            ((pTimings->rasterBlankEnd.x & 1) != 1) ||
+            ((pTimings->rasterBlankStart.x & 1) != 1) ||
+            ((pTimings->pixelClock & 1) != 0) ||
+            ((pTimings->viewPort.in.width & 1) != 0)) {
+        return FALSE;
+    }
+
+    /* Use 2Heads1OR mode only if the required pixel clock is greater than the
+     * maximum pixel clock support by a head. */
+    return (pTimings->pixelClock > pHeadCaps->maxPClkKHz);
 }

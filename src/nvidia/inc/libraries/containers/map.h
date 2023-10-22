@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2015 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -192,12 +192,12 @@ struct IntrusiveMap
     mapKey_IMPL(&((pMap)->real).base, pValue)
 
 #define mapInsertNew(pMap, key)                                              \
-    CONT_CAST_ELEM(pMap, mapInsertNew_IMPL(&(pMap)->real, key))
+    CONT_CAST_ELEM(pMap, mapInsertNew_IMPL(&(pMap)->real, key), mapIsValid_IMPL)
 
 #define mapInsertValue(pMap, key, pValue)                                    \
     CONT_CAST_ELEM(pMap,                                                     \
         mapInsertValue_IMPL(&(pMap)->real, key,                              \
-            CONT_CHECK_ARG(pMap, pValue)))
+            CONT_CHECK_ARG(pMap, pValue)), mapIsValid_IMPL)
 
 #define mapInsertExisting(pMap, key, pValue)                                 \
     mapInsertExisting_IMPL(&(pMap)->real, key,                               \
@@ -221,32 +221,32 @@ struct IntrusiveMap
         contDispatchVoid_STUB())
 
 #define mapFind(pMap, key)                                                   \
-    CONT_CAST_ELEM(pMap, mapFind_IMPL(&((pMap)->real).base, key))
+    CONT_CAST_ELEM(pMap, mapFind_IMPL(&((pMap)->real).base, key), mapIsValid_IMPL)
 
 #define mapFindGEQ(pMap, keyMin)                                             \
     CONT_CAST_ELEM(pMap,                                                     \
-        mapFindGEQ_IMPL(&((pMap)->real).base, keyMin))
+        mapFindGEQ_IMPL(&((pMap)->real).base, keyMin), mapIsValid_IMPL)
 
 #define mapFindLEQ(pMap, keyMax)                                             \
     CONT_CAST_ELEM(pMap,                                                     \
-        mapFindLEQ_IMPL(&((pMap)->real).base, keyMax))
+        mapFindLEQ_IMPL(&((pMap)->real).base, keyMax), mapIsValid_IMPL)
 
 #define mapNext(pMap, pValue)                                                \
     CONT_CAST_ELEM(pMap,                                                     \
         mapNext_IMPL(&((pMap)->real).base,                                   \
-            CONT_CHECK_ARG(pMap, pValue)))
+            CONT_CHECK_ARG(pMap, pValue)), mapIsValid_IMPL)
 
 #define mapPrev(pMap, pValue)                                                \
     CONT_CAST_ELEM(pMap,                                                     \
         mapPrev_IMPL(&((pMap)->real).base,                                   \
-            CONT_CHECK_ARG(pMap, pValue)))
+            CONT_CHECK_ARG(pMap, pValue)), mapIsValid_IMPL)
 
 #define mapIterAll(pMap)                                                     \
     mapIterRange(pMap, mapFindGEQ(pMap, 0), mapFindLEQ(pMap, NV_U64_MAX))
 
 #define mapIterRange(pMap, pFirst, pLast)                                    \
     CONT_ITER_RANGE(pMap, &mapIterRange_IMPL,                                \
-        CONT_CHECK_ARG(pMap, pFirst), CONT_CHECK_ARG(pMap, pLast))
+        CONT_CHECK_ARG(pMap, pFirst), CONT_CHECK_ARG(pMap, pLast), mapIsValid_IMPL)
 
 #define mapIterNext(pIt)                                                     \
     mapIterNext_IMPL(&((pIt)->iter))
@@ -261,7 +261,7 @@ NvU32 mapCount_IMPL(MapBase *pMap);
 NvU64 mapKey_IMPL(MapBase *pMap, void *pValue);
 
 void *mapInsertNew_IMPL(NonIntrusiveMap *pMap, NvU64 key);
-void *mapInsertValue_IMPL(NonIntrusiveMap *pMap, NvU64 key, void *pValue);
+void *mapInsertValue_IMPL(NonIntrusiveMap *pMap, NvU64 key, const void *pValue);
 NvBool mapInsertExisting_IMPL(IntrusiveMap *pMap, NvU64 key, void *pValue);
 void mapRemove_IMPL(NonIntrusiveMap *pMap, void *pValue);
 void mapRemoveIntrusive_IMPL(MapBase *pMap, void *pValue);
@@ -292,6 +292,8 @@ mapNodeToValue(MapBase *pMap, MapNode *pNode)
     if (NULL == pNode) return NULL;
     return (NvU8*)pNode - pMap->nodeOffset;
 }
+
+NvBool mapIsValid_IMPL(void *pMap);
 
 #ifdef __cplusplus
 }

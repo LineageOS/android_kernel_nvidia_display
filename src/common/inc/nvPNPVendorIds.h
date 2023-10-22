@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2009 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2009 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -29,7 +29,7 @@
  * type const char*.
  *
  * References:
- *  http://www.uefi.org/pnp_id_list
+ *  https://uefi.org/pnp_id_list
  *
  */ 
 
@@ -60,6 +60,7 @@ static const PNPVendorId PNPVendorIds[] =
     { "___",    _VENDOR_NAME_ENTRY("Targa")                             },
     { "@@@",    _VENDOR_NAME_ENTRY("Sangyo")                            },
 
+    { "AAA",    _VENDOR_NAME_ENTRY("Avolites Ltd")                      },
     { "AAC",    _VENDOR_NAME_ENTRY("Acer")                              },
     { "ABC",    _VENDOR_NAME_ENTRY("AboCom System Inc")                 },
     { "ABP",    _VENDOR_NAME_ENTRY("Advanced System Products")          },
@@ -119,6 +120,7 @@ static const PNPVendorId PNPVendorIds[] =
     { "BCD",    _VENDOR_NAME_ENTRY("Dr. Seufert GmbH")                  },
     { "BEO",    _VENDOR_NAME_ENTRY("Bang & Olufsen")                    },
     { "BGT",    _VENDOR_NAME_ENTRY("Budzetron")                         },
+    { "BIG",    _VENDOR_NAME_ENTRY("Bigscreen, Inc.")                   },
     { "BMM",    _VENDOR_NAME_ENTRY("MAG Technology")                    },
     { "BNQ",    _VENDOR_NAME_ENTRY("BenQ")                              },
     { "BOE",    _VENDOR_NAME_ENTRY("BOE Technology Group Co., Ltd")     },
@@ -137,6 +139,7 @@ static const PNPVendorId PNPVendorIds[] =
     { "CLO",    _VENDOR_NAME_ENTRY("Clone Computers/Analogy")           },
     { "CLT",    _VENDOR_NAME_ENTRY("automated computer control systems")},
     { "CMD",    _VENDOR_NAME_ENTRY("CMD Technology")                    },
+    { "CMN",    _VENDOR_NAME_ENTRY("Chimei innolux corp.")              },
     { "CMO",    _VENDOR_NAME_ENTRY("Chi Mei Optoelectronics corp.")     },
     { "CNI",    _VENDOR_NAME_ENTRY("Connect International")             },
     { "CNT",    _VENDOR_NAME_ENTRY("CNet Technology")                   },
@@ -249,6 +252,7 @@ static const PNPVendorId PNPVendorIds[] =
     { "HEI",    _VENDOR_NAME_ENTRY("Hyundai")                           },
     { "HIT",    _VENDOR_NAME_ENTRY("Hitachi/HINT")                      },
     { "HMX",    _VENDOR_NAME_ENTRY("HUMAX Co., Ltd.")                   },
+    { "HPN",    _VENDOR_NAME_ENTRY("HP Inc.")                           },
     { "HSD",    _VENDOR_NAME_ENTRY("HannStar Display Corp")             },
     { "HSL",    _VENDOR_NAME_ENTRY("Hansol")                            },
     { "HTC",    _VENDOR_NAME_ENTRY("Hitachi")                           },
@@ -273,6 +277,7 @@ static const PNPVendorId PNPVendorIds[] =
     { "IMA",    _VENDOR_NAME_ENTRY("Imagraph")                          },
     { "IMC",    _VENDOR_NAME_ENTRY("IMC Networks")                      },
     { "IMP",    _VENDOR_NAME_ENTRY("Impression")                        },
+    { "IMX",    _VENDOR_NAME_ENTRY("Arpara Technology Co., Ltd.")       },
     { "INF",    _VENDOR_NAME_ENTRY("Inframetrics")                      },
     { "INL",    _VENDOR_NAME_ENTRY("InnoLux Display Corporation")       },
     { "INP",    _VENDOR_NAME_ENTRY("Interphase")                        },
@@ -312,6 +317,7 @@ static const PNPVendorId PNPVendorIds[] =
     { "LCS",    _VENDOR_NAME_ENTRY("Longshine Electronics")             },
     { "LEF",    _VENDOR_NAME_ENTRY("Leaf Systems")                      },
     { "LEN",    _VENDOR_NAME_ENTRY("Lenovo Group Limited")              },
+    { "LGD",    _VENDOR_NAME_ENTRY("LG Display")                        },
     { "LGE",    _VENDOR_NAME_ENTRY("LG Electronics")                    },
     { "LKM",    _VENDOR_NAME_ENTRY("Likom/LKM")                         },
     { "LNK",    _VENDOR_NAME_ENTRY("Link Technologies")                 },
@@ -346,6 +352,7 @@ static const PNPVendorId PNPVendorIds[] =
     { "MMX",    _VENDOR_NAME_ENTRY("MAG Technology")                    },
     { "MOR",    _VENDOR_NAME_ENTRY("Morse Technology")                  },
     { "MSI",    _VENDOR_NAME_ENTRY("Microstep")                         },
+    { "MST",    _VENDOR_NAME_ENTRY("MS Telematica")                     },
     { "MSV",    _VENDOR_NAME_ENTRY("Mosgi")                             },
     { "MTC",    _VENDOR_NAME_ENTRY("Mitac")                             },
     { "MTI",    _VENDOR_NAME_ENTRY("Morse Technology")                  },
@@ -436,11 +443,13 @@ static const PNPVendorId PNPVendorIds[] =
     { "SAN",    _VENDOR_NAME_ENTRY("Sanyo Electric Co.,Ltd.")           },
     { "SCC",    _VENDOR_NAME_ENTRY("SORD")                              },
     { "SCD",    _VENDOR_NAME_ENTRY("Sanyo")                             },
+    { "SDC",    _VENDOR_NAME_ENTRY("Samsung Display Corp.")             },
     { "SDI",    _VENDOR_NAME_ENTRY("Samtron/Sigma Designs")             },
     { "SDT",    _VENDOR_NAME_ENTRY("Siemens AG")                        },
     { "SEA",    _VENDOR_NAME_ENTRY("Segate")                            },
     { "SEC",    _VENDOR_NAME_ENTRY("Seiko/Epson")                       },
     { "SEN",    _VENDOR_NAME_ENTRY("Sencore")                           },
+    { "SFL",    _VENDOR_NAME_ENTRY("Shiftall Inc")                      },
     { "SGT",    _VENDOR_NAME_ENTRY("Stargate Technology/AT&T")          },
     { "SGX",    _VENDOR_NAME_ENTRY("SGI")                               },
     { "SHP",    _VENDOR_NAME_ENTRY("Sharp")                             },
@@ -497,6 +506,7 @@ static const PNPVendorId PNPVendorIds[] =
     { "TEI",    _VENDOR_NAME_ENTRY("TECO")                              },
     { "TGI",    _VENDOR_NAME_ENTRY("TriGem")                            },
     { "TGS",    _VENDOR_NAME_ENTRY("Torus")                             },
+    { "TMA",    _VENDOR_NAME_ENTRY("Tianma Microelectronics")           },
     { "TOS",    _VENDOR_NAME_ENTRY("Toshiba")                           },
     { "TRI",    _VENDOR_NAME_ENTRY("Tricord")                           },
     { "TRM",    _VENDOR_NAME_ENTRY("Tekram")                            },

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -143,8 +143,7 @@ memMap_IMPL
 )
 {
     OBJGPU *pGpu = NULL;
-    RsClient *pRsClient;
-    RmClient *pRmClient;
+    RmClient *pClient;
     RsResourceRef *pContextRef;
     RsResourceRef *pMemoryRef;
     Memory *pMemoryInfo; // TODO: rename this field. pMemoryInfo is the legacy name.
@@ -156,6 +155,8 @@ memMap_IMPL
     NvBool bBroadcast;
     NvU64 mapLimit;
     NvBool bIsSysmem = NV_FALSE;
+    NvBool bSkipSizeCheck = (DRF_VAL(OS33, _FLAGS, _SKIP_SIZE_CHECK, pMapParams->flags) ==
+                             NVOS33_FLAGS_SKIP_SIZE_CHECK_ENABLE);
 
     NV_ASSERT_OR_RETURN(RMCFG_FEATURE_KERNEL_RM, NV_ERR_NOT_SUPPORTED);
 
@@ -168,8 +169,10 @@ memMap_IMPL
 
     }
 
-    NV_ASSERT_OK_OR_RETURN(serverGetClientUnderLock(&g_resServ, pMapParams->hClient, &pRsClient));
-    NV_ASSERT_OK_OR_RETURN(clientGetResourceRef(pRsClient, pMapParams->hMemory, &pMemoryRef));
+    pClient = serverutilGetClientUnderLock(pMapParams->hClient);
+    NV_ASSERT_OR_ELSE(pClient != NULL, return NV_ERR_INVALID_CLIENT);
+    NV_ASSERT_OK_OR_RETURN(clientGetResourceRef(staticCast(pClient, RsClient),
+                pMapParams->hMemory, &pMemoryRef));
 
     pMemoryInfo = dynamicCast(pMemoryRef->pResource, Memory);
     NV_ASSERT_OR_RETURN(pMemoryInfo != NULL, NV_ERR_NOT_SUPPORTED);
@@ -192,14 +195,18 @@ memMap_IMPL
         return NV_ERR_INVALID_LIMIT;
     }
 
+    if (bSkipSizeCheck && (pCallContext->secInfo.privLevel < RS_PRIV_LEVEL_KERNEL))
+    {
+        return NV_ERR_INSUFFICIENT_PERMISSIONS;
+    }
+
     //
     // See bug #140807 and #150889 - we need to pad memory mappings to past their
     // actual allocation size (to PAGE_SIZE+1) because of a buggy ms function so
     // skip the allocation size sanity check so the map operation still succeeds.
     //
-    if ((DRF_VAL(OS33, _FLAGS, _SKIP_SIZE_CHECK, pMapParams->flags) == NVOS33_FLAGS_SKIP_SIZE_CHECK_DISABLE) &&
-        (!portSafeAddU64(pMapParams->offset, pMapParams->length, &mapLimit) ||
-         (mapLimit > pMemoryInfo->Length)))
+    if (!portSafeAddU64(pMapParams->offset, pMapParams->length, &mapLimit) ||
+        (!bSkipSizeCheck && (mapLimit > pMemoryInfo->Length)))
     {
         return NV_ERR_INVALID_LIMIT;
     }
@@ -249,13 +256,12 @@ memMap_IMPL
     {
         RS_PRIV_LEVEL privLevel;
 
-        pRmClient = dynamicCast(pRsClient, RmClient);
-        if (pRmClient == NULL)
-            return NV_ERR_OPERATING_SYSTEM;
-
-        privLevel = rmclientGetCachedPrivilege(pRmClient);
-        if (!rmclientIsAdmin(pRmClient, privLevel) && !memdescGetFlag(pMemDesc, MEMDESC_FLAGS_SKIP_REGMEM_PRIV_CHECK))
+        privLevel = rmclientGetCachedPrivilege(pClient);
+        if (!rmclientIsAdmin(pClient, privLevel) &&
+            !memdescGetFlag(pMemDesc, MEMDESC_FLAGS_SKIP_REGMEM_PRIV_CHECK))
+        {
             return NV_ERR_PROTECTION_FAULT;
+        }
 
         if (DRF_VAL(OS33, _FLAGS, _MEM_SPACE, pMapParams->flags) == NVOS33_FLAGS_MEM_SPACE_USER)
         {
@@ -416,8 +422,7 @@ serverMap_Prologue
 )
 {
     NV_STATUS           rmStatus;
-    RsClient           *pRsClient;
-    RmClient           *pRmClient;
+    RmClient           *pClient;
     RsResourceRef      *pMemoryRef;
     NvHandle            hClient = pMapParams->hClient;
     NvHandle            hParent = hClient;
@@ -431,16 +436,15 @@ serverMap_Prologue
         return NV_ERR_INVALID_FLAGS;
 
     // Populate Resource Server information
-    NV_ASSERT_OK_OR_RETURN(serverGetClientUnderLock(&g_resServ, hClient, &pRsClient));
+    pClient = serverutilGetClientUnderLock(hClient);
+    NV_ASSERT_OR_ELSE(pClient != NULL, return NV_ERR_INVALID_CLIENT);
 
     // Validate hClient
-    pRmClient = dynamicCast(pRsClient, RmClient);
-    if (pRmClient == NULL)
-        return NV_ERR_OPERATING_SYSTEM;
-    privLevel = rmclientGetCachedPrivilege(pRmClient);
+    privLevel = rmclientGetCachedPrivilege(pClient);
 
     // RS-TODO: Assert if this fails after all objects are converted
-    NV_ASSERT_OK_OR_RETURN(clientGetResourceRef(pRsClient, pMapParams->hMemory, &pMemoryRef));
+    NV_ASSERT_OK_OR_RETURN(clientGetResourceRef(staticCast(pClient, RsClient),
+                pMapParams->hMemory, &pMemoryRef));
 
     if (pMemoryRef->pParentRef != NULL)
         hParent = pMemoryRef->pParentRef->hResource;
@@ -460,7 +464,9 @@ serverMap_Prologue
         NV_ASSERT_OR_RETURN(hParent != hClient, NV_ERR_INVALID_OBJECT_PARENT);
 
         RsResourceRef *pContextRef;
-        rmStatus = clientGetResourceRef(pRsClient, pMapParams->hDevice, &pContextRef);
+        rmStatus = clientGetResourceRef(staticCast(pClient, RsClient),
+                pMapParams->hDevice, &pContextRef);
+
         if (rmStatus != NV_OK)
             return rmStatus;
 
@@ -518,8 +524,7 @@ serverUnmap_Prologue
 {
     OBJGPU *pGpu = NULL;
     NV_STATUS rmStatus;
-    RsClient *pRsClient;
-    RmClient *pRmClient;
+    RmClient *pClient;
     RsResourceRef *pMemoryRef;
     NvHandle hClient = pUnmapParams->hClient;
     NvHandle hParent = hClient;
@@ -532,16 +537,15 @@ serverUnmap_Prologue
     void *pProcessHandle = NULL;
 
     // Populate Resource Server information
-    NV_ASSERT_OK_OR_RETURN(serverGetClientUnderLock(&g_resServ, hClient, &pRsClient));
+    pClient = serverutilGetClientUnderLock(hClient);
+    NV_ASSERT_OR_ELSE(pClient != NULL, return NV_ERR_INVALID_CLIENT);
 
     // check if we have a user or kernel RM client
-    pRmClient = dynamicCast(pRsClient, RmClient);
-    if (pRmClient == NULL)
-        return NV_ERR_OPERATING_SYSTEM;
-    privLevel = rmclientGetCachedPrivilege(pRmClient);
+    privLevel = rmclientGetCachedPrivilege(pClient);
 
     // RS-TODO: Assert if this fails after all objects are converted
-    NV_ASSERT_OK_OR_RETURN(clientGetResourceRef(pRsClient, hMemory, &pMemoryRef));
+    NV_ASSERT_OK_OR_RETURN(clientGetResourceRef(staticCast(pClient, RsClient),
+                hMemory, &pMemoryRef));
 
     if (pMemoryRef->pParentRef != NULL)
         hParent = pMemoryRef->pParentRef->hResource;
@@ -556,7 +560,9 @@ serverUnmap_Prologue
         NV_ASSERT_OR_RETURN(hParent != hClient, NV_ERR_INVALID_OBJECT_PARENT);
 
         RsResourceRef *pContextRef;
-        rmStatus = clientGetResourceRef(pRsClient, pUnmapParams->hDevice, &pContextRef);
+        rmStatus = clientGetResourceRef(staticCast(pClient, RsClient),
+                pUnmapParams->hDevice, &pContextRef);
+
         if (rmStatus != NV_OK)
             return rmStatus;
 
@@ -597,10 +603,23 @@ serverUnmap_Prologue
     {
         rmStatus = osAttachToProcess(&pProcessHandle, ProcessId);
         if (rmStatus != NV_OK)
-            return rmStatus;
+        {
+            if (pUnmapParams->bTeardown)
+                pProcessHandle = NULL;
+            else
+                return rmStatus;
+        }
 
         pUnmapParams->pProcessHandle = pProcessHandle;
     }
+
+    // Don't do any filtering if this is a tear-down path
+    if (pUnmapParams->bTeardown)
+    {
+        pUnmapParams->fnFilter = NULL;
+        return NV_OK;
+    }
+
 
     pUnmapParams->fnFilter = bKernel
         ? serverutilMappingFilterKernel
@@ -698,7 +717,12 @@ rmapiMapToCpuWithSecInfoV2
     NV_PRINTF(LEVEL_INFO, "MMU_PROFILER Nv04MapMemory 0x%x\n", *flags);
 
     portMemSet(&lockInfo, 0, sizeof(lockInfo));
-    rmapiInitLockInfo(pRmApi, hClient, &lockInfo);
+    status = rmapiInitLockInfo(pRmApi, hClient, NV01_NULL_OBJECT, &lockInfo);
+    if (status != NV_OK)
+    {
+        rmapiEpilogue(pRmApi, &rmApiContext);
+        return status;
+    }
 
     LOCK_METER_DATA(MAPMEM, flags, 0, 0);
 
@@ -753,8 +777,8 @@ rmapiMapToCpuWithSecInfo
     API_SECURITY_INFO *pSecInfo
 )
 {
-    return rmapiMapToCpuWithSecInfoV2(pRmApi, hClient, 
-        hDevice, hMemory, offset, length, ppCpuVirtAddr, 
+    return rmapiMapToCpuWithSecInfoV2(pRmApi, hClient,
+        hDevice, hMemory, offset, length, ppCpuVirtAddr,
         &flags, pSecInfo);
 }
 
@@ -868,7 +892,12 @@ rmapiUnmapFromCpuWithSecInfo
         return status;
 
     portMemSet(&lockInfo, 0, sizeof(lockInfo));
-    rmapiInitLockInfo(pRmApi, hClient, &lockInfo);
+    status = rmapiInitLockInfo(pRmApi, hClient, NV01_NULL_OBJECT, &lockInfo);
+    if (status != NV_OK)
+    {
+        rmapiEpilogue(pRmApi, &rmApiContext);
+        return NV_OK;
+    }
 
     LOCK_METER_DATA(UNMAPMEM, flags, 0, 0);
 

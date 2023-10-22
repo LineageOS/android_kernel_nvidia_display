@@ -25,6 +25,7 @@
  * Purpose:   Provide initialization functions for HDMI library
  */
 
+#include <stddef.h>
 #include "nvlimits.h"
 #include "nvhdmipkt_common.h"
 #include "nvhdmipkt_class.h"
@@ -46,6 +47,8 @@
 #include "class/clc57d.h"
 #include "class/clc670.h"
 #include "class/clc67d.h"
+
+#include "hdmi_spec.h"
 
 // Class hierarchy structure
 typedef struct tagNVHDMIPKT_CLASS_HIERARCHY
@@ -83,7 +86,7 @@ typedef struct tagNVHDMIPKT_CLASS_HIERARCHY
  ************************************************************************************************/
 static const NVHDMIPKT_CLASS_HIERARCHY hierarchy[] =
 {
-    {// Index 0==NVHDMIPKT_0073_CLASS
+    [NVHDMIPKT_0073_CLASS] = {// Index 0==NVHDMIPKT_0073_CLASS
         NVHDMIPKT_0073_CLASS,             // classId
         NVHDMIPKT_0073_CLASS,             // parentClassId
         NV_TRUE,                          // isRootClass
@@ -93,7 +96,7 @@ static const NVHDMIPKT_CLASS_HIERARCHY hierarchy[] =
         0,                                // displayClass
         0                                 // coreDmaClass
     },
-    {// Index 1==NVHDMIPKT_9171_CLASS
+    [NVHDMIPKT_9171_CLASS] = {// Index 1==NVHDMIPKT_9171_CLASS
         NVHDMIPKT_9171_CLASS,             // classId
         NVHDMIPKT_9171_CLASS,             // parentClassId
         NV_TRUE,                          // isRootClass
@@ -103,7 +106,7 @@ static const NVHDMIPKT_CLASS_HIERARCHY hierarchy[] =
         NV9170_DISPLAY,                   // displayClass
         NV917D_CORE_CHANNEL_DMA           // coreDmaClass
     },
-    {// Index 2==NVHDMIPKT_9271_CLASS
+    [NVHDMIPKT_9271_CLASS] = {// Index 2==NVHDMIPKT_9271_CLASS
         NVHDMIPKT_9271_CLASS,             // classId
         NVHDMIPKT_9171_CLASS,             // parentClassId
         NV_FALSE,                         // isRootClass
@@ -113,7 +116,7 @@ static const NVHDMIPKT_CLASS_HIERARCHY hierarchy[] =
         NV9270_DISPLAY,                   // displayClass
         NV927D_CORE_CHANNEL_DMA           // coreDmaClass
     },
-    {// Index 3==NVHDMIPKT_9471_CLASS
+    [NVHDMIPKT_9471_CLASS] = {// Index 3==NVHDMIPKT_9471_CLASS
         NVHDMIPKT_9471_CLASS,             // classId
         NVHDMIPKT_9171_CLASS,             // parentClassId
         NV_FALSE,                         // isRootClass
@@ -123,7 +126,7 @@ static const NVHDMIPKT_CLASS_HIERARCHY hierarchy[] =
         NV9470_DISPLAY,                   // displayClass
         NV947D_CORE_CHANNEL_DMA           // coreDmaClass
     },
-    {// Index 4==NVHDMIPKT_9571_CLASS
+    [NVHDMIPKT_9571_CLASS] = {// Index 4==NVHDMIPKT_9571_CLASS
         NVHDMIPKT_9571_CLASS,             // classId
         NVHDMIPKT_9171_CLASS,             // parentClassId
         NV_FALSE,                         // isRootClass
@@ -133,7 +136,7 @@ static const NVHDMIPKT_CLASS_HIERARCHY hierarchy[] =
         NV9570_DISPLAY,                   // displayClass
         NV957D_CORE_CHANNEL_DMA           // coreDmaClass
     },
-    {// Index 5==NVHDMIPKT_C371_CLASS
+    [NVHDMIPKT_C371_CLASS] = {// Index 5==NVHDMIPKT_C371_CLASS
         NVHDMIPKT_C371_CLASS,             // classId
         NVHDMIPKT_9171_CLASS,             // parentClassId
         NV_FALSE,                         // isRootClass
@@ -143,7 +146,7 @@ static const NVHDMIPKT_CLASS_HIERARCHY hierarchy[] =
         NVC370_DISPLAY,                   // displayClass
         NVC37D_CORE_CHANNEL_DMA           // coreDmaClass
     },
-    {// Index 6==NVHDMIPKT_C571_CLASS
+    [NVHDMIPKT_C571_CLASS] = {// Index 6==NVHDMIPKT_C571_CLASS
      // Note that Turing (C57x) has a distinct displayClass and coreDmaClass,
      // but it inherits the _DISP_SF_USER class from Volta (C37x).  We call this
      // NVHDMIPKT_C571_CLASS, but reuse initInterface()/constructor()/destructor()
@@ -157,7 +160,7 @@ static const NVHDMIPKT_CLASS_HIERARCHY hierarchy[] =
         NVC570_DISPLAY,                   // displayClass
         NVC57D_CORE_CHANNEL_DMA           // coreDmaClass
     },
-    {// Index 7==NVHDMIPKT_C671_CLASS
+    [NVHDMIPKT_C671_CLASS] = {// Index 7==NVHDMIPKT_C671_CLASS
         NVHDMIPKT_C671_CLASS,             // classId
         NVHDMIPKT_9171_CLASS,             // parentClassId
         NV_FALSE,                         // isRootClass
@@ -234,6 +237,28 @@ NvHdmiPkt_PacketWrite(NvHdmiPkt_Handle  libHandle,
         return NVHDMIPKT_LIBRARY_INIT_FAIL;
     }
 
+    if ((pPacket == NULL) || (packetLen == 0))
+    {
+        return NVHDMIPKT_INVALID_ARG;
+    }
+
+    HDMI_PACKET_TYPE infoframeType = pPacket[0]; // header byte 0 is packet type
+    // Lower bound check. Since actual infoframe size varies depending on the infoframe packet being sent, 
+    // check all supported infoframe types and their expected sizes. This is not a strict == check becuase they may/may not need
+    // additional checksum byte (library clients take care of adding checksum byte if needed)
+    if (((infoframeType == hdmi_pktType_GeneralControl)                 && (packetLen < 6))                                             ||
+        ((infoframeType == hdmi_pktType_GamutMetadata)                  && (packetLen < sizeof(NVT_GAMUT_METADATA)))                    ||
+        ((infoframeType == hdmi_pktType_ExtendedMetadata)               && (packetLen < sizeof(NVT_EXTENDED_METADATA_PACKET_INFOFRAME)))||
+        ((infoframeType == hdmi_pktType_VendorSpecInfoFrame)            && (packetLen < 8))                                             ||
+        ((infoframeType == hdmi_pktType_AviInfoFrame)                   && (packetLen < sizeof(NVT_VIDEO_INFOFRAME)))                   ||
+        ((infoframeType == hdmi_pktType_SrcProdDescInfoFrame)           && (packetLen < sizeof(NVT_SPD_INFOFRAME)))                     ||
+        ((infoframeType == hdmi_pktType_DynamicRangeMasteringInfoFrame) && (packetLen < sizeof(NVT_HDR_INFOFRAME))))
+        //  Unused: hdmi_pktType_AudioClkRegeneration
+        //  Unused: hdmi_pktType_MpegSrcInfoFrame
+    {
+        NvHdmiPkt_Print(pClass, "WARNING - packet length too small for infoframe type %d check payload ", infoframeType);
+    }
+
     return pClass->hdmiPacketWrite(pClass,
                                    subDevice,
                                    displayId,
@@ -298,7 +323,8 @@ NvHdmi_QueryFRLConfig(NvHdmiPkt_Handle                      libHandle,
     }
 
     // if there is no FRL capability reported fail this call
-    if (pSinkCaps->linkMaxFRLRate == HDMI_FRL_DATA_RATE_NONE)
+    if ((pSrcCaps->linkMaxFRLRate == HDMI_FRL_DATA_RATE_NONE) ||
+        (pSinkCaps->linkMaxFRLRate == HDMI_FRL_DATA_RATE_NONE))
     {
         return NVHDMIPKT_FAIL;
     }

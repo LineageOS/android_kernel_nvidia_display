@@ -34,6 +34,9 @@
 #include <linux/file.h>
 #include <linux/list.h>
 #include <linux/rwsem.h>
+#include <linux/freezer.h>
+
+#include <acpi/video.h>
 
 #include "nvstatus.h"
 
@@ -59,6 +62,12 @@
 
 #define NVKMS_LOG_PREFIX "nvidia-modeset: "
 
+static bool output_rounding_fix = true;
+module_param_named(output_rounding_fix, output_rounding_fix, bool, 0400);
+
+static bool disable_hdmi_frl = false;
+module_param_named(disable_hdmi_frl, disable_hdmi_frl, bool, 0400);
+
 /* These parameters are used for fault injection tests.  Normally the defaults
  * should be used. */
 MODULE_PARM_DESC(fail_malloc, "Fail the Nth call to nvkms_alloc");
@@ -69,15 +78,32 @@ MODULE_PARM_DESC(malloc_verbose, "Report information about malloc calls on modul
 static bool malloc_verbose = false;
 module_param_named(malloc_verbose, malloc_verbose, bool, 0400);
 
+/* This parameter is used to find the dpy override conf file */
+#define NVKMS_CONF_FILE_SPECIFIED (nvkms_conf != NULL)
+
+MODULE_PARM_DESC(config_file,
+                 "Path to the nvidia-modeset configuration file "
+                 "(default: disabled)");
+static char *nvkms_conf = NULL;
+module_param_named(config_file, nvkms_conf, charp, 0400);
+
 static atomic_t nvkms_alloc_called_count;
 
+NvBool nvkms_output_rounding_fix(void)
+{
+    return output_rounding_fix;
+}
+
+NvBool nvkms_disable_hdmi_frl(void)
+{
+    return disable_hdmi_frl;
+}
 
 #define NVKMS_SYNCPT_STUBS_NEEDED
 
 /*************************************************************************
  * NVKMS interface for nvhost unit for sync point APIs.
  *************************************************************************/
-
 #if defined(NV_LINUX_NVHOST_H_PRESENT) && defined(CONFIG_TEGRA_GRHOST)
 
 #undef NVKMS_SYNCPT_STUBS_NEEDED
@@ -298,7 +324,6 @@ NvBool nvkms_syncpt_op(
 }
 #endif
 
-
 #ifdef NVKMS_SYNCPT_STUBS_NEEDED
 /* Unsupported STUB for nvkms_syncpt APIs */
 NvBool nvkms_syncpt_op(
@@ -394,7 +419,10 @@ static inline int nvkms_read_trylock_pm_lock(void)
 
 static inline void nvkms_read_lock_pm_lock(void)
 {
-    down_read(&nvkms_pm_lock);
+    while (!down_read_trylock(&nvkms_pm_lock)) {
+        try_to_freeze();
+        cond_resched();
+    }
 }
 
 static inline void nvkms_read_unlock_pm_lock(void)
@@ -1093,6 +1121,7 @@ NvBool nvkms_allow_write_combining(void)
     return __rm_ops.system_info.allow_write_combining;
 }
 
+#if IS_ENABLED(CONFIG_BACKLIGHT_CLASS_DEVICE)
 /*************************************************************************
  * Implementation of sysfs interface to control backlight
  *************************************************************************/
@@ -1151,11 +1180,13 @@ static const struct backlight_ops nvkms_backlight_ops = {
     .update_status = nvkms_update_backlight_status,
     .get_brightness = nvkms_get_backlight_brightness,
 };
+#endif /* IS_ENABLED(CONFIG_BACKLIGHT_CLASS_DEVICE) */
 
 struct nvkms_backlight_device*
 nvkms_register_backlight(NvU32 gpu_id, NvU32 display_id, void *drv_priv,
                          NvU32 current_brightness)
 {
+#if IS_ENABLED(CONFIG_BACKLIGHT_CLASS_DEVICE)
     char name[18];
     struct backlight_properties props = {
         .brightness = current_brightness,
@@ -1166,6 +1197,12 @@ nvkms_register_backlight(NvU32 gpu_id, NvU32 display_id, void *drv_priv,
     NvU32 gpu_count = 0;
     struct nvkms_backlight_device *nvkms_bd = NULL;
     int i;
+
+#if defined(NV_ACPI_VIDEO_BACKLIGHT_USE_NATIVE)
+    if (!acpi_video_backlight_use_native()) {
+        return NULL;
+    }
+#endif
 
     gpu_info = nvkms_alloc(NV_MAX_GPUS * sizeof(*gpu_info), NV_TRUE);
     if (gpu_info == NULL) {
@@ -1210,15 +1247,20 @@ done:
     nvkms_free(gpu_info, NV_MAX_GPUS * sizeof(*gpu_info));
 
     return nvkms_bd;
+#else
+    return NULL;
+#endif /* IS_ENABLED(CONFIG_BACKLIGHT_CLASS_DEVICE) */
 }
 
 void nvkms_unregister_backlight(struct nvkms_backlight_device *nvkms_bd)
 {
+#if IS_ENABLED(CONFIG_BACKLIGHT_CLASS_DEVICE)
     if (nvkms_bd->dev) {
         backlight_device_unregister(nvkms_bd->dev);
     }
 
     nvkms_free(nvkms_bd, sizeof(*nvkms_bd));
+#endif /* IS_ENABLED(CONFIG_BACKLIGHT_CLASS_DEVICE) */
 }
 
 /*************************************************************************
@@ -1284,7 +1326,7 @@ failed:
     return NULL;
 }
 
-void nvkms_close_common(struct nvkms_per_open *popen)
+void nvkms_close_pm_locked(struct nvkms_per_open *popen)
 {
     /*
      * Don't use down_interruptible(): we need to free resources
@@ -1322,13 +1364,13 @@ void nvkms_close_common(struct nvkms_per_open *popen)
     nvkms_free(popen, sizeof(*popen));
 }
 
-static void nvkms_close_deferred(void *data)
+static void nvkms_close_pm_unlocked(void *data)
 {
     struct nvkms_per_open *popen = data;
 
     nvkms_read_lock_pm_lock();
 
-    nvkms_close_common(popen);
+    nvkms_close_pm_locked(popen);
 
     nvkms_read_unlock_pm_lock();
 }
@@ -1336,11 +1378,11 @@ static void nvkms_close_deferred(void *data)
 static void nvkms_close_popen(struct nvkms_per_open *popen)
 {
     if (nvkms_read_trylock_pm_lock() == 0) {
-        nvkms_close_common(popen);
+        nvkms_close_pm_locked(popen);
         nvkms_read_unlock_pm_lock();
     } else {
         nv_kthread_q_item_init(&popen->deferred_close_q_item,
-                               nvkms_close_deferred,
+                               nvkms_close_pm_unlocked,
                                popen);
         nvkms_queue_work(&nvkms_deferred_close_kthread_q,
                          &popen->deferred_close_q_item);
@@ -1393,7 +1435,7 @@ struct nvkms_per_open* nvkms_open_from_kapi
 
 void nvkms_close_from_kapi(struct nvkms_per_open *popen)
 {
-    nvkms_close_popen(popen);
+    nvkms_close_pm_unlocked(popen);
 }
 
 NvBool nvkms_ioctl_from_kapi
@@ -1552,30 +1594,119 @@ static void nvkms_proc_exit(void)
         return;
     }
 
-#if defined(NV_PROC_REMOVE_PRESENT)
     proc_remove(nvkms_proc_dir);
-#else
-    /*
-     * On kernel versions without proc_remove(), we need to explicitly
-     * remove each proc file beneath nvkms_proc_dir.
-     * nvkms_proc_init() only creates files directly under
-     * nvkms_proc_dir, so those are the only files we need to remove
-     * here: warn if there is any deeper directory nesting.
-     */
-    {
-        struct proc_dir_entry *entry = nvkms_proc_dir->subdir;
+#endif /* CONFIG_PROC_FS */
+}
 
-        while (entry != NULL) {
-            struct proc_dir_entry *next = entry->next;
-            WARN_ON(entry->subdir != NULL);
-            remove_proc_entry(entry->name, entry->parent);
-            entry = next;
-        }
+/*************************************************************************
+ * NVKMS Config File Read
+ ************************************************************************/
+static NvBool nvkms_fs_mounted(void)
+{
+    return current->fs != NULL;
+}
+
+static size_t nvkms_config_file_open
+(
+    char *fname,
+    char ** const buff
+)
+{
+    int i = 0;
+    struct file *file;
+    struct inode *file_inode;
+    size_t file_size = 0;
+    size_t read_size = 0;
+#if defined(NV_KERNEL_READ_HAS_POINTER_POS_ARG)
+    loff_t pos = 0;
+#endif
+
+    if (!nvkms_fs_mounted()) {
+        printk(KERN_ERR NVKMS_LOG_PREFIX "ERROR: Filesystems not mounted\n");
+        return 0;
     }
 
-    remove_proc_entry(nvkms_proc_dir->name, nvkms_proc_dir->parent);
-#endif /* NV_PROC_REMOVE_PRESENT */
-#endif /* CONFIG_PROC_FS */
+    file = filp_open(fname, O_RDONLY, 0);
+    if (file == NULL || IS_ERR(file)) {
+        printk(KERN_WARNING NVKMS_LOG_PREFIX "WARNING: Failed to open %s\n",
+               fname);
+        return 0;
+    }
+
+    file_inode = file->f_inode;
+    if (file_inode == NULL || IS_ERR(file_inode)) {
+        printk(KERN_WARNING NVKMS_LOG_PREFIX "WARNING: Inode is invalid\n");
+        goto done;
+    }
+    file_size = file_inode->i_size;
+    if (file_size > NVKMS_READ_FILE_MAX_SIZE) {
+        printk(KERN_WARNING NVKMS_LOG_PREFIX "WARNING: File exceeds maximum size\n");
+        goto done;
+    }
+
+    *buff = nvkms_alloc(file_size, NV_FALSE);
+    if (*buff == NULL) {
+        printk(KERN_WARNING NVKMS_LOG_PREFIX "WARNING: Out of memory\n");
+        goto done;
+    }
+
+    /*
+     * TODO: Once we have access to GPL symbols, this can be replaced with
+     * kernel_read_file for kernels >= 4.6
+     */
+    while ((read_size < file_size) && (i++ < NVKMS_READ_FILE_MAX_LOOPS)) {
+#if defined(NV_KERNEL_READ_HAS_POINTER_POS_ARG)
+        ssize_t ret = kernel_read(file, *buff + read_size,
+                                  file_size - read_size, &pos);
+#else
+        ssize_t ret = kernel_read(file, read_size,
+                                  *buff + read_size,
+                                  file_size - read_size);
+#endif
+        if (ret <= 0) {
+            break;
+        }
+        read_size += ret;
+    }
+
+    if (read_size != file_size) {
+        printk(KERN_WARNING NVKMS_LOG_PREFIX "WARNING: Failed to read %s\n",
+               fname);
+        goto done;
+    }
+
+    filp_close(file, current->files);
+    return file_size;
+
+done:
+    nvkms_free(*buff, file_size);
+    filp_close(file, current->files);
+    return 0;
+}
+
+/* must be called with nvkms_lock locked */
+static void nvkms_read_config_file_locked(void)
+{
+    char *buffer = NULL;
+    size_t buf_size = 0;
+
+    /* only read the config file if the kernel parameter is set */
+    if (!NVKMS_CONF_FILE_SPECIFIED) {
+        return;
+    }
+
+    buf_size = nvkms_config_file_open(nvkms_conf, &buffer);
+
+    if (buf_size == 0) {
+        return;
+    }
+
+    if (nvKmsReadConf(buffer, buf_size, nvkms_config_file_open)) {
+        printk(KERN_INFO NVKMS_LOG_PREFIX "Successfully read %s\n",
+               nvkms_conf);
+    }
+
+    nvkms_free(buffer, buf_size);
 }
 
 /*************************************************************************
@@ -1749,10 +1880,12 @@ static int __init nvkms_init(void)
     if (!nvKmsModuleLoad()) {
         ret = -ENOMEM;
     }
-    up(&nvkms_lock);
     if (ret != 0) {
+        up(&nvkms_lock);
         goto fail_module_load;
     }
+    nvkms_read_config_file_locked();
+    up(&nvkms_lock);
 
     nvkms_proc_init();
 
@@ -1836,16 +1969,7 @@ restart:
 module_init(nvkms_init);
 module_exit(nvkms_exit);
 
-#if defined(MODULE_LICENSE)
-
   MODULE_LICENSE("Dual MIT/GPL");
 
-
-
-#endif
-#if defined(MODULE_INFO)
-  MODULE_INFO(supported, "external");
-#endif
-#if defined(MODULE_VERSION)
-  MODULE_VERSION(NV_VERSION_STRING);
-#endif
+MODULE_INFO(supported, "external");
+MODULE_VERSION(NV_VERSION_STRING);

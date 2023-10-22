@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -87,6 +87,14 @@ NV_STATUS stdmemValidateParams
     //
     if (FLD_TEST_DRF(OS32, _ATTR2, _PAGE_OFFLINING, _OFF, pAllocData->attr2))
     {
+        if (hypervisorIsVgxHyper())
+        {
+            if (!(rmclientIsAdminByHandle(hClient, privLevel) || hypervisorCheckForObjectAccess(hClient)))
+            {
+                return NV_ERR_INSUFFICIENT_PERMISSIONS;
+            }
+        }
+        else
         {
             // if the client requesting is not kernel mode, return early
 #if defined(DEBUG) || defined(DEVELOP) || defined(NV_VERIF_FEATURES)
@@ -125,13 +133,14 @@ NV_STATUS stdmemValidateParams
     {
         NV_PRINTF(LEVEL_ERROR,
                   "Encryption requested for video memory on a non-0FB chip;\n");
-        return NV_ERR_INVALID_ARGUMENT; 
+        return NV_ERR_INVALID_ARGUMENT;
     }
 
     if (FLD_TEST_DRF(OS32, _ATTR2, _ALLOCATE_FROM_SUBHEAP, _YES, pAllocData->attr2))
     {
         NV_CHECK_OR_RETURN(LEVEL_ERROR, FLD_TEST_DRF(OS32, _ATTR, _LOCATION, _VIDMEM, pAllocData->attr),
                            NV_ERR_INVALID_ARGUMENT);
+        return NV_ERR_INVALID_ARGUMENT;
     }
 
     return NV_OK;
@@ -215,7 +224,7 @@ NvBool stdmemCanCopy_IMPL(StandardMemory *pStandardMemory)
  * @returns
  *      The page size in bytes.
  */
-NvU32
+NvU64
 stdmemQueryPageSize
 (
     MemoryManager               *pMemoryManager,
@@ -234,7 +243,7 @@ stdmemQueryPageSize
 // Control calls for system memory objects maintained outside the heap.
 //
 
-NvU32 stdmemGetSysmemPageSize_IMPL(OBJGPU * pGpu, StandardMemory *pStdMemory)
+NvU64 stdmemGetSysmemPageSize_IMPL(OBJGPU * pGpu, StandardMemory *pStdMemory)
 {
     return GPU_GET_MEMORY_MANAGER(pGpu)->sysmemPageSize;
 }

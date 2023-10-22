@@ -79,17 +79,17 @@ typedef struct
     NvU32 index;
 } LOCK_TRACE_INFO;
 
-#define INSERT_LOCK_TRACE(plti, ra, t, d16, d32, ti, irql, pr, ts)      \
-{                                                               \
-    (plti)->entries[(plti)->index].callerRA = (NvUPtr)ra;       \
-    (plti)->entries[(plti)->index].type = t;                    \
-    (plti)->entries[(plti)->index].data16.value = d16;          \
-    (plti)->entries[(plti)->index].data32.value = d32;          \
-    (plti)->entries[(plti)->index].threadId = ti;               \
-    (plti)->entries[(plti)->index].timestamp = ts;              \
-    (plti)->entries[(plti)->index].bHighIrql = irql;            \
-    (plti)->entries[(plti)->index].priority = pr;               \
-    (plti)->index = ((plti)->index + 1) % MAX_TRACE_LOCK_CALLS; \
+#define INSERT_LOCK_TRACE(plti, ra, t, d16, d32, ti, irql, pr, ts) \
+{                                                                  \
+    (plti)->entries[(plti)->index].callerRA = (NvUPtr)ra;          \
+    (plti)->entries[(plti)->index].type = t;                       \
+    (plti)->entries[(plti)->index].data16.value = d16;             \
+    (plti)->entries[(plti)->index].data32.value = d32;             \
+    (plti)->entries[(plti)->index].threadId = ti;                  \
+    (plti)->entries[(plti)->index].timestamp = ts;                 \
+    (plti)->entries[(plti)->index].bHighIrql = irql;               \
+    (plti)->entries[(plti)->index].priority = pr;                  \
+    (plti)->index = ((plti)->index + 1) % MAX_TRACE_LOCK_CALLS;    \
 }
 
 //
@@ -110,8 +110,6 @@ typedef struct
 // Attempt acquire even if it potentially violates the locking order
 // But do not block in a way that could cause a deadlock
 #define GPU_LOCK_FLAGS_SAFE_LOCK_UPGRADE                NVBIT(2)
-// Old name alias
-#define GPUS_LOCK_FLAGS_COND_ACQUIRE                    GPU_LOCK_FLAGS_COND_ACQUIRE
 
 //
 // RM Lock Related Functions
@@ -189,17 +187,9 @@ void       rmIntrMaskLockRelease(OBJGPU *pGpu, NvU64 oldIrql);
 #define rmInitLockMetering()
 #define rmDestroyLockMetering()
 
-//
-// RM API lock definitions are handled by the rmapi module. Providing legacy
-// rmApiLockXxx interface for temporary compatibility. CORERM-1370
-//
 #include "rmapi/rmapi.h"
 
 #define API_LOCK_FLAGS_NONE                             RMAPI_LOCK_FLAGS_NONE
 #define API_LOCK_FLAGS_COND_ACQUIRE                     RMAPI_LOCK_FLAGS_COND_ACQUIRE
-
-#define rmApiLockAcquire(flags, module)                 (rmapiLockAcquire(flags, module))
-static NV_INLINE NV_STATUS rmApiLockRelease(void)       {rmapiLockRelease(); return NV_OK;}
-#define rmApiLockIsOwner()                              (rmapiLockIsOwner())
 
 #endif // LOCKS_H

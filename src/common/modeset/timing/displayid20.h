@@ -1,6 +1,6 @@
 //*****************************************************************************
 //
-//  SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+//  SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //  SPDX-License-Identifier: MIT
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a
@@ -275,7 +275,7 @@ typedef struct _tagDISPLAYID_2_0_TIMING_7_BLOCK
 
 #define DISPLAYID_2_0_TIMING_DSC_PASSTHRU_TIMING    1
 
-// the following fields apply to Timing Descriptors 7 (Not all of them are
+// the following fields apply to Timing 7 Descriptors (Not all of them are
 // used per descriptor, but the format is the same
 #define DISPLAYID_2_0_TIMING_ASPECT_RATIO_1_1       0
 #define DISPLAYID_2_0_TIMING_ASPECT_RATIO_5_4       1
@@ -308,29 +308,15 @@ typedef struct _tagDISPLAYID_2_0_TIMING_8_BLOCK_HEADER
     NvU8  data_bytes;          // Values range from 1(0x01) to 248(0xF8)
 } DISPLAYID_2_0_TIMING_8_BLOCK_HEADER;
 
-typedef struct _tagDISPLAYID_2_0_TIMING_8_ONE_BYTE_CODE
-{
-    NvU8 timing_code;
-} DISPLAYID_2_0_TIMING_8_ONE_BYTE_CODE;
-
-typedef struct _tagDISPLAYID_2_0_TIMING_8_TWO_BYTE_CODE
-{
-    NvU8 timing_code[2];
-} DISPLAYID_2_0_TIMING_8_TWO_BYTE_CODE;
-
 #define DISPLAYID_2_0_TIMING_8_MAX_CODES    248
 
 typedef struct _tagDISPLAYID_2_0_TIMING_8_BLOCK
 {
     DISPLAYID_2_0_TIMING_8_BLOCK_HEADER header;
-
-    union
-    {
-        DISPLAYID_2_0_TIMING_8_ONE_BYTE_CODE  timing_code_1[DISPLAYID_2_0_TIMING_8_MAX_CODES];
-        DISPLAYID_2_0_TIMING_8_TWO_BYTE_CODE  timing_code_2[DISPLAYID_2_0_TIMING_8_MAX_CODES / 2];
-    };
+    NvU8 timingCode[DISPLAYID_2_0_TIMING_8_MAX_CODES];
 } DISPLAYID_2_0_TIMING_8_BLOCK;
 
+// the following fields apply to Timing 8 Descriptors
 #define DISPLAYID_2_0_TIMING_CODE_DMT       0
 #define DISPLAYID_2_0_TIMING_CODE_CTA_VIC   1
 #define DISPLAYID_2_0_TIMING_CODE_HDMI_VIC  2
@@ -353,6 +339,7 @@ typedef struct _TAG_DISPLAYID_2_0_TIMING_9_DESCRIPTOR
     NvU8  refresh_rate;              // 1 Hz to 256 Hz
 } DISPLAYID_2_0_TIMING_9_DESCRIPTOR;
 
+// the following fields apply to Timing 9/10 Descriptors
 #define DISPLAYID_2_0_TIMING_FORMULA_CVT_1_2_STANDARD            0
 #define DISPLAYID_2_0_TIMING_FORMULA_CVT_1_2_REDUCED_BLANKING_1  1
 #define DISPLAYID_2_0_TIMING_FORMULA_CVT_2_0_REDUCED_BLANKING_2  2
@@ -384,8 +371,8 @@ typedef struct _DISPLAYID_2_0_TIMING_10_6BYTES_DESCRIPTOR
 {
     struct {
         NvU8 timing_formula :3;
-        NvU8 early_vsync    :1;        
-        NvU8 rr1000div1001_or_hblank :1;              
+        NvU8 early_vsync    :1;
+        NvU8 rr1000div1001_or_hblank :1;
         NvU8 stereo_support :2;
         NvU8 ycc420_support :1;
     } options;
@@ -745,8 +732,42 @@ typedef struct _tagDISPLAYID_2_0_CTA_BLOCK
 #pragma pack()
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Entry point functions both used in DID20 and DID20ext
 NVT_STATUS parseDisplayId20DataBlock(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);
 NvU8       computeDisplayId20SectionCheckSum(const NvU8 *pSectionBytes, NvU32 length);
 
-#endif // __DISPLAYID20_H_
+// DisplayID20 as EDID extension entry point function
+NVT_STATUS parseDisplayId20EDIDExtSection(DISPLAYID_2_0_SECTION *section, NVT_EDID_INFO *pEdidInfo);
+
+// DisplayID20 Entry point functions
+NVT_STATUS parseDisplayId20BaseSection(const DISPLAYID_2_0_SECTION *pSection, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);
+NVT_STATUS parseDisplayId20SectionDataBlocks(const DISPLAYID_2_0_SECTION *pSection, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);
+NVT_STATUS parseDisplayId20ExtensionSection(const DISPLAYID_2_0_SECTION *pSection, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);
+
+// DisplayID20 Data Block Tag Allocation
+NVT_STATUS parseDisplayId20ProductIdentity(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                // 0x20 Product Identificaton
+NVT_STATUS parseDisplayId20DisplayParam(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                   // 0x21 Display Parameters
+NVT_STATUS parseDisplayId20Timing7(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                        // 0x22 Type VII Timing - Detailed Timing
+NVT_STATUS parseDisplayId20Timing8(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                        // 0x23 Type VIII Timing - Enumerated Timing
+NVT_STATUS parseDisplayId20Timing9(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                        // 0x24 Type IX Timing - Formula-based
+NVT_STATUS parseDisplayId20RangeLimit(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                     // 0x25 Dynamic Video Timing Range Limits
+NVT_STATUS parseDisplayId20DisplayInterfaceFeatures(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);       // 0x26 Display Interface Features
+NVT_STATUS parseDisplayId20Stereo(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                         // 0x27 Stereo Display Interface
+NVT_STATUS parseDisplayId20TiledDisplay(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                   // 0x28 Tiled Display Topology
+NVT_STATUS parseDisplayId20ContainerId(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                    // 0x29 ContainerID
+NVT_STATUS parseDisplayId20Timing10(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                       // 0x2A Type X Timing - Formula-based Timing
+NVT_STATUS parseDisplayId20AdaptiveSync(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                   // 0x2B Adaptive-Sync
+NVT_STATUS parseDisplayId20ARVRHMD(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                        // 0x2C ARVR HMD
+NVT_STATUS parseDisplayId20ARVRLayer(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                      // 0x2D ARVR Layer
+NVT_STATUS parseDisplayId20VendorSpecific(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                 // 0x7E Vendor-specific
+NVT_STATUS parseDisplayId20CtaData(const DISPLAYID_2_0_DATA_BLOCK_HEADER *pDataBlock, NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo);                        // 0x81 CTA DisplayID
+
+#ifdef __cplusplus
+}
+#endif
+#endif // __DISPLAYID20_H_1
+

@@ -57,7 +57,7 @@ typedef enum
 #define NV_NVD_ERROR_CODE_MAJOR            31:16
 #define NV_NVD_ERROR_CODE_MINOR            15:0
 
-#define NVD_ERROR_CODE(Major, Minor)   \
+#define NVD_ERROR_CODE(Major, Minor)             \
     (DRF_NUM(_NVD, _ERROR_CODE, _MAJOR, Major) | \
      DRF_NUM(_NVD, _ERROR_CODE, _MINOR, Minor))
 
@@ -84,7 +84,7 @@ typedef enum
 #define NV_NVD_ENGINE_STEP_MAJOR            31:16
 #define NV_NVD_ENGINE_STEP_MINOR            15:0
 
-#define NVD_ENGINE_STEP(Major, Minor)   \
+#define NVD_ENGINE_STEP(Major, Minor)             \
     (DRF_NUM(_NVD, _ENGINE_STEP, _MAJOR, Major) | \
      DRF_NUM(_NVD, _ENGINE_STEP, _MINOR, Minor))
 
@@ -163,7 +163,6 @@ struct NvDebugDump {
     struct NvDebugDump *__nvoc_pbase_NvDebugDump;
     NV_STATUS (*__nvdConstructEngine__)(struct OBJGPU *, struct NvDebugDump *, ENGDESCRIPTOR);
     NV_STATUS (*__nvdStateInitLocked__)(struct OBJGPU *, struct NvDebugDump *);
-    NV_STATUS (*__nvdReconcileTunableState__)(POBJGPU, struct NvDebugDump *, void *);
     NV_STATUS (*__nvdStateLoad__)(POBJGPU, struct NvDebugDump *, NvU32);
     NV_STATUS (*__nvdStateUnload__)(POBJGPU, struct NvDebugDump *, NvU32);
     NV_STATUS (*__nvdStatePreLoad__)(POBJGPU, struct NvDebugDump *, NvU32);
@@ -174,12 +173,7 @@ struct NvDebugDump {
     void (*__nvdInitMissing__)(POBJGPU, struct NvDebugDump *);
     NV_STATUS (*__nvdStatePreInitLocked__)(POBJGPU, struct NvDebugDump *);
     NV_STATUS (*__nvdStatePreInitUnlocked__)(POBJGPU, struct NvDebugDump *);
-    NV_STATUS (*__nvdGetTunableState__)(POBJGPU, struct NvDebugDump *, void *);
-    NV_STATUS (*__nvdCompareTunableState__)(POBJGPU, struct NvDebugDump *, void *, void *);
-    void (*__nvdFreeTunableState__)(POBJGPU, struct NvDebugDump *, void *);
     NV_STATUS (*__nvdStatePostLoad__)(POBJGPU, struct NvDebugDump *, NvU32);
-    NV_STATUS (*__nvdAllocTunableState__)(POBJGPU, struct NvDebugDump *, void **);
-    NV_STATUS (*__nvdSetTunableState__)(POBJGPU, struct NvDebugDump *, void *);
     NvBool (*__nvdIsPresent__)(POBJGPU, struct NvDebugDump *);
     NVD_DEBUG_BUFFER *pHeadDebugBuffer;
     NVD_ENGINE_CALLBACK *pCallbacks;
@@ -217,7 +211,6 @@ NV_STATUS __nvoc_objCreate_NvDebugDump(NvDebugDump**, Dynamic*, NvU32);
 
 #define nvdConstructEngine(pGpu, pNvd, arg0) nvdConstructEngine_DISPATCH(pGpu, pNvd, arg0)
 #define nvdStateInitLocked(pGpu, pNvd) nvdStateInitLocked_DISPATCH(pGpu, pNvd)
-#define nvdReconcileTunableState(pGpu, pEngstate, pTunableState) nvdReconcileTunableState_DISPATCH(pGpu, pEngstate, pTunableState)
 #define nvdStateLoad(pGpu, pEngstate, arg0) nvdStateLoad_DISPATCH(pGpu, pEngstate, arg0)
 #define nvdStateUnload(pGpu, pEngstate, arg0) nvdStateUnload_DISPATCH(pGpu, pEngstate, arg0)
 #define nvdStatePreLoad(pGpu, pEngstate, arg0) nvdStatePreLoad_DISPATCH(pGpu, pEngstate, arg0)
@@ -228,12 +221,7 @@ NV_STATUS __nvoc_objCreate_NvDebugDump(NvDebugDump**, Dynamic*, NvU32);
 #define nvdInitMissing(pGpu, pEngstate) nvdInitMissing_DISPATCH(pGpu, pEngstate)
 #define nvdStatePreInitLocked(pGpu, pEngstate) nvdStatePreInitLocked_DISPATCH(pGpu, pEngstate)
 #define nvdStatePreInitUnlocked(pGpu, pEngstate) nvdStatePreInitUnlocked_DISPATCH(pGpu, pEngstate)
-#define nvdGetTunableState(pGpu, pEngstate, pTunableState) nvdGetTunableState_DISPATCH(pGpu, pEngstate, pTunableState)
-#define nvdCompareTunableState(pGpu, pEngstate, pTunables1, pTunables2) nvdCompareTunableState_DISPATCH(pGpu, pEngstate, pTunables1, pTunables2)
-#define nvdFreeTunableState(pGpu, pEngstate, pTunableState) nvdFreeTunableState_DISPATCH(pGpu, pEngstate, pTunableState)
 #define nvdStatePostLoad(pGpu, pEngstate, arg0) nvdStatePostLoad_DISPATCH(pGpu, pEngstate, arg0)
-#define nvdAllocTunableState(pGpu, pEngstate, ppTunableState) nvdAllocTunableState_DISPATCH(pGpu, pEngstate, ppTunableState)
-#define nvdSetTunableState(pGpu, pEngstate, pTunableState) nvdSetTunableState_DISPATCH(pGpu, pEngstate, pTunableState)
 #define nvdIsPresent(pGpu, pEngstate) nvdIsPresent_DISPATCH(pGpu, pEngstate)
 NV_STATUS nvdConstructEngine_IMPL(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, ENGDESCRIPTOR arg0);
 
@@ -245,10 +233,6 @@ NV_STATUS nvdStateInitLocked_IMPL(struct OBJGPU *pGpu, struct NvDebugDump *pNvd)
 
 static inline NV_STATUS nvdStateInitLocked_DISPATCH(struct OBJGPU *pGpu, struct NvDebugDump *pNvd) {
     return pNvd->__nvdStateInitLocked__(pGpu, pNvd);
-}
-
-static inline NV_STATUS nvdReconcileTunableState_DISPATCH(POBJGPU pGpu, struct NvDebugDump *pEngstate, void *pTunableState) {
-    return pEngstate->__nvdReconcileTunableState__(pGpu, pEngstate, pTunableState);
 }
 
 static inline NV_STATUS nvdStateLoad_DISPATCH(POBJGPU pGpu, struct NvDebugDump *pEngstate, NvU32 arg0) {
@@ -291,28 +275,8 @@ static inline NV_STATUS nvdStatePreInitUnlocked_DISPATCH(POBJGPU pGpu, struct Nv
     return pEngstate->__nvdStatePreInitUnlocked__(pGpu, pEngstate);
 }
 
-static inline NV_STATUS nvdGetTunableState_DISPATCH(POBJGPU pGpu, struct NvDebugDump *pEngstate, void *pTunableState) {
-    return pEngstate->__nvdGetTunableState__(pGpu, pEngstate, pTunableState);
-}
-
-static inline NV_STATUS nvdCompareTunableState_DISPATCH(POBJGPU pGpu, struct NvDebugDump *pEngstate, void *pTunables1, void *pTunables2) {
-    return pEngstate->__nvdCompareTunableState__(pGpu, pEngstate, pTunables1, pTunables2);
-}
-
-static inline void nvdFreeTunableState_DISPATCH(POBJGPU pGpu, struct NvDebugDump *pEngstate, void *pTunableState) {
-    pEngstate->__nvdFreeTunableState__(pGpu, pEngstate, pTunableState);
-}
-
 static inline NV_STATUS nvdStatePostLoad_DISPATCH(POBJGPU pGpu, struct NvDebugDump *pEngstate, NvU32 arg0) {
     return pEngstate->__nvdStatePostLoad__(pGpu, pEngstate, arg0);
-}
-
-static inline NV_STATUS nvdAllocTunableState_DISPATCH(POBJGPU pGpu, struct NvDebugDump *pEngstate, void **ppTunableState) {
-    return pEngstate->__nvdAllocTunableState__(pGpu, pEngstate, ppTunableState);
-}
-
-static inline NV_STATUS nvdSetTunableState_DISPATCH(POBJGPU pGpu, struct NvDebugDump *pEngstate, void *pTunableState) {
-    return pEngstate->__nvdSetTunableState__(pGpu, pEngstate, pTunableState);
 }
 
 static inline NvBool nvdIsPresent_DISPATCH(POBJGPU pGpu, struct NvDebugDump *pEngstate) {
@@ -320,8 +284,10 @@ static inline NvBool nvdIsPresent_DISPATCH(POBJGPU pGpu, struct NvDebugDump *pEn
 }
 
 void nvdDestruct_IMPL(struct NvDebugDump *pNvd);
+
 #define __nvoc_nvdDestruct(pNvd) nvdDestruct_IMPL(pNvd)
 NV_STATUS nvdAllocDebugBuffer_IMPL(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, NvU32 arg0, NvU32 *arg1, MEMORY_DESCRIPTOR **arg2);
+
 #ifdef __nvoc_nv_debug_dump_h_disabled
 static inline NV_STATUS nvdAllocDebugBuffer(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, NvU32 arg0, NvU32 *arg1, MEMORY_DESCRIPTOR **arg2) {
     NV_ASSERT_FAILED_PRECOMP("NvDebugDump was disabled!");
@@ -332,6 +298,7 @@ static inline NV_STATUS nvdAllocDebugBuffer(struct OBJGPU *pGpu, struct NvDebugD
 #endif //__nvoc_nv_debug_dump_h_disabled
 
 NV_STATUS nvdFreeDebugBuffer_IMPL(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, MEMORY_DESCRIPTOR *arg0);
+
 #ifdef __nvoc_nv_debug_dump_h_disabled
 static inline NV_STATUS nvdFreeDebugBuffer(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, MEMORY_DESCRIPTOR *arg0) {
     NV_ASSERT_FAILED_PRECOMP("NvDebugDump was disabled!");
@@ -342,6 +309,7 @@ static inline NV_STATUS nvdFreeDebugBuffer(struct OBJGPU *pGpu, struct NvDebugDu
 #endif //__nvoc_nv_debug_dump_h_disabled
 
 NV_STATUS nvdEngineSignUp_IMPL(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, NvdDumpEngineFunc *arg0, NvU32 engDesc, NvU32 flags, void *arg1);
+
 #ifdef __nvoc_nv_debug_dump_h_disabled
 static inline NV_STATUS nvdEngineSignUp(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, NvdDumpEngineFunc *arg0, NvU32 engDesc, NvU32 flags, void *arg1) {
     NV_ASSERT_FAILED_PRECOMP("NvDebugDump was disabled!");
@@ -352,6 +320,7 @@ static inline NV_STATUS nvdEngineSignUp(struct OBJGPU *pGpu, struct NvDebugDump 
 #endif //__nvoc_nv_debug_dump_h_disabled
 
 NV_STATUS nvdEngineRelease_IMPL(struct OBJGPU *pGpu, struct NvDebugDump *pNvd);
+
 #ifdef __nvoc_nv_debug_dump_h_disabled
 static inline NV_STATUS nvdEngineRelease(struct OBJGPU *pGpu, struct NvDebugDump *pNvd) {
     NV_ASSERT_FAILED_PRECOMP("NvDebugDump was disabled!");
@@ -362,6 +331,7 @@ static inline NV_STATUS nvdEngineRelease(struct OBJGPU *pGpu, struct NvDebugDump
 #endif //__nvoc_nv_debug_dump_h_disabled
 
 NV_STATUS nvdDoEngineDump_IMPL(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, PRB_ENCODER *pPrbEnc, NVD_STATE *pNvDumpState, NvU32 arg0);
+
 #ifdef __nvoc_nv_debug_dump_h_disabled
 static inline NV_STATUS nvdDoEngineDump(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, PRB_ENCODER *pPrbEnc, NVD_STATE *pNvDumpState, NvU32 arg0) {
     NV_ASSERT_FAILED_PRECOMP("NvDebugDump was disabled!");
@@ -372,6 +342,7 @@ static inline NV_STATUS nvdDoEngineDump(struct OBJGPU *pGpu, struct NvDebugDump 
 #endif //__nvoc_nv_debug_dump_h_disabled
 
 NV_STATUS nvdDumpAllEngines_IMPL(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, PRB_ENCODER *pPrbEnc, NVD_STATE *pNvDumpState);
+
 #ifdef __nvoc_nv_debug_dump_h_disabled
 static inline NV_STATUS nvdDumpAllEngines(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, PRB_ENCODER *pPrbEnc, NVD_STATE *pNvDumpState) {
     NV_ASSERT_FAILED_PRECOMP("NvDebugDump was disabled!");
@@ -382,6 +353,7 @@ static inline NV_STATUS nvdDumpAllEngines(struct OBJGPU *pGpu, struct NvDebugDum
 #endif //__nvoc_nv_debug_dump_h_disabled
 
 NV_STATUS nvdFindEngine_IMPL(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, NvU32 engDesc, NVD_ENGINE_CALLBACK **ppEngineCallback);
+
 #ifdef __nvoc_nv_debug_dump_h_disabled
 static inline NV_STATUS nvdFindEngine(struct OBJGPU *pGpu, struct NvDebugDump *pNvd, NvU32 engDesc, NVD_ENGINE_CALLBACK **ppEngineCallback) {
     NV_ASSERT_FAILED_PRECOMP("NvDebugDump was disabled!");

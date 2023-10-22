@@ -1,14 +1,14 @@
 #ifndef _NVBLDVER_H_
 #define _NVBLDVER_H_
 
-#ifndef _STRINGIZE
-#define _STRINGIZE(t) #t
+#ifndef NVBLDVER_STRINGIZE
+#define NVBLDVER_STRINGIZE(t) #t
 #endif
 #ifndef STRINGIZE
-#define STRINGIZE(t) _STRINGIZE(t)
+#define STRINGIZE(t) NVBLDVER_STRINGIZE(t)
 #endif
 
-// These variables can be overriden using ENV vars, see nvCommon.nvmk. 
+// These variables can be overridden using ENV vars, see nvCommon.nvmk. 
 // If no env vars are set, then the defaults seen here will be used.
 // In DVS builds, the ENV vars are used to control these values. 
 // Note- the value of NV_BUILD_CL and NV_BUILD_TYPE_NON_BM is only used in
@@ -43,18 +43,19 @@
 #endif
 
 #if defined(NV_LINUX) || defined(NV_BSD) || defined(NV_SUNOS)
-#define NV_BUILD_BRANCH_VERSION         "dev/gpu_drv/bugfix_main-15642"
-#define NV_BUILD_CHANGELIST_NUM         (28397778)
+#define NV_BUILD_BRANCH_VERSION         "dev/gpu_drv/bugfix_main-16490"
+#define NV_BUILD_CHANGELIST_NUM         (32065427)
 #define NV_BUILD_TYPE                   "Nightly"
-#define NV_BUILD_NAME                   "dev/gpu_drv/bugfix_main-15642"
-#define NV_LAST_OFFICIAL_CHANGELIST_NUM (13979614)
+#define NV_BUILD_NAME                   "dev/gpu_drv/bugfix_main-16490"
+#define NV_LAST_OFFICIAL_CHANGELIST_NUM (30396442)
 
 #else     /* Windows builds */
-#define NV_BUILD_BRANCH_VERSION         "bugfix_main-16408"
-#define NV_BUILD_CHANGELIST_NUM         (28392833)
+#define NV_BUILD_BRANCH_VERSION         "bugfix_main-17962"
+#define NV_BUILD_CHANGELIST_NUM         (32066877)
 #define NV_BUILD_TYPE                   "Nightly"
-#define NV_BUILD_NAME                   "bugfix_main-200514"
-#define NV_LAST_OFFICIAL_CHANGELIST_NUM (28376693)
+#define NV_BUILD_NAME                   "bugfix_main-221115"
+#define NV_LAST_OFFICIAL_CHANGELIST_NUM (32066644)
+#define NV_BUILD_BRANCH_BASE_VERSION    R530
 #endif
 // End buildmeister python edited section
 

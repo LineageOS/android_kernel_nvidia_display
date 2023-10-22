@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -22,17 +22,7 @@
  */
 
 #include "gpu/dce_client/dce_client.h"
-
-ROOT roots[MAX_RM_CLIENTS];
-DEVICE devices[MAX_RM_CLIENTS];
-SUBDEVICE subdevices[MAX_RM_CLIENTS];
-DISPLAY_COMMON display;
-DISPLAY_SW displaySW;
-DISPLAY_SW_EVENT displaySWEventHotplug;
-DISPLAY_SW_EVENT displaySWEventDPIRQ;
-DISPLAY_HPD_CTRL displayCtrlHotplug;
-DISPLAY_HPD_CTRL displayCtrlDPIRQ;
-DISPLAY_DP_SET_MANUAL displayCtrlDPSetManual;
+#include "vgpu/rpc.h"
 
 NV_STATUS
 dceclientConstructEngine_IMPL
@@ -45,6 +35,16 @@ dceclientConstructEngine_IMPL
     NV_PRINTF(LEVEL_INFO, "dceclientConstructEngine_IMPL Called\n");
 
     return dceclientInitRpcInfra(pGpu, pDceClient);
+}
+
+void
+dceclientDestruct_IMPL
+(
+    DceClient     *pDceClient
+)
+{
+    NV_PRINTF(LEVEL_INFO, "dceclientDestruct_IMPL Called\n");
+    dceclientDeinitRpcInfra(pDceClient);
 }
 
 NV_STATUS
@@ -68,139 +68,6 @@ dceclientStateLoad_IMPL
         goto out;
     }
 
-    nvStatus = dceclientDceRmInit(pGpu, GPU_GET_DCECLIENTRM(pGpu), NV_TRUE);
-    if (nvStatus != NV_OK)
-    {
-        NV_PRINTF(LEVEL_ERROR, "Cannot load DCE firmware RM\n");
-        nvStatus = NV_ERR_GENERIC;
-        goto out;
-    }
-
-    if (pGpu->getProperty(pGpu, PDB_PROP_GPU_IN_PM_RESUME_CODEPATH))
-    {
-        RM_API *pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
-        NvU32  i = 0;
-
-        for (i = 0; i < MAX_RM_CLIENTS; i++)
-        {
-            if (roots[i].valid)
-            {
-                nvStatus = rpcRmApiAlloc_dce(pRmApi, roots[i].hClient, roots[i].hParent,
-                                             roots[i].hObject, roots[i].hClass, &roots[i].rootAllocParams);
-                if (nvStatus != NV_OK)
-                {
-                    NV_PRINTF(LEVEL_ERROR, "Cannot alloc roots[%u] object during resume\n",i);
-                    nvStatus = NV_ERR_GENERIC;
-                    goto out;
-                }
-            }
-
-            if (devices[i].valid)
-            {
-                nvStatus = rpcRmApiAlloc_dce(pRmApi, devices[i].hClient, devices[i].hParent,
-                                             devices[i].hObject, devices[i].hClass, &devices[i].deviceAllocParams);
-                if (nvStatus != NV_OK)
-                {
-                    NV_PRINTF(LEVEL_ERROR, "Cannot alloc devices[%u] object during resume\n",i);
-                    nvStatus = NV_ERR_GENERIC;
-                    goto out;
-                }
-            }
-
-            if (subdevices[i].valid)
-            {
-                nvStatus = rpcRmApiAlloc_dce(pRmApi, subdevices[i].hClient, subdevices[i].hParent,
-                                             subdevices[i].hObject, subdevices[i].hClass, &subdevices[i].subdeviceAllocParams);
-                if (nvStatus != NV_OK)
-                {
-                    NV_PRINTF(LEVEL_ERROR, "Cannot alloc subdevices[%u] object during resume\n",i);
-                    nvStatus = NV_ERR_GENERIC;
-                    goto out;
-                }
-            }
-        }
-
-        if (display.valid)
-        {
-            nvStatus = rpcRmApiAlloc_dce(pRmApi, display.hClient, display.hParent,
-                                         display.hObject, display.hClass, &display.displayCommonAllocParams);
-            if (nvStatus != NV_OK)
-            {
-                NV_PRINTF(LEVEL_ERROR, "Cannot alloc display_common object during resume\n");
-                nvStatus = NV_ERR_GENERIC;
-                goto out;
-            }
-
-        }
-
-        if (displaySW.valid)
-        {
-            nvStatus = rpcRmApiAlloc_dce(pRmApi, displaySW.hClient, displaySW.hParent,
-                                         displaySW.hObject, displaySW.hClass, &displaySW.displaySWAllocParams);
-            if (nvStatus != NV_OK)
-            {
-                NV_PRINTF(LEVEL_ERROR, "Cannot alloc displaySW object during resume\n");
-                nvStatus = NV_ERR_GENERIC;
-                goto out;
-            }
-        }
-        if (displaySWEventHotplug.valid)
-        {
-            nvStatus = rpcRmApiAlloc_dce(pRmApi, displaySWEventHotplug.hClient, displaySWEventHotplug.hParent,
-                                         displaySWEventHotplug.hObject, displaySWEventHotplug.hClass, &displaySWEventHotplug.displaySWEventAllocParams);
-            if (nvStatus != NV_OK)
-            {
-                NV_PRINTF(LEVEL_ERROR, "Cannot alloc displaySWEventHotplug object during resume\n");
-                nvStatus = NV_ERR_GENERIC;
-                goto out;
-            }
-            else if(displayCtrlHotplug.valid)
-            {
-                nvStatus = rpcRmApiControl_dce(pRmApi, displayCtrlHotplug.hClient, displayCtrlHotplug.hObject, NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
-                        &displayCtrlHotplug.setEventParams,sizeof(displayCtrlHotplug.setEventParams));
-                if (nvStatus != NV_OK)
-                {
-                    NV_PRINTF(LEVEL_ERROR, "rpcRmApiControl_dce for displayCtrlHotplug failed during resume\n");
-                    nvStatus = NV_ERR_GENERIC;
-                    goto out;
-                }
-            }
-        }
-        if (displaySWEventDPIRQ.valid)
-        {
-            nvStatus = rpcRmApiAlloc_dce(pRmApi, displaySWEventDPIRQ.hClient, displaySWEventDPIRQ.hParent,
-                                         displaySWEventDPIRQ.hObject, displaySWEventDPIRQ.hClass, &displaySWEventDPIRQ.displaySWEventAllocParams);
-            if (nvStatus != NV_OK)
-            {
-                NV_PRINTF(LEVEL_ERROR, "Cannot alloc displaySWEventDPIRQ object during resume\n");
-                nvStatus = NV_ERR_GENERIC;
-                goto out;
-            }
-            else if(displayCtrlDPIRQ.valid)
-            {
-                nvStatus = rpcRmApiControl_dce(pRmApi, displayCtrlDPIRQ.hClient, displayCtrlDPIRQ.hObject, NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
-                        &displayCtrlDPIRQ.setEventParams,sizeof(displayCtrlDPIRQ.setEventParams));
-                if (nvStatus != NV_OK)
-                {
-                    NV_PRINTF(LEVEL_ERROR, "rpcRmApiControl_dce displaySWEventDPIRQ object failed\n");
-                    nvStatus = NV_ERR_GENERIC;
-                    goto out;
-                }
-            }
-        }
-        if (displayCtrlDPSetManual.valid)
-        {
-            nvStatus = rpcRmApiControl_dce(pRmApi, displayCtrlDPSetManual.hClient, displayCtrlDPSetManual.hObject, NV0073_CTRL_CMD_DP_SET_MANUAL_DISPLAYPORT,
-                    &displayCtrlDPSetManual.setManualParams, sizeof(displayCtrlDPSetManual.setManualParams));
-            if (nvStatus != NV_OK)
-            {
-                NV_PRINTF(LEVEL_ERROR, "rpcRmApiControl_dce displayCtrlDPSetManual object failed\n");
-                nvStatus = NV_ERR_GENERIC;
-                goto out;
-            }
-        }
-    }
-
 out:
     return nvStatus;
 }
@@ -213,20 +80,26 @@ dceclientStateUnload_IMPL
     NvU32         flags
 )
 {
-    NV_STATUS nvStatus = NV_OK;
+    NV_STATUS nvStatus      = NV_OK;
+    NvU32     newPMLevel;
+
     NV_PRINTF(LEVEL_INFO, "dceclientStateUnload_IMPL Called\n");
 
     if (!(flags & GPU_STATE_FLAGS_PM_TRANSITION))
-        return NV_OK;
+        goto done;
 
-    nvStatus = dceclientDceRmInit(pGpu, GPU_GET_DCECLIENTRM(pGpu), NV_FALSE);
+    if (flags & GPU_STATE_FLAGS_PM_HIBERNATE)
+        newPMLevel = NV2080_CTRL_GPU_SET_POWER_STATE_GPU_LEVEL_7;
+    else
+        newPMLevel = NV2080_CTRL_GPU_SET_POWER_STATE_GPU_LEVEL_3;
+
+    NV_RM_RPC_UNLOADING_GUEST_DRIVER(pGpu, nvStatus, NV_TRUE, NV_FALSE, newPMLevel);
     if (nvStatus != NV_OK)
-    {
-        NV_PRINTF(LEVEL_ERROR, "Cannot unload DCE firmware RM\n");
-    }
+        goto done;
 
     dceclientDeinitRpcInfra(pDceClient);
 
+done:
     return nvStatus;
 }
 
@@ -237,23 +110,5 @@ dceclientStateDestroy_IMPL
     DceClient *pDceClient
 )
 {
-    NvU32 i = 0;
-
-    NV_PRINTF(LEVEL_INFO, "Destroy DCE Client Object Called\n");
-
-    dceclientDeinitRpcInfra(pDceClient);
-
-    for (i = 0; i < MAX_RM_CLIENTS; i++)
-    {
-        roots[i].valid      = NV_FALSE;
-        devices[i].valid    = NV_FALSE;
-        subdevices[i].valid = NV_FALSE;
-    }
-    display.valid   = NV_FALSE;
-    displaySW.valid = NV_FALSE;
-    displaySWEventHotplug.valid = NV_FALSE;
-    displaySWEventDPIRQ.valid = NV_FALSE;
-    displayCtrlHotplug.valid = NV_FALSE;
-    displayCtrlDPIRQ.valid = NV_FALSE;
-    displayCtrlDPSetManual.valid = NV_FALSE;
+    NV_PRINTF(LEVEL_INFO, "Destroy DCE Client State Called\n");
 }

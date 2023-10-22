@@ -35,7 +35,13 @@
 #include <drm/drmP.h>
 #endif
 
+#if defined(NV_LINUX_SYNC_FILE_H_PRESENT)
+#include <linux/file.h>
+#include <linux/sync_file.h>
+#endif
+
 #include <linux/vmalloc.h>
+#include <linux/sched.h>
 
 #include "nv-mm.h"
 
@@ -47,6 +53,14 @@ module_param_named(modeset, nv_drm_modeset_module_param, bool, 0400);
 
 void *nv_drm_calloc(size_t nmemb, size_t size)
 {
+    size_t total_size = nmemb * size;
+    //
+    // Check for overflow.
+    //
+    if ((nmemb != 0) && ((total_size / nmemb) != size))
+    {
+        return NULL;
+    }
     return kzalloc(nmemb * size, GFP_KERNEL);
 }
 
@@ -152,6 +166,122 @@ void nv_drm_vunmap(void *address)
     vunmap(address);
 }
 
+bool nv_drm_workthread_init(nv_drm_workthread *worker, const char *name)
+{
+    worker->shutting_down = false;
+    if (nv_kthread_q_init(&worker->q, name)) {
+        return false;
+    }
+
+    spin_lock_init(&worker->lock);
+
+    return true;
+}
+
+void nv_drm_workthread_shutdown(nv_drm_workthread *worker)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&worker->lock, flags);
+    worker->shutting_down = true;
+    spin_unlock_irqrestore(&worker->lock, flags);
+
+    nv_kthread_q_stop(&worker->q);
+}
+
+void nv_drm_workthread_work_init(nv_drm_work *work,
+                                 void (*callback)(void *),
+                                 void *arg)
+{
+    nv_kthread_q_item_init(work, callback, arg);
+}
+
+int nv_drm_workthread_add_work(nv_drm_workthread *worker, nv_drm_work *work)
+{
+    unsigned long flags;
+    int ret = 0;
+
+    spin_lock_irqsave(&worker->lock, flags);
+    if (!worker->shutting_down) {
+        ret = nv_kthread_q_schedule_q_item(&worker->q, work);
+    }
+    spin_unlock_irqrestore(&worker->lock, flags);
+
+    return ret;
+}
+
+void nv_drm_timer_setup(nv_drm_timer *timer, void (*callback)(nv_drm_timer *nv_drm_timer))
+{
+    nv_timer_setup(timer, callback);
+}
+
+void nv_drm_mod_timer(nv_drm_timer *timer, unsigned long timeout_native)
+{
+    mod_timer(&timer->kernel_timer, timeout_native);
+}
+
+unsigned long nv_drm_timer_now(void)
+{
+    return jiffies;
+}
+
+unsigned long nv_drm_timeout_from_ms(NvU64 relative_timeout_ms)
+{
+    return jiffies + msecs_to_jiffies(relative_timeout_ms);
+}
+
+bool nv_drm_del_timer_sync(nv_drm_timer *timer)
+{
+    if (del_timer_sync(&timer->kernel_timer)) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+#if defined(NV_DRM_FENCE_AVAILABLE)
+int nv_drm_create_sync_file(nv_dma_fence_t *fence)
+{
+#if defined(NV_LINUX_SYNC_FILE_H_PRESENT)
+    struct sync_file *sync;
+    int fd = get_unused_fd_flags(O_CLOEXEC);
+
+    if (fd < 0) {
+        return fd;
+    }
+
+    /* sync_file_create() generates its own reference to the fence */
+    sync = sync_file_create(fence);
+
+    if (IS_ERR(sync)) {
+        put_unused_fd(fd);
+        return PTR_ERR(sync);
+    }
+
+    fd_install(fd, sync->file);
+
+    return fd;
+#else /* defined(NV_LINUX_SYNC_FILE_H_PRESENT) */
+    return -EINVAL;
+#endif  /* defined(NV_LINUX_SYNC_FILE_H_PRESENT) */
+}
+
+nv_dma_fence_t *nv_drm_sync_file_get_fence(int fd)
+{
+#if defined(NV_SYNC_FILE_GET_FENCE_PRESENT)
+    return sync_file_get_fence(fd);
+#else /* defined(NV_SYNC_FILE_GET_FENCE_PRESENT) */
+    return NULL;
+#endif  /* defined(NV_SYNC_FILE_GET_FENCE_PRESENT) */
+}
+#endif /* defined(NV_DRM_FENCE_AVAILABLE) */
+
+void nv_drm_yield(void)
+{
+    set_current_state(TASK_INTERRUPTIBLE);
+    schedule_timeout(1);
+}
+
 #endif /* NV_DRM_AVAILABLE */
 
 /*************************************************************************
@@ -171,16 +301,7 @@ static void __exit nv_linux_drm_exit(void)
 module_init(nv_linux_drm_init);
 module_exit(nv_linux_drm_exit);
 
-#if defined(MODULE_LICENSE)
-
   MODULE_LICENSE("Dual MIT/GPL");
 
-
-
-#endif
-#if defined(MODULE_INFO)
-  MODULE_INFO(supported, "external");
-#endif
-#if defined(MODULE_VERSION)
-  MODULE_VERSION(NV_VERSION_STRING);
-#endif
+MODULE_INFO(supported, "external");
+MODULE_VERSION(NV_VERSION_STRING);

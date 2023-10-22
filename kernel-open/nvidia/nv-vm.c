@@ -265,7 +265,7 @@ static unsigned int nv_compute_gfp_mask(
         gfp_mask |= __GFP_ZERO;
 #endif
 #if defined(__GFP_THISNODE)
-    if (at->flags.node0)
+    if (at->flags.node)
         gfp_mask |= __GFP_THISNODE;
 #endif
     // Compound pages are required by vm_insert_page for high-order page
@@ -381,19 +381,12 @@ NV_STATUS nv_alloc_contig_pages(
     if (os_is_xen_dom0() || at->flags.unencrypted)
         return nv_alloc_coherent_pages(nv, at);
 
-
-    if (!NV_SOC_IS_ISO_IOMMU_PRESENT(nv))
-    {
-        return nv_alloc_coherent_pages(nv, at);
-    }
-
-
     at->order = get_order(at->num_pages * PAGE_SIZE);
     gfp_mask = nv_compute_gfp_mask(nv, at);
 
-    if (at->flags.node0)
+    if (at->flags.node)
     {
-        NV_ALLOC_PAGES_NODE(virt_addr, 0, at->order, gfp_mask);
+        NV_ALLOC_PAGES_NODE(virt_addr, at->node_id, at->order, gfp_mask);
     }
     else
     {
@@ -536,9 +529,9 @@ NV_STATUS nv_alloc_system_pages(
                                                           gfp_mask);
             at->flags.coherent = NV_TRUE;
         }
-        else if (at->flags.node0)
+        else if (at->flags.node)
         {
-            NV_ALLOC_PAGES_NODE(virt_addr, 0, 0, gfp_mask);
+            NV_ALLOC_PAGES_NODE(virt_addr, at->node_id, 0, gfp_mask);
         }
         else
         {
@@ -708,29 +701,3 @@ void nv_vm_unmap_pages(
     nv_vunmap(virt_addr, count);
 }
 
-void nv_address_space_init_once(struct address_space *mapping)
-{
-#if defined(NV_ADDRESS_SPACE_INIT_ONCE_PRESENT)
-    address_space_init_once(mapping);
-#else
-    memset(mapping, 0, sizeof(*mapping));
-    INIT_RADIX_TREE(&mapping->page_tree, GFP_ATOMIC);
-
-#if defined(NV_ADDRESS_SPACE_HAS_RWLOCK_TREE_LOCK)
-    //
-    // The .tree_lock member variable was changed from type rwlock_t, to
-    // spinlock_t, on 25 July 2008, by mainline commit
-    // 19fd6231279be3c3bdd02ed99f9b0eb195978064.
-    //
-    rwlock_init(&mapping->tree_lock);
-#else
-    spin_lock_init(&mapping->tree_lock);
-#endif
-
-    spin_lock_init(&mapping->i_mmap_lock);
-    INIT_LIST_HEAD(&mapping->private_list);
-    spin_lock_init(&mapping->private_lock);
-    INIT_RAW_PRIO_TREE_ROOT(&mapping->i_mmap);
-    INIT_LIST_HEAD(&mapping->i_mmap_nonlinear);
-#endif /* !NV_ADDRESS_SPACE_INIT_ONCE_PRESENT */
-}

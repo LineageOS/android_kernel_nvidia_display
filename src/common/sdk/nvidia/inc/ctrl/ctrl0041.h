@@ -27,7 +27,7 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrl0041.finn
+// Source file:      ctrl/ctrl0041.finn
 //
 
 #include "nvos.h"
@@ -156,28 +156,6 @@ typedef struct NV0041_CTRL_GET_SURFACE_ZCULL_ID_PARAMS {
     NvU32 zcullId;
 } NV0041_CTRL_GET_SURFACE_ZCULL_ID_PARAMS;
 
-/*
- * NV0041_CTRL_CMD_GET_SURFACE_PARTITION_STRIDE
- *
- * This command returns the partition stride (in bytes) for real memory 
- * associated with the memory object.
- *
- * Possible status values returned are:
- *   NV_OK
- *   NVOS_STATUS_BAD_OBJECT_HANDLE
- *   NVOS_STATUS_BAD_OBJECT_PARENT
- *   NVOS_STATUS_NOT_SUPPORTED
- *
- */
-#define NV0041_CTRL_CMD_GET_SURFACE_PARTITION_STRIDE (0x410105) /* finn: Evaluated from "(FINN_NV01_ROOT_USER_MEMORY_INTERFACE_ID << 8) | NV0041_CTRL_GET_SURFACE_PARTITION_STRIDE_PARAMS_MESSAGE_ID" */
-
-#define NV0041_CTRL_GET_SURFACE_PARTITION_STRIDE_PARAMS_MESSAGE_ID (0x5U)
-
-typedef struct NV0041_CTRL_GET_SURFACE_PARTITION_STRIDE_PARAMS {
-    NvU32 partitionStride;
-} NV0041_CTRL_GET_SURFACE_PARTITION_STRIDE_PARAMS;
-
-
 
 // return values for 'tilingFormat'
 // XXX - the names for these are misleading
@@ -223,10 +201,7 @@ typedef struct NV0041_CTRL_GET_SURFACE_PARTITION_STRIDE_PARAMS {
  *     This index is used to request the surface address space type.
  *     Returned values are described by NV0000_CTRL_CMD_CLIENT_GET_ADDR_SPACE_TYPE.
  */
-typedef struct NV0041_CTRL_SURFACE_INFO {
-    NvU32 index;
-    NvU32 data;
-} NV0041_CTRL_SURFACE_INFO;
+typedef NVXXXX_CTRL_XXX_INFO NV0041_CTRL_SURFACE_INFO;
 
 /* valid surface info index values */
 #define NV0041_CTRL_SURFACE_INFO_INDEX_ATTRS                           (0x00000001)
@@ -262,6 +237,12 @@ typedef struct NV0041_CTRL_SURFACE_INFO {
 #define NV0041_CTRL_SURFACE_INFO_PHYS_ATTR_CPU_COHERENCY_WRITE_THROUGH NVOS32_ATTR_COHERENCY_WRITE_THROUGH
 #define NV0041_CTRL_SURFACE_INFO_PHYS_ATTR_CPU_COHERENCY_WRITE_PROTECT NVOS32_ATTR_COHERENCY_WRITE_PROTECT
 #define NV0041_CTRL_SURFACE_INFO_PHYS_ATTR_CPU_COHERENCY_WRITE_BACK    NVOS32_ATTR_COHERENCY_WRITE_BACK
+
+/* Valid surface info format */
+#define NV0041_CTRL_SURFACE_INFO_PHYS_ATTR_FORMAT                      NVOS32_ATTR_FORMAT
+#define NV0041_CTRL_SURFACE_INFO_PHYS_ATTR_FORMAT_PITCH                NVOS32_ATTR_FORMAT_PITCH
+#define NV0041_CTRL_SURFACE_INFO_PHYS_ATTR_FORMAT_SWIZZLED             NVOS32_ATTR_FORMAT_SWIZZLED
+#define NV0041_CTRL_SURFACE_INFO_PHYS_ATTR_FORMAT_BLOCK_LINEAR         NVOS32_ATTR_FORMAT_BLOCK_LINEAR
 
 /*
  * NV0041_CTRL_CMD_GET_SURFACE_INFO
@@ -403,7 +384,7 @@ typedef struct NV0041_CTRL_SURFACE_FLUSH_GPU_CACHE_PARAMS {
 #define NV0041_CTRL_GET_MEM_PAGE_SIZE_PARAMS_MESSAGE_ID (0x18U)
 
 typedef struct NV0041_CTRL_GET_MEM_PAGE_SIZE_PARAMS {
-    NvU32 pageSize;             /* [out] - page size */
+    NV_DECLARE_ALIGNED(NvU64 pageSize, 8);             /* [out] - page size */
 } NV0041_CTRL_GET_MEM_PAGE_SIZE_PARAMS;
 
 /*

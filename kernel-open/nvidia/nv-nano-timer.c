@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -26,13 +26,24 @@
 #include <linux/kernel.h> // For container_of
 #include <linux/hrtimer.h>
 #include <linux/ktime.h>
+#include <linux/timer.h>
 #include "os-interface.h"
 #include "nv-linux.h"
 
+#if !defined(NVCPU_PPC64LE)
+#define NV_NANO_TIMER_USE_HRTIMER 1
+#else
+#define NV_NANO_TIMER_USE_HRTIMER 0
+#endif  // !defined(NVCPU_PPC64LE)
+
 struct nv_nano_timer
 {
+#if NV_NANO_TIMER_USE_HRTIMER
     struct hrtimer hr_timer; // This parameter holds linux high resolution timer object
                              // can get replaced with platform specific timer object
+#else
+    struct timer_list jiffy_timer;
+#endif
     nv_linux_state_t *nv_linux_state;
     void (*nv_nano_timer_callback)(struct nv_nano_timer *nv_nstimer);
     void *pTmrEvent;
@@ -49,7 +60,6 @@ nvidia_nano_timer_callback(
 {
     nv_state_t *nv = NULL;
     nv_linux_state_t *nvl = nv_nstimer->nv_linux_state;
-    unsigned long flags;
     nvidia_stack_t *sp = NULL;
 
     if (nv_kmem_cache_alloc_stack(&sp) != 0)
@@ -89,6 +99,7 @@ static nv_nano_timer_t *nv_alloc_nano_timer(void)
     return nv_nstimer;
 }
 
+#if NV_NANO_TIMER_USE_HRTIMER
 static enum hrtimer_restart nv_nano_timer_callback_typed_data(struct hrtimer *hrtmr)
 {
     struct nv_nano_timer *nv_nstimer =
@@ -98,6 +109,22 @@ static enum hrtimer_restart nv_nano_timer_callback_typed_data(struct hrtimer *hr
 
     return HRTIMER_NORESTART;
 }
+#else
+static inline void nv_jiffy_timer_callback_typed_data(struct timer_list *timer)
+{
+    struct nv_nano_timer *nv_nstimer =
+        container_of(timer, struct nv_nano_timer, jiffy_timer);
+
+    nv_nstimer->nv_nano_timer_callback(nv_nstimer);
+}
+
+static inline void nv_jiffy_timer_callback_anon_data(unsigned long arg)
+{
+    struct nv_nano_timer *nv_nstimer = (struct nv_nano_timer *)arg;
+
+    nv_nstimer->nv_nano_timer_callback(nv_nstimer);
+}
+#endif
 
 /*!
  * @brief Creates & initializes nano second resolution timer object
@@ -125,8 +152,19 @@ void NV_API_CALL nv_create_nano_timer(
     nv_nstimer->pTmrEvent = pTmrEvent;
 
     nv_nstimer->nv_nano_timer_callback = nvidia_nano_timer_callback;
+
+#if NV_NANO_TIMER_USE_HRTIMER
     hrtimer_init(&nv_nstimer->hr_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
     nv_nstimer->hr_timer.function = nv_nano_timer_callback_typed_data;
+#else
+#if defined(NV_TIMER_SETUP_PRESENT)
+    timer_setup(&nv_nstimer->jiffy_timer, nv_jiffy_timer_callback_typed_data, 0);
+#else
+    init_timer(&nv_nstimer->jiffy_timer);
+    nv_nstimer->jiffy_timer.function = nv_jiffy_timer_callback_anon_data;
+    nv_nstimer->jiffy_timer.data = (unsigned long)nv_nstimer;
+#endif // NV_TIMER_SETUP_PRESENT
+#endif // NV_NANO_TIMER_USE_HRTIMER
 
     *pnv_nstimer = nv_nstimer;
 }
@@ -136,15 +174,30 @@ void NV_API_CALL nv_create_nano_timer(
  *
  * @param[in] nv           Per gpu linux state
  * @param[in] nv_nstimer   Pointer to nv_nano_timer_t object
- * @param[in] timens       time in nano seconds
+ * @param[in] time_ns      Relative time in nano seconds
  */
 void NV_API_CALL nv_start_nano_timer(
     nv_state_t *nv,
     nv_nano_timer_t *nv_nstimer,
     NvU64 time_ns)
 {
+#if NV_NANO_TIMER_USE_HRTIMER
     ktime_t ktime = ktime_set(0, time_ns);
     hrtimer_start(&nv_nstimer->hr_timer, ktime, HRTIMER_MODE_REL);
+#else
+    unsigned long time_jiffies;
+    NvU32 time_us;
+
+    time_us = (NvU32)(time_ns / 1000);
+
+    if (time_us == 0)
+    {
+        nv_printf(NV_DBG_WARNINGS, "NVRM: Timer value cannot be less than 1 usec.\n");
+    }
+
+    time_jiffies = usecs_to_jiffies(time_us);
+    mod_timer(&nv_nstimer->jiffy_timer, jiffies + time_jiffies);
+#endif
 }
 
 /*!
@@ -157,7 +210,11 @@ void NV_API_CALL nv_cancel_nano_timer(
     nv_state_t *nv,
     nv_nano_timer_t *nv_nstimer)
 {
+#if NV_NANO_TIMER_USE_HRTIMER
     hrtimer_cancel(&nv_nstimer->hr_timer);
+#else
+    del_timer_sync(&nv_nstimer->jiffy_timer);
+#endif
 
 }
 

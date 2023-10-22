@@ -31,7 +31,7 @@
  * @note Xorshift algorithms take either 128bit or 1024bit seeds. The algorithm
  * author suggests seeding a splitmix64.c with a 64bit value, and using its
  * output to seed xorshift.
- * See http://xorshift.di.unimi.it/ for details.
+ * See https://prng.di.unimi.it/ for details.
  *
  * @warning Xorshift algorithms are NOT CRYPTOGRAPHICALLY SECURE. They generally
  * perform really well on various randomness tests, but are not suitable for
@@ -47,13 +47,13 @@
  */
 #define XORSHIFT_STATE_QWORDS 2
 
-struct PORT_CRYPTO_PRNG 
-{ 
-    NvU64 state[XORSHIFT_STATE_QWORDS]; 
+struct PORT_CRYPTO_PRNG
+{
+    NvU64 state[XORSHIFT_STATE_QWORDS];
 };
 PORT_CRYPTO_PRNG *portCryptoDefaultGenerator;
 
-void portCryptoInitialize()
+void portCryptoInitialize(void)
 {
     NvU64 seed;
 #if defined(PORT_CRYPTO_PRNG_SEED)
@@ -73,7 +73,7 @@ void portCryptoInitialize()
     portCryptoPseudoRandomSetSeed(seed);
 }
 
-void portCryptoShutdown()
+void portCryptoShutdown(void)
 {
     portCryptoPseudoRandomGeneratorDestroy(portCryptoDefaultGenerator);
     portCryptoDefaultGenerator = NULL;
@@ -83,10 +83,10 @@ void portCryptoShutdown()
 /**
  * @brief Initializes a xorshift state from a 64bit seed. Performed using a
  * splitmix64 PRNG.
- * 
- * Adapted from: http://xorshift.di.unimi.it/splitmix64.c
+ *
+ * Adapted from: https://xorshift.di.unimi.it/splitmix64.c
  */
-static void _initState(NvU64 seed64, NvU64 state[XORSHIFT_STATE_QWORDS]) 
+static void _initState(NvU64 seed64, NvU64 state[XORSHIFT_STATE_QWORDS])
 {
     NvU32 i;
     for (i = 0; i < XORSHIFT_STATE_QWORDS; i++)
@@ -101,16 +101,16 @@ static void _initState(NvU64 seed64, NvU64 state[XORSHIFT_STATE_QWORDS])
 /**
  * @brief Get the next 64bit value using the xorshift128+ algorithm
  *
- * Adapted from: http://xorshift.di.unimi.it/xorshift128plus.c
+ * Adapted from: https://xorshift.di.unimi.it/xorshift128plus.c
  */
-static NvU64 _xorshift128plus_GetU64(NvU64 state[2]) 
+static NvU64 _xorshift128plus_GetU64(NvU64 state[2])
 {
     NvU64 s1 = state[0];
     const NvU64 s0 = state[1];
     state[0] = s0;
     s1 ^= s1 << 23; // a
     state[1] = s1 ^ s0 ^ (s1 >> 18) ^ (s0 >> 5); // b, c
-    return state[1] + s0; 
+    return state[1] + s0;
 }
 
 PORT_CRYPTO_PRNG *portCryptoPseudoRandomGeneratorCreate(NvU64 seed)
@@ -124,7 +124,7 @@ PORT_CRYPTO_PRNG *portCryptoPseudoRandomGeneratorCreate(NvU64 seed)
     return pPrng;
 }
 
-void portCryptoPseudoRandomGeneratorDestroy(PORT_CRYPTO_PRNG *pPrng) 
+void portCryptoPseudoRandomGeneratorDestroy(PORT_CRYPTO_PRNG *pPrng)
 {
     portMemFree(pPrng);
 }
@@ -150,7 +150,7 @@ NV_STATUS portCryptoPseudoRandomGeneratorFillBuffer(PORT_CRYPTO_PRNG *pPrng, NvU
      *  we cannot fill the misaligned section first, then copy aligned qwords,
      *  and then fill the remainder - That way we lose some bytes
      */
-    
+
     // Maybe require 64bit alignment for buffers:
     // PORT_ASSERT_CHECKED(portUtilCheckAlignment(pBuffer, sizeof(NvU64)));
 
@@ -174,12 +174,12 @@ void portCryptoPseudoRandomSetSeed(NvU64 seed)
     portCryptoDefaultGenerator = portCryptoPseudoRandomGeneratorCreate(seed);
 }
 
-NvU32 portCryptoPseudoRandomGetU32()
+NvU32 portCryptoPseudoRandomGetU32(void)
 {
     return portCryptoPseudoRandomGeneratorGetU32(portCryptoDefaultGenerator);
 }
 
-NvU64 portCryptoPseudoRandomGetU64()
+NvU64 portCryptoPseudoRandomGetU64(void)
 {
     return portCryptoPseudoRandomGeneratorGetU64(portCryptoDefaultGenerator);
 }

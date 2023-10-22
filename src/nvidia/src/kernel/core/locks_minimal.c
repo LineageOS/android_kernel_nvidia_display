@@ -32,7 +32,7 @@ typedef struct
     OS_THREAD_HANDLE    threadId;  //<! ID of thread owning the lock, ~0 if none
     NvU64               timestamp; //<! Timestamp of last lock acquire
     LOCK_TRACE_INFO     traceInfo; //<! Lock acquire/release trace info
-    NvBool              bValid;    //<! If ready to acquire/release the lock 
+    NvBool              bValid;    //<! If ready to acquire/release the lock
 } GPULOCK;
 
 static GPULOCK rmGpuLock;
@@ -91,7 +91,7 @@ void rmGpuLockFree(NvU32 gpuInst)
 
 static NV_STATUS _rmGpuLockAcquire(NvU32 flags, void *ra)
 {
-    NvBool bCondAcquire = !!(flags & GPUS_LOCK_FLAGS_COND_ACQUIRE);
+    NvBool bCondAcquire = !!(flags & GPU_LOCK_FLAGS_COND_ACQUIRE);
     NvBool bHighIrql = (portSyncExSafeToSleep() == NV_FALSE);
 
     //
@@ -104,11 +104,14 @@ static NV_STATUS _rmGpuLockAcquire(NvU32 flags, void *ra)
 
     NV_ASSERT_OR_RETURN(rmGpuLock.pLock != NULL, NV_ERR_INVALID_STATE);
     NV_ASSERT_OR_RETURN(!rmGpuLockIsOwner(), NV_ERR_CYCLE_DETECTED);
+
     if (bCondAcquire || bHighIrql)
     {
         NvBool success = portSyncSemaphoreAcquireConditional(rmGpuLock.pLock);
         if (!success)
+        {
             return NV_ERR_STATE_IN_USE;
+        }
     }
     else
     {
@@ -134,7 +137,9 @@ static NV_STATUS _rmGpuLockAcquire(NvU32 flags, void *ra)
 static NV_STATUS _rmGpuLockRelease(void *ra)
 {
     OS_THREAD_HANDLE threadId;
+    OBJGPU *pGpu = NULL;
     NvU64 timestamp;
+    NvU32 gpuCount = 0;
 
     //
     // We may get a bValid as NV_FALSE before GPU is attached.
@@ -155,11 +160,14 @@ static NV_STATUS _rmGpuLockRelease(void *ra)
 
     rmGpuLock.threadId = INVALID_THREAD_ID;
 
-    OBJGPU *pGpu = gpumgrGetSomeGpu();
+    portSyncSemaphoreRelease(rmGpuLock.pLock);
+
+    gpumgrGetGpuAttachInfo(&gpuCount, NULL);
+    if (gpuCount != 0)
+        pGpu = gpumgrGetSomeGpu();
+
     if (pGpu && osLockShouldToggleInterrupts(pGpu))
         osEnableInterrupts(pGpu);
-
-    portSyncSemaphoreRelease(rmGpuLock.pLock);
 
     return NV_OK;
 }

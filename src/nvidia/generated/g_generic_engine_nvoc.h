@@ -58,23 +58,26 @@ struct GenericEngineApi {
     NV_STATUS (*__genapiGetMapAddrSpace__)(struct GenericEngineApi *, struct CALL_CONTEXT *, NvU32, NV_ADDRESS_SPACE *);
     NV_STATUS (*__genapiControl__)(struct GenericEngineApi *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NvBool (*__genapiShareCallback__)(struct GenericEngineApi *, struct RsClient *, struct RsResourceRef *, RS_SHARE_POLICY *);
-    NV_STATUS (*__genapiUnmap__)(struct GenericEngineApi *, struct CALL_CONTEXT *, struct RsCpuMapping *);
-    NV_STATUS (*__genapiGetMemInterMapParams__)(struct GenericEngineApi *, RMRES_MEM_INTER_MAP_PARAMS *);
-    NV_STATUS (*__genapiGetMemoryMappingDescriptor__)(struct GenericEngineApi *, struct MEMORY_DESCRIPTOR **);
-    NvHandle (*__genapiGetInternalObjectHandle__)(struct GenericEngineApi *);
-    NV_STATUS (*__genapiControlFilter__)(struct GenericEngineApi *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
-    void (*__genapiAddAdditionalDependants__)(struct RsClient *, struct GenericEngineApi *, RsResourceRef *);
-    NvU32 (*__genapiGetRefCount__)(struct GenericEngineApi *);
     NV_STATUS (*__genapiCheckMemInterUnmap__)(struct GenericEngineApi *, NvBool);
     NV_STATUS (*__genapiMapTo__)(struct GenericEngineApi *, RS_RES_MAP_TO_PARAMS *);
+    NvU32 (*__genapiGetRefCount__)(struct GenericEngineApi *);
+    void (*__genapiAddAdditionalDependants__)(struct RsClient *, struct GenericEngineApi *, RsResourceRef *);
     NV_STATUS (*__genapiControl_Prologue__)(struct GenericEngineApi *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NV_STATUS (*__genapiGetRegBaseOffsetAndSize__)(struct GenericEngineApi *, struct OBJGPU *, NvU32 *, NvU32 *);
-    NvBool (*__genapiCanCopy__)(struct GenericEngineApi *);
     NV_STATUS (*__genapiInternalControlForward__)(struct GenericEngineApi *, NvU32, void *, NvU32);
-    void (*__genapiPreDestruct__)(struct GenericEngineApi *);
     NV_STATUS (*__genapiUnmapFrom__)(struct GenericEngineApi *, RS_RES_UNMAP_FROM_PARAMS *);
     void (*__genapiControl_Epilogue__)(struct GenericEngineApi *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NV_STATUS (*__genapiControlLookup__)(struct GenericEngineApi *, struct RS_RES_CONTROL_PARAMS_INTERNAL *, const struct NVOC_EXPORTED_METHOD_DEF **);
+    NvHandle (*__genapiGetInternalObjectHandle__)(struct GenericEngineApi *);
+    NV_STATUS (*__genapiUnmap__)(struct GenericEngineApi *, struct CALL_CONTEXT *, struct RsCpuMapping *);
+    NV_STATUS (*__genapiGetMemInterMapParams__)(struct GenericEngineApi *, RMRES_MEM_INTER_MAP_PARAMS *);
+    NV_STATUS (*__genapiGetMemoryMappingDescriptor__)(struct GenericEngineApi *, struct MEMORY_DESCRIPTOR **);
+    NV_STATUS (*__genapiControlFilter__)(struct GenericEngineApi *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
+    NV_STATUS (*__genapiControlSerialization_Prologue__)(struct GenericEngineApi *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
+    NvBool (*__genapiCanCopy__)(struct GenericEngineApi *);
+    void (*__genapiPreDestruct__)(struct GenericEngineApi *);
+    NV_STATUS (*__genapiIsDuplicate__)(struct GenericEngineApi *, NvHandle, NvBool *);
+    void (*__genapiControlSerialization_Epilogue__)(struct GenericEngineApi *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NvBool (*__genapiAccessCallback__)(struct GenericEngineApi *, struct RsClient *, void *, RsAccessRight);
 };
 
@@ -110,23 +113,26 @@ NV_STATUS __nvoc_objCreate_GenericEngineApi(GenericEngineApi**, Dynamic*, NvU32,
 #define genapiGetMapAddrSpace(pGenericEngineApi, pCallContext, mapFlags, pAddrSpace) genapiGetMapAddrSpace_DISPATCH(pGenericEngineApi, pCallContext, mapFlags, pAddrSpace)
 #define genapiControl(pGenericEngineApi, pCallContext, pParams) genapiControl_DISPATCH(pGenericEngineApi, pCallContext, pParams)
 #define genapiShareCallback(pGpuResource, pInvokingClient, pParentRef, pSharePolicy) genapiShareCallback_DISPATCH(pGpuResource, pInvokingClient, pParentRef, pSharePolicy)
-#define genapiUnmap(pGpuResource, pCallContext, pCpuMapping) genapiUnmap_DISPATCH(pGpuResource, pCallContext, pCpuMapping)
-#define genapiGetMemInterMapParams(pRmResource, pParams) genapiGetMemInterMapParams_DISPATCH(pRmResource, pParams)
-#define genapiGetMemoryMappingDescriptor(pRmResource, ppMemDesc) genapiGetMemoryMappingDescriptor_DISPATCH(pRmResource, ppMemDesc)
-#define genapiGetInternalObjectHandle(pGpuResource) genapiGetInternalObjectHandle_DISPATCH(pGpuResource)
-#define genapiControlFilter(pResource, pCallContext, pParams) genapiControlFilter_DISPATCH(pResource, pCallContext, pParams)
-#define genapiAddAdditionalDependants(pClient, pResource, pReference) genapiAddAdditionalDependants_DISPATCH(pClient, pResource, pReference)
-#define genapiGetRefCount(pResource) genapiGetRefCount_DISPATCH(pResource)
 #define genapiCheckMemInterUnmap(pRmResource, bSubdeviceHandleProvided) genapiCheckMemInterUnmap_DISPATCH(pRmResource, bSubdeviceHandleProvided)
 #define genapiMapTo(pResource, pParams) genapiMapTo_DISPATCH(pResource, pParams)
+#define genapiGetRefCount(pResource) genapiGetRefCount_DISPATCH(pResource)
+#define genapiAddAdditionalDependants(pClient, pResource, pReference) genapiAddAdditionalDependants_DISPATCH(pClient, pResource, pReference)
 #define genapiControl_Prologue(pResource, pCallContext, pParams) genapiControl_Prologue_DISPATCH(pResource, pCallContext, pParams)
 #define genapiGetRegBaseOffsetAndSize(pGpuResource, pGpu, pOffset, pSize) genapiGetRegBaseOffsetAndSize_DISPATCH(pGpuResource, pGpu, pOffset, pSize)
-#define genapiCanCopy(pResource) genapiCanCopy_DISPATCH(pResource)
 #define genapiInternalControlForward(pGpuResource, command, pParams, size) genapiInternalControlForward_DISPATCH(pGpuResource, command, pParams, size)
-#define genapiPreDestruct(pResource) genapiPreDestruct_DISPATCH(pResource)
 #define genapiUnmapFrom(pResource, pParams) genapiUnmapFrom_DISPATCH(pResource, pParams)
 #define genapiControl_Epilogue(pResource, pCallContext, pParams) genapiControl_Epilogue_DISPATCH(pResource, pCallContext, pParams)
 #define genapiControlLookup(pResource, pParams, ppEntry) genapiControlLookup_DISPATCH(pResource, pParams, ppEntry)
+#define genapiGetInternalObjectHandle(pGpuResource) genapiGetInternalObjectHandle_DISPATCH(pGpuResource)
+#define genapiUnmap(pGpuResource, pCallContext, pCpuMapping) genapiUnmap_DISPATCH(pGpuResource, pCallContext, pCpuMapping)
+#define genapiGetMemInterMapParams(pRmResource, pParams) genapiGetMemInterMapParams_DISPATCH(pRmResource, pParams)
+#define genapiGetMemoryMappingDescriptor(pRmResource, ppMemDesc) genapiGetMemoryMappingDescriptor_DISPATCH(pRmResource, ppMemDesc)
+#define genapiControlFilter(pResource, pCallContext, pParams) genapiControlFilter_DISPATCH(pResource, pCallContext, pParams)
+#define genapiControlSerialization_Prologue(pResource, pCallContext, pParams) genapiControlSerialization_Prologue_DISPATCH(pResource, pCallContext, pParams)
+#define genapiCanCopy(pResource) genapiCanCopy_DISPATCH(pResource)
+#define genapiPreDestruct(pResource) genapiPreDestruct_DISPATCH(pResource)
+#define genapiIsDuplicate(pResource, hMemory, pDuplicate) genapiIsDuplicate_DISPATCH(pResource, hMemory, pDuplicate)
+#define genapiControlSerialization_Epilogue(pResource, pCallContext, pParams) genapiControlSerialization_Epilogue_DISPATCH(pResource, pCallContext, pParams)
 #define genapiAccessCallback(pResource, pInvokingClient, pAllocParams, accessRight) genapiAccessCallback_DISPATCH(pResource, pInvokingClient, pAllocParams, accessRight)
 NV_STATUS genapiMap_IMPL(struct GenericEngineApi *pGenericEngineApi, struct CALL_CONTEXT *pCallContext, struct RS_CPU_MAP_PARAMS *pParams, struct RsCpuMapping *pCpuMapping);
 
@@ -150,40 +156,20 @@ static inline NvBool genapiShareCallback_DISPATCH(struct GenericEngineApi *pGpuR
     return pGpuResource->__genapiShareCallback__(pGpuResource, pInvokingClient, pParentRef, pSharePolicy);
 }
 
-static inline NV_STATUS genapiUnmap_DISPATCH(struct GenericEngineApi *pGpuResource, struct CALL_CONTEXT *pCallContext, struct RsCpuMapping *pCpuMapping) {
-    return pGpuResource->__genapiUnmap__(pGpuResource, pCallContext, pCpuMapping);
-}
-
-static inline NV_STATUS genapiGetMemInterMapParams_DISPATCH(struct GenericEngineApi *pRmResource, RMRES_MEM_INTER_MAP_PARAMS *pParams) {
-    return pRmResource->__genapiGetMemInterMapParams__(pRmResource, pParams);
-}
-
-static inline NV_STATUS genapiGetMemoryMappingDescriptor_DISPATCH(struct GenericEngineApi *pRmResource, struct MEMORY_DESCRIPTOR **ppMemDesc) {
-    return pRmResource->__genapiGetMemoryMappingDescriptor__(pRmResource, ppMemDesc);
-}
-
-static inline NvHandle genapiGetInternalObjectHandle_DISPATCH(struct GenericEngineApi *pGpuResource) {
-    return pGpuResource->__genapiGetInternalObjectHandle__(pGpuResource);
-}
-
-static inline NV_STATUS genapiControlFilter_DISPATCH(struct GenericEngineApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
-    return pResource->__genapiControlFilter__(pResource, pCallContext, pParams);
-}
-
-static inline void genapiAddAdditionalDependants_DISPATCH(struct RsClient *pClient, struct GenericEngineApi *pResource, RsResourceRef *pReference) {
-    pResource->__genapiAddAdditionalDependants__(pClient, pResource, pReference);
-}
-
-static inline NvU32 genapiGetRefCount_DISPATCH(struct GenericEngineApi *pResource) {
-    return pResource->__genapiGetRefCount__(pResource);
-}
-
 static inline NV_STATUS genapiCheckMemInterUnmap_DISPATCH(struct GenericEngineApi *pRmResource, NvBool bSubdeviceHandleProvided) {
     return pRmResource->__genapiCheckMemInterUnmap__(pRmResource, bSubdeviceHandleProvided);
 }
 
 static inline NV_STATUS genapiMapTo_DISPATCH(struct GenericEngineApi *pResource, RS_RES_MAP_TO_PARAMS *pParams) {
     return pResource->__genapiMapTo__(pResource, pParams);
+}
+
+static inline NvU32 genapiGetRefCount_DISPATCH(struct GenericEngineApi *pResource) {
+    return pResource->__genapiGetRefCount__(pResource);
+}
+
+static inline void genapiAddAdditionalDependants_DISPATCH(struct RsClient *pClient, struct GenericEngineApi *pResource, RsResourceRef *pReference) {
+    pResource->__genapiAddAdditionalDependants__(pClient, pResource, pReference);
 }
 
 static inline NV_STATUS genapiControl_Prologue_DISPATCH(struct GenericEngineApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
@@ -194,16 +180,8 @@ static inline NV_STATUS genapiGetRegBaseOffsetAndSize_DISPATCH(struct GenericEng
     return pGpuResource->__genapiGetRegBaseOffsetAndSize__(pGpuResource, pGpu, pOffset, pSize);
 }
 
-static inline NvBool genapiCanCopy_DISPATCH(struct GenericEngineApi *pResource) {
-    return pResource->__genapiCanCopy__(pResource);
-}
-
 static inline NV_STATUS genapiInternalControlForward_DISPATCH(struct GenericEngineApi *pGpuResource, NvU32 command, void *pParams, NvU32 size) {
     return pGpuResource->__genapiInternalControlForward__(pGpuResource, command, pParams, size);
-}
-
-static inline void genapiPreDestruct_DISPATCH(struct GenericEngineApi *pResource) {
-    pResource->__genapiPreDestruct__(pResource);
 }
 
 static inline NV_STATUS genapiUnmapFrom_DISPATCH(struct GenericEngineApi *pResource, RS_RES_UNMAP_FROM_PARAMS *pParams) {
@@ -218,13 +196,55 @@ static inline NV_STATUS genapiControlLookup_DISPATCH(struct GenericEngineApi *pR
     return pResource->__genapiControlLookup__(pResource, pParams, ppEntry);
 }
 
+static inline NvHandle genapiGetInternalObjectHandle_DISPATCH(struct GenericEngineApi *pGpuResource) {
+    return pGpuResource->__genapiGetInternalObjectHandle__(pGpuResource);
+}
+
+static inline NV_STATUS genapiUnmap_DISPATCH(struct GenericEngineApi *pGpuResource, struct CALL_CONTEXT *pCallContext, struct RsCpuMapping *pCpuMapping) {
+    return pGpuResource->__genapiUnmap__(pGpuResource, pCallContext, pCpuMapping);
+}
+
+static inline NV_STATUS genapiGetMemInterMapParams_DISPATCH(struct GenericEngineApi *pRmResource, RMRES_MEM_INTER_MAP_PARAMS *pParams) {
+    return pRmResource->__genapiGetMemInterMapParams__(pRmResource, pParams);
+}
+
+static inline NV_STATUS genapiGetMemoryMappingDescriptor_DISPATCH(struct GenericEngineApi *pRmResource, struct MEMORY_DESCRIPTOR **ppMemDesc) {
+    return pRmResource->__genapiGetMemoryMappingDescriptor__(pRmResource, ppMemDesc);
+}
+
+static inline NV_STATUS genapiControlFilter_DISPATCH(struct GenericEngineApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return pResource->__genapiControlFilter__(pResource, pCallContext, pParams);
+}
+
+static inline NV_STATUS genapiControlSerialization_Prologue_DISPATCH(struct GenericEngineApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return pResource->__genapiControlSerialization_Prologue__(pResource, pCallContext, pParams);
+}
+
+static inline NvBool genapiCanCopy_DISPATCH(struct GenericEngineApi *pResource) {
+    return pResource->__genapiCanCopy__(pResource);
+}
+
+static inline void genapiPreDestruct_DISPATCH(struct GenericEngineApi *pResource) {
+    pResource->__genapiPreDestruct__(pResource);
+}
+
+static inline NV_STATUS genapiIsDuplicate_DISPATCH(struct GenericEngineApi *pResource, NvHandle hMemory, NvBool *pDuplicate) {
+    return pResource->__genapiIsDuplicate__(pResource, hMemory, pDuplicate);
+}
+
+static inline void genapiControlSerialization_Epilogue_DISPATCH(struct GenericEngineApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    pResource->__genapiControlSerialization_Epilogue__(pResource, pCallContext, pParams);
+}
+
 static inline NvBool genapiAccessCallback_DISPATCH(struct GenericEngineApi *pResource, struct RsClient *pInvokingClient, void *pAllocParams, RsAccessRight accessRight) {
     return pResource->__genapiAccessCallback__(pResource, pInvokingClient, pAllocParams, accessRight);
 }
 
 NV_STATUS genapiConstruct_IMPL(struct GenericEngineApi *arg_pGenericEngineApi, struct CALL_CONTEXT *arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL *arg_pParams);
+
 #define __nvoc_genapiConstruct(arg_pGenericEngineApi, arg_pCallContext, arg_pParams) genapiConstruct_IMPL(arg_pGenericEngineApi, arg_pCallContext, arg_pParams)
 void genapiDestruct_IMPL(struct GenericEngineApi *pGenericEngineApi);
+
 #define __nvoc_genapiDestruct(pGenericEngineApi) genapiDestruct_IMPL(pGenericEngineApi)
 #undef PRIVATE_FIELD
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -132,18 +132,18 @@ ctxdmaConstruct_IMPL
     pContextDma->Type                 = type;
     pContextDma->Limit                = limit;
 
-    for (i = 0; i < NV_ARRAY_ELEMENTS32(pContextDma->KernelVAddr); i++)
+    for (i = 0; i < NV_ARRAY_ELEMENTS(pContextDma->KernelVAddr); i++)
         pContextDma->KernelVAddr[i]   = NULL;
 
     pContextDma->KernelPriv           = NULL;
 
-    for (i = 0; i < NV_ARRAY_ELEMENTS32(pContextDma->FbAperture); i++)
+    for (i = 0; i < NV_ARRAY_ELEMENTS(pContextDma->FbAperture); i++)
     {
         pContextDma->FbAperture[i]    = (NvU64)-1;
         pContextDma->FbApertureLen[i] = 0;
     }
 
-    for (i = 0; i < NV_ARRAY_ELEMENTS32(pContextDma->Instance); i++)
+    for (i = 0; i < NV_ARRAY_ELEMENTS(pContextDma->Instance); i++)
     {
         pContextDma->Instance[i]      = 0;
         pContextDma->InstRefCount[i]  = 0;
@@ -391,9 +391,20 @@ _ctxdmaConstruct
 
     gpuSetThreadBcState(pGpu, !pContextDma->bUnicast);
 
-    rmStatus = deviceGetByGpu(pClient, pGpu, NV_TRUE, &pDevice);
-    if (rmStatus != NV_OK)
-        return NV_ERR_INVALID_OBJECT_PARENT;
+    if (hSubDevice == 0)
+    {
+        //
+        // We verified that pMemory is parented by Device.
+        // pGpu == NULL & hSubdevice == 0 errors out above.
+        //
+        pDevice = pMemory->pDevice;
+    }
+    else
+    {
+        rmStatus = deviceGetByGpu(pClient, pGpu, NV_TRUE, &pDevice);
+        if (rmStatus != NV_OK)
+            return NV_ERR_INVALID_OBJECT_PARENT;
+    }
 
     pContextDma->pDevice = pDevice;
 
@@ -477,7 +488,7 @@ done:
             // host, if we are in guest OS (where IS_VIRTUAL(pGpu) is true),
             // do an RPC to the host to do the hardware update.
             //
-            NV_RM_RPC_ALLOC_CONTEXT_DMA(pGpu, hClient, hDevice, RES_GET_HANDLE(pContextDma), hClass, 
+            NV_RM_RPC_ALLOC_CONTEXT_DMA(pGpu, hClient, hDevice, RES_GET_HANDLE(pContextDma), hClass,
                                         flags, RES_GET_HANDLE(pMemory), offset, limit, rmStatus);
         }
     }
@@ -581,33 +592,6 @@ ctxdmaGetKernelVA_IMPL
     return NV_OK;
 }
 
-// ****************************************************************************
-//                            Deprecated Functions
-// ****************************************************************************
-
-/**
- * @warning This function is deprecated! Please use ctxdmaGetByHandle.
- */
-NV_STATUS
-CliGetContextDma
-(
-    NvHandle       hClient,
-    NvHandle       hContextDma,
-    ContextDma   **ppContextDma
-)
-{
-    RsClient   *pClient;
-    NV_STATUS   status;
-
-    *ppContextDma = NULL;
-
-    status = serverGetClientUnderLock(&g_resServ, hClient, &pClient);
-    if (status != NV_OK)
-        return NV_ERR_INVALID_CLIENT;
-
-    return ctxdmaGetByHandle(pClient, hContextDma, ppContextDma);
-}
-
 NV_STATUS
 ctxdmaMapTo_IMPL
 (
@@ -621,7 +605,7 @@ ctxdmaMapTo_IMPL
 
     //
     // For video memory, provide a way to look up the offset of an FB allocation within
-    // the given context target context dma. still useful for dFPGA.  
+    // the given context target context dma. still useful for dFPGA.
     // It is used by mods.
     //
     if ((memdescGetAddressSpace(memdescGetMemDescFromGpu(pSrcMemDesc, pGpu)) == ADDR_FBMEM) &&

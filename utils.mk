@@ -40,10 +40,11 @@ AR                    ?= ar
 CFLAGS                ?= -Wall
 # always set these -f CFLAGS
 CFLAGS                += -fno-strict-aliasing -fno-omit-frame-pointer -Wformat=2
-CC_ONLY_CFLAGS        ?=
+CC_ONLY_CFLAGS        ?= -Wstrict-prototypes -Wold-style-definition
 CXX_ONLY_CFLAGS       ?=
 LDFLAGS               ?=
 BIN_LDFLAGS           ?=
+EXTRA_CFLAGS          ?=
 
 STACK_USAGE_WARNING   ?=
 CFLAGS                += $(if $(STACK_USAGE_WARNING),-Wstack-usage=$(STACK_USAGE_WARNING))
@@ -84,6 +85,8 @@ ifeq ($(DEVELOP),1)
   CFLAGS              += -DDEVELOP=1
 endif
 
+CFLAGS                += $(EXTRA_CFLAGS)
+
 STRIP_CMD             ?= strip
 DO_STRIP              ?= 1
 
@@ -107,7 +110,11 @@ CHMOD                 ?= chmod
 OBJCOPY               ?= objcopy
 XZ                    ?= xz
 WHOAMI                ?= whoami
-HOSTNAME              ?= hostname
+
+ifndef HOSTNAME
+  HOSTNAME             = $(shell hostname)
+endif
+
 
 NV_AUTO_DEPEND        ?= 1
 NV_VERBOSE            ?= 0
@@ -195,7 +202,7 @@ PCIACCESS_LDFLAGS     ?=
 ##############################################################################
 # This makefile uses the $(eval) builtin function, which was added in
 # GNU make 3.80.  Check that the current make version recognizes it.
-# Idea suggested by:  http://www.jgc.org/blog/cookbook-sample.pdf
+# Idea suggested by "The GNU Make Book" by John Graham-Cumming.
 ##############################################################################
 
 _eval_available :=
@@ -204,7 +211,6 @@ $(eval _eval_available := T)
 ifneq ($(_eval_available),T)
   $(error This Makefile requires a GNU Make that supports 'eval'.  Please upgrade to GNU make 3.80 or later)
 endif
-
 
 ##############################################################################
 # Test passing $(1) to $(CC).  If $(CC) succeeds, then echo $(1).
@@ -219,6 +225,19 @@ endif
 TEST_CC_ARG = \
  $(shell $(CC) -c -x c /dev/null -Werror $(1) -o /dev/null > /dev/null 2>&1 && \
    $(ECHO) $(1))
+
+
+##############################################################################
+# Test if instruction $(1) is understood by the assembler
+# Returns "1" if the instruction is understood, else returns empty string.
+#
+# Example usage:
+# ENDBR_SUPPORTED := $(call AS_HAS_INSTR, endbr64)
+##############################################################################
+
+AS_HAS_INSTR = \
+ $(shell if ($(ECHO) "$(1)" | $(CC) -c -x assembler - -o /dev/null) >/dev/null 2>&1 ;\
+   then $(ECHO) "1"; else $(ECHO) ""; fi)
 
 
 ##############################################################################
@@ -239,7 +258,7 @@ MANDIR = $(DESTDIR)$(PREFIX)/share/man/man1
 ##############################################################################
 
 default build: all
-
+.PHONY: default build
 
 ##############################################################################
 # get the definition of NVIDIA_VERSION from version.mk
@@ -524,7 +543,7 @@ define GENERATE_NVIDSTRING
   # g_nvid_string.c depends on all objects except g_nvid_string.o, and version.mk
   $(NVIDSTRING): $$(filter-out $$(call BUILD_OBJECT_LIST,$$(NVIDSTRING)), $(3)) $$(VERSION_MK)
 	$(at_if_quiet)$$(MKDIR) $$(dir $$@)
-	$(at_if_quiet)$$(ECHO) "const char $(1)[] = \"nvidia id: NVIDIA $$(strip $(2)) for $$(TARGET_ARCH)  $$(NVIDIA_VERSION)  $$(NVIDSTRING_BUILD_TYPE_STRING)  (`$$(WHOAMI)`@`$$(HOSTNAME)`)  `$$(DATE)`\";" > $$@
+	$(at_if_quiet)$$(ECHO) "const char $(1)[] = \"nvidia id: NVIDIA $$(strip $(2)) for $$(TARGET_ARCH)  $$(NVIDIA_VERSION)  $$(NVIDSTRING_BUILD_TYPE_STRING)  (`$$(WHOAMI)`@$$(HOSTNAME))  `$$(DATE)`\";" > $$@
 	$(at_if_quiet)$$(ECHO) "const char *const p$$(strip $(1)) = $(1) + 11;" >> $$@;
 endef
 

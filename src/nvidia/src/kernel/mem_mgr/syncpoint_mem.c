@@ -49,12 +49,6 @@ syncpointConstruct_IMPL
     NV_STATUS status = NV_OK;
     OBJGPU *pGpu = pMemory->pGpu;
 
-    if (pRmAllocParams->pSecInfo->privLevel < RS_PRIV_LEVEL_USER_ROOT)
-    {
-        NV_PRINTF(LEVEL_ERROR, "%s On Tegra, only root(admin)/kernel clients are allowed\n", __FUNCTION__);
-        return NV_ERR_INSUFFICIENT_PERMISSIONS;
-    }
-
     // OS get sync-point aperture address.
     status = osGetSyncpointAperture(pGpu->pOsGpuInfo, pAllocParams->syncpointId, &syncPointBase, &limit, &offset);
 

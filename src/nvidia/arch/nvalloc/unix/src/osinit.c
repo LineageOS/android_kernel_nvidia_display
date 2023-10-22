@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -105,7 +105,6 @@ typedef enum
    /* rm firmware errors */
    RM_INIT_FIRMWARE_POLICY_FAILED      = 0x60,
    RM_INIT_FIRMWARE_FETCH_FAILED,
-   RM_INIT_FIRMWARE_VALIDATION_FAILED,
    RM_INIT_FIRMWARE_INIT_FAILED,
 
    RM_INIT_MAX_FAILURES
@@ -284,10 +283,6 @@ osHandleGpuLost
     pmc_boot_0 = NV_PRIV_REG_RD32(nv->regs->map_u, NV_PMC_BOOT_0);
     if (pmc_boot_0 != nvp->pmc_boot_0)
     {
-        RM_API *pRmApi = rmapiGetInterface(RMAPI_GPU_LOCK_INTERNAL);
-        NV2080_CTRL_GPU_GET_OEM_BOARD_INFO_PARAMS *pBoardInfoParams;
-        NV_STATUS status;
-
         //
         // This doesn't support PEX Reset and Recovery yet.
         // This will help to prevent accessing registers of a GPU
@@ -298,24 +293,11 @@ osHandleGpuLost
 
         NV_DEV_PRINTF(NV_DBG_ERRORS, nv, "GPU has fallen off the bus.\n");
 
-        pBoardInfoParams = portMemAllocNonPaged(sizeof(*pBoardInfoParams));
-        if (pBoardInfoParams != NULL)
+        if (pGpu->boardInfo != NULL && pGpu->boardInfo->serialNumber[0] != '\0')
         {
-            portMemSet(pBoardInfoParams, 0, sizeof(*pBoardInfoParams));
-
-            status = pRmApi->Control(pRmApi, nv->rmapi.hClient,
-                                     nv->rmapi.hSubDevice,
-                                     NV2080_CTRL_CMD_GPU_GET_OEM_BOARD_INFO,
-                                     pBoardInfoParams,
-                                     sizeof(*pBoardInfoParams));
-            if (status == NV_OK)
-            {
-                NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-                              "GPU serial number is %s.\n",
-                              pBoardInfoParams->serialNumber);
-            }
-
-            portMemFree(pBoardInfoParams);
+            NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
+                          "GPU serial number is %s.\n",
+                          pGpu->boardInfo->serialNumber);
         }
 
         gpuSetDisconnectedProperties(pGpu);
@@ -404,6 +386,8 @@ RmInitGpuInfoWithRmApi
             (pGpuInfoParams->gpuInfoList[2].data ==
              NV2080_CTRL_GPU_INFO_INDEX_DMABUF_CAPABILITY_YES);
     }
+
+    nv->coherent = pGpu->getProperty(pGpu, PDB_PROP_GPU_COHERENT_CPU_MAPPING);
 
     portMemFree(pGpuInfoParams);
 
@@ -571,6 +555,15 @@ osInitNvMapping(
     sysApplyLockingPolicy(pSys);
 
     pGpu->busInfo.IntLine = nv->interrupt_line;
+
+    //
+    // Set the DMA address size as soon as we have the HAL to call to
+    // determine the precise number of physical address bits supported
+    // by the architecture. DMA allocations should not be made before
+    // this point.
+    //
+    nv_set_dma_address_size(nv, gpuGetPhysAddrWidth_HAL(pGpu, ADDR_SYSMEM));
+
     pGpu->dmaStartAddress = (RmPhysAddr)nv_get_dma_start_address(nv);
     if (nv->fb != NULL)
     {
@@ -588,11 +581,17 @@ osInitNvMapping(
               "NV fb using linear address  : 0x%p\n", pGpu->registerAccess.gpuFbAddr);
 
     pGpu->setProperty(pGpu, PDB_PROP_GPU_ALTERNATE_TREE_ENABLED, NV_TRUE);
-    pGpu->setProperty(pGpu, PDB_PROP_GPU_ALTERNATE_TREE_HANDLE_LOCKLESS, NV_FALSE);
+    pGpu->setProperty(pGpu, PDB_PROP_GPU_ALTERNATE_TREE_HANDLE_LOCKLESS, NV_TRUE);
 
     if (!os_is_vgx_hyper())
     {
         pGpu->setProperty(pGpu, PDB_PROP_GPU_ALLOW_PAGE_RETIREMENT, NV_TRUE);
+    }
+    else
+    {
+        {
+            pGpu->setProperty(pGpu, PDB_PROP_GPU_ALLOW_PAGE_RETIREMENT, NV_TRUE);
+        }
     }
 
     if ((osReadRegistryDword(NULL,
@@ -604,15 +603,6 @@ osInitNvMapping(
     }
 }
 
-static inline void
-RmSetDeviceDmaAddressSize(
-    nv_state_t *nv,
-    NvU8 numDmaAddressBits
-)
-{
-    nv_set_dma_address_size(nv, numDmaAddressBits);
-}
-
 static NV_STATUS
 RmInitDeviceDma(
     nv_state_t *nv
@@ -621,8 +611,8 @@ RmInitDeviceDma(
     if (nv->iovaspace_id != NV_IOVA_DOMAIN_NONE)
     {
         OBJSYS *pSys = SYS_GET_INSTANCE();
-        POBJVMM pVmm = SYS_GET_VMM(pSys);
-        POBJVASPACE pIOVAS;
+        OBJVMM *pVmm = SYS_GET_VMM(pSys);
+        OBJVASPACE *pIOVAS;
         NV_STATUS status = vmmCreateVaspace(pVmm, IO_VASPACE_A,
                                             nv->iovaspace_id, 0, 0ULL, ~0ULL,
                                             0ULL, 0ULL,
@@ -645,8 +635,8 @@ RmTeardownDeviceDma(
     if (nv->iovaspace_id != NV_IOVA_DOMAIN_NONE)
     {
         OBJSYS *pSys = SYS_GET_INSTANCE();
-        POBJVMM pVmm = SYS_GET_VMM(pSys);
-        POBJVASPACE pIOVAS;
+        OBJVMM *pVmm = SYS_GET_VMM(pSys);
+        OBJVASPACE *pIOVAS;
 
         if (NV_OK == vmmGetVaspaceFromId(pVmm, nv->iovaspace_id, IO_VASPACE_A, &pIOVAS))
         {
@@ -679,8 +669,6 @@ RmInitNvDevice(
         RM_SET_ERROR(*status, RM_INIT_GPU_PRE_INIT_FAILED);
         return;
     }
-
-    RmSetDeviceDmaAddressSize(nv, gpuGetPhysAddrWidth_HAL(pGpu, ADDR_SYSMEM));
 
     os_disable_console_access();
 
@@ -935,7 +923,7 @@ NvBool RmInitPrivateState(
     // Set up a reasonable default DMA address size, based on the minimum
     // possible on currently supported GPUs.
     //
-    RmSetDeviceDmaAddressSize(pNv, NV_GPU_MIN_SUPPORTED_DMA_ADDR_WIDTH);
+    nv_set_dma_address_size(pNv, NV_GPU_MIN_SUPPORTED_DMA_ADDR_WIDTH);
 
     os_mem_set(nvp, 0, sizeof(*nvp));
     nvp->status = NV_ERR_INVALID_STATE;
@@ -1107,7 +1095,8 @@ static NvBool RmUnixAllocRmApi(
                     NV01_NULL_OBJECT,
                     NV01_NULL_OBJECT,
                     NV01_ROOT,
-                    &nv->rmapi.hClient) != NV_OK)
+                    &nv->rmapi.hClient,
+                    sizeof(nv->rmapi.hClient)) != NV_OK)
     {
         goto fail;
     }
@@ -1131,7 +1120,8 @@ static NvBool RmUnixAllocRmApi(
                     nv->rmapi.hClient,
                     &nv->rmapi.hDevice,
                     NV01_DEVICE_0,
-                    &deviceParams) != NV_OK)
+                    &deviceParams,
+                    sizeof(deviceParams)) != NV_OK)
     {
         goto fail;
     }
@@ -1144,7 +1134,8 @@ static NvBool RmUnixAllocRmApi(
                     nv->rmapi.hDevice,
                     &nv->rmapi.hSubDevice,
                     NV20_SUBDEVICE_0,
-                    &subDeviceParams) != NV_OK)
+                    &subDeviceParams,
+                    sizeof(subDeviceParams)) != NV_OK)
     {
         goto fail;
     }
@@ -1159,7 +1150,8 @@ static NvBool RmUnixAllocRmApi(
                     nv->rmapi.hSubDevice,
                     &nv->rmapi.hI2C,
                     NV40_I2C,
-                    NULL) != NV_OK)
+                    NULL,
+                    0) != NV_OK)
     {
         nv->rmapi.hI2C = 0;
     }
@@ -1175,7 +1167,8 @@ static NvBool RmUnixAllocRmApi(
                     nv->rmapi.hDevice,
                     &nv->rmapi.hDisp,
                     NV04_DISPLAY_COMMON,
-                    NULL) != NV_OK)
+                    NULL,
+                    0) != NV_OK)
     {
         nv->rmapi.hDisp = 0;
     }
@@ -1226,22 +1219,6 @@ NvBool RmInitAdapter(
     pSys = SYS_GET_INSTANCE();
 
     //
-    // WAR: If the below UEFI property is set, display RM will attempt to read
-    // the state cache during RM init in order to retrieve a snapshot of the
-    // display state that the UEFI driver has already programmed. On Orin
-    // (T234D), the UEFI boot flow is being enabled on Linux, but our UEFI
-    // driver doesn't have any display support right now. As such, our UEFI
-    // driver won't allocate any of the display channels, which means that RM
-    // will attempt to read the state cache for uninitialized channels. WAR this
-    // issue by un-setting the below UEFI property for now.
-    //
-    // JIRA task TDS-5094 tracks adding display support to the UEFI driver.
-    //
-    if (NV_IS_SOC_DISPLAY_DEVICE(nv)) {
-        pSys->setProperty(pSys, PDB_PROP_SYS_IS_UEFI, NV_FALSE);
-    }
-
-    //
     // Get firmware from the OS, if requested, and decide if RM will run as a
     // firmware client.
     //
@@ -1274,7 +1251,7 @@ NvBool RmInitAdapter(
 
     RmInitAcpiMethods(pOS, pSys, pGpu);
 
-    if (IS_GSP_CLIENT(pGpu) && IsT234D(pGpu))
+    if (IS_GSP_CLIENT(pGpu) && IsT234DorBetter(pGpu))
     {
         status.rmStatus = dceclientDceRmInit(pGpu, GPU_GET_DCECLIENTRM(pGpu), NV_TRUE);
         if (status.rmStatus != NV_OK)
@@ -1393,10 +1370,10 @@ NvBool RmInitAdapter(
             if (rmGpuLocksAcquire(GPUS_LOCK_FLAGS_NONE, RM_LOCK_MODULES_NONE) == NV_OK)
             {
                 //
-                // As we have already acquired the API Lock here, we are
-                // calling RmSystemEvent directly instead of rm_system_event.
+                // As we have already acquired the API Lock here, we are calling
+                // RmPowerSourceChangeEvent directly instead of rm_power_source_change_event.
                 //
-                RmSystemEvent(nv, NV_SYSTEM_ACPI_BATTERY_POWER_EVENT, !ac_plugged);
+                RmPowerSourceChangeEvent(nv, !ac_plugged);
 
                 // UNLOCK: release GPU lock
                 rmGpuLocksRelease(GPUS_LOCK_FLAGS_NONE, NULL);
@@ -1463,19 +1440,19 @@ void RmShutdownAdapter(
                 NV_ASSERT(rmStatus == NV_OK);
             }
 
-            if (IS_GSP_CLIENT(pGpu) && IsT234D(pGpu))
+            if (nvp->flags & NV_INIT_FLAG_GPU_STATE)
+            {
+                rmStatus = gpuStateDestroy(pGpu);
+                NV_ASSERT(rmStatus == NV_OK);
+            }
+
+            if (IS_GSP_CLIENT(pGpu) && IsT234DorBetter(pGpu))
             {
                 rmStatus = dceclientDceRmInit(pGpu, GPU_GET_DCECLIENTRM(pGpu), NV_FALSE);
                 if (rmStatus != NV_OK)
                 {
                     NV_PRINTF(LEVEL_ERROR, "DCE firmware RM Shutdown failure\n");
                 }
-            }
-
-            if (nvp->flags & NV_INIT_FLAG_GPU_STATE)
-            {
-                rmStatus = gpuStateDestroy(pGpu);
-                NV_ASSERT(rmStatus == NV_OK);
             }
 
             os_enable_console_access();

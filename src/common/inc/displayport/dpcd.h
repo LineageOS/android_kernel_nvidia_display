@@ -1083,6 +1083,7 @@ number of Downstream ports will be limited to 32.
 #define NV_DPCD_EDP_DISPLAY_CTL_COLOR_ENGINE_EN_DISABLED            (0x00000000) /* RWXUV */
 #define NV_DPCD_EDP_DISPLAY_CTL_OVERDRIVE_CTL                               5:4  /* RWXUF */
 #define NV_DPCD_EDP_DISPLAY_CTL_OVERDRIVE_CTL_AUTONOMOUS            (0x00000000) /* RWXUV */
+#define NV_DPCD_EDP_DISPLAY_CTL_OVERDRIVE_CTL_AUTONOMOUS_1          (0x00000001) /* RWXUV */
 #define NV_DPCD_EDP_DISPLAY_CTL_OVERDRIVE_CTL_DISABLE               (0x00000002) /* RWXUV */
 #define NV_DPCD_EDP_DISPLAY_CTL_OVERDRIVE_CTL_ENABLE                (0x00000003) /* RWXUV */
 #define NV_DPCD_EDP_DISPLAY_CTL_VBLANK_BKLGHT_UPDATE_EN                     7:7  /* RWXUF */
@@ -1363,12 +1364,10 @@ number of Downstream ports will be limited to 32.
 #define NV_DPCD_SINK_STATUS_ESI_RECEIVE_PORT_1_STATUS_IN_SYNC_YES       (0x00000001) /* R-XUV */
 
 // 0x00002010-0x0002025: RESERVED. Read all 0s
-
 #define NV_DPCD_OVERDRIVE_STATUS                                        (0x00002026) /* R-XUR */
 #define NV_DPCD_OVERDRIVE_STATUS_OVERDRIVE_ENGINE_STATUS                        0:0  /* R-XUF */
 #define NV_DPCD_OVERDRIVE_STATUS_OVERDRIVE_ENGINE_STATUS_NOT_ACTIVE     (0x00000000) /* R-XUV */
 #define NV_DPCD_OVERDRIVE_STATUS_OVERDRIVE_ENGINE_STATUS_ACTIVE         (0x00000001) /* R-XUV */
-
 // 0x00002027-0x00067FF: RESERVED. Read all 0s
 
 #define NV_DPCD_HDCP_BKSV_OFFSET                                 (0x00068000) /* R-XUR */

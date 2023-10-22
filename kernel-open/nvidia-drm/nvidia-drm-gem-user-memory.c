@@ -92,9 +92,9 @@ static int __nv_drm_gem_user_memory_mmap(struct nv_drm_gem_object *nv_gem,
         return -EINVAL;
     }
 
-    vma->vm_flags &= ~VM_PFNMAP;
-    vma->vm_flags &= ~VM_IO;
-    vma->vm_flags |= VM_MIXEDMAP;
+    nv_vm_flags_clear(vma, VM_PFNMAP);
+    nv_vm_flags_clear(vma, VM_IO);
+    nv_vm_flags_set(vma, VM_MIXEDMAP);
 
     return 0;
 }
@@ -112,8 +112,7 @@ static vm_fault_t __nv_drm_gem_user_memory_handle_vma_fault(
 
     page_offset = vmf->pgoff - drm_vma_node_start(&gem->vma_node);
 
-    BUG_ON(page_offset > nv_user_memory->pages_count);
-
+    BUG_ON(page_offset >= nv_user_memory->pages_count);
     ret = vm_insert_page(vma, address, nv_user_memory->pages[page_offset]);
     switch (ret) {
         case 0:

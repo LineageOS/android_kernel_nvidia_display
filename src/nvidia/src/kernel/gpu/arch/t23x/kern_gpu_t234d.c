@@ -30,7 +30,25 @@
 #include "core/core.h"
 #include "gpu/gpu.h"
 #include "gpu/eng_desc.h"
+#include "gpu/gpu_child_class_defs.h"
 #include "g_allclasses.h"
+#include <nv_arch.h>
+
+#include "swref/published/t23x/t234/dev_fuse.h"
+
+/*!
+ * @brief fill in the GPU ID information
+ */
+void
+gpuGetIdInfo_T234D
+(
+    OBJGPU   *pGpu
+)
+{
+    pGpu->chipInfo.platformId       = GPU_ARCHITECTURE_T23X;
+    pGpu->chipInfo.implementationId = GPU_IMPLEMENTATION_T234D;
+    pGpu->chipInfo.revisionId = 0;
+}
 
 // See gpuChildOrderList_GM200 for documentation
 static const GPUCHILDORDER
@@ -44,7 +62,7 @@ gpuChildOrderList_T234D[] =
     {classId(OBJDISP),              GCO_ALL},
     {classId(KernelDisplay),        GCO_ALL},
     {classId(OBJDPAUX),             GCO_ALL},
-    {classId(OBJI2C),               GCO_ALL},
+    {classId(I2c),                  GCO_ALL},
     {classId(OBJGPIO),              GCO_ALL},
     {classId(OBJHDACODEC),          GCO_ALL},
 };
@@ -52,32 +70,24 @@ gpuChildOrderList_T234D[] =
 // See gpuChildrenPresent_GM200 for documentation on GPUCHILDPRESENT
 static const GPUCHILDPRESENT gpuChildrenPresent_T234D[] =
 {
-    {classId(OBJDCECLIENTRM), 1},
-    {classId(OBJDISP), 1},
-    {classId(KernelDisplay), 1},
-    {classId(MemorySystem), 1},
-    {classId(KernelMemorySystem), 1},
-    {classId(MemoryManager), 1},
-    {classId(OBJDPAUX), 1},
-    {classId(OBJI2C), 1},
-    {classId(OBJGPIO), 1},
-    {classId(OBJTMR), 1},
-    {classId(OBJHDACODEC), 1},
-    {classId(OBJDCB), 1},
+    GPU_CHILD_PRESENT(OBJTMR, 1),
+    GPU_CHILD_PRESENT(OBJDCECLIENTRM, 1),
+    GPU_CHILD_PRESENT(KernelDisplay, 1),
+    GPU_CHILD_PRESENT(MemoryManager, 1),
 };
 
 
 const GPUCHILDORDER *
 gpuGetChildrenOrder_T234D(OBJGPU *pGpu, NvU32 *pNumEntries)
 {
-    *pNumEntries = NV_ARRAY_ELEMENTS32(gpuChildOrderList_T234D);
+    *pNumEntries = NV_ARRAY_ELEMENTS(gpuChildOrderList_T234D);
     return gpuChildOrderList_T234D;
 }
 
 const GPUCHILDPRESENT *
 gpuGetChildrenPresent_T234D(OBJGPU *pGpu, NvU32 *pNumEntries)
 {
-    *pNumEntries = NV_ARRAY_ELEMENTS32(gpuChildrenPresent_T234D);
+    *pNumEntries = NV_ARRAY_ELEMENTS(gpuChildrenPresent_T234D);
      return gpuChildrenPresent_T234D;
 }
 

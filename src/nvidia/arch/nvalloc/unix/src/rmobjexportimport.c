@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2016-2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -262,7 +262,8 @@ static NV_STATUS RmRefObjExportImport(void)
                                        NV01_NULL_OBJECT,
                                        NV01_NULL_OBJECT,
                                        NV01_ROOT,
-                                       &hObjExportRmClient);
+                                       &hObjExportRmClient,
+                                       sizeof(hObjExportRmClient));
     if (rmStatus != NV_OK)
     {
         NV_PRINTF(LEVEL_ERROR, "Unable to alloc root in %s\n", __FUNCTION__);
@@ -295,7 +296,7 @@ failed:
 //
 static void RmUnrefObjExportImport(void)
 {
-    RM_API *pRmApi = rmapiGetInterface(RMAPI_GPU_LOCK_INTERNAL);
+    RM_API *pRmApi = rmapiGetInterface(RMAPI_API_LOCK_INTERNAL);
 
     if ((--objExportImportRefCount) != 0)
     {
@@ -426,7 +427,8 @@ NV_STATUS RmExportObject(NvHandle hSrcClient, NvHandle hSrcObject,
                                          hObjExportRmClient,
                                          objExportDevice[deviceInstance].hRmDevice,
                                          NV01_DEVICE_0,
-                                         &params);
+                                         &params,
+                                         sizeof(params));
         if (status != NV_OK)
         {
             NV_PRINTF(LEVEL_ERROR, "Unable to alloc device in %s\n",
@@ -443,7 +445,8 @@ NV_STATUS RmExportObject(NvHandle hSrcClient, NvHandle hSrcObject,
                                          objExportDevice[deviceInstance].hRmDevice,
                                          objExportDevice[deviceInstance].hRmSubDevice,
                                          NV20_SUBDEVICE_0,
-                                         &subdevParams);
+                                         &subdevParams,
+                                         sizeof(subdevParams));
         if (status != NV_OK)
         {
             NV_PRINTF(LEVEL_ERROR, "Unable to alloc subdevice in %s\n",
@@ -588,6 +591,12 @@ NV_STATUS RmImportObject(NvHandle hDstClient, NvHandle hDstParent,
             case NV0000_CTRL_CMD_CLIENT_GET_ADDR_SPACE_TYPE_FABRIC:
                 *pObjectType = NV0000_CTRL_CMD_OS_UNIX_IMPORT_OBJECT_TYPE_FABRIC;
                 break;
+#if defined(NV0000_CTRL_CMD_CLIENT_GET_ADDR_SPACE_TYPE_FABRIC_MC) && \
+    defined(NV0000_CTRL_CMD_OS_UNIX_IMPORT_OBJECT_TYPE_FABRIC_MC)
+            case NV0000_CTRL_CMD_CLIENT_GET_ADDR_SPACE_TYPE_FABRIC_MC:
+                *pObjectType = NV0000_CTRL_CMD_OS_UNIX_IMPORT_OBJECT_TYPE_FABRIC_MC;
+                break;
+#endif
             default:
                 NV_ASSERT_OK_OR_RETURN(NV_ERR_INVALID_ARGUMENT);
         }

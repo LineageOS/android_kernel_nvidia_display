@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2021,2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -27,7 +27,7 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrlc372/ctrlc372chnc.finn
+// Source file:      ctrl/ctrlc372/ctrlc372chnc.finn
 //
 
 #include "nvdisptypes.h"
@@ -35,6 +35,7 @@
 
 #define NVC372_CTRL_MAX_POSSIBLE_HEADS   8
 #define NVC372_CTRL_MAX_POSSIBLE_WINDOWS 32
+#define NVC372_CTRL_MAX_POSSIBLE_TILES   8
 
 #define NVC372_CTRL_CMD_IS_MODE_POSSIBLE (0xc3720101) /* finn: Evaluated from "(FINN_NVC372_DISPLAY_SW_CHNCTL_INTERFACE_ID << 8) | NVC372_CTRL_IS_MODE_POSSIBLE_PARAMS_MESSAGE_ID" */
 
@@ -132,6 +133,17 @@
  *     This parameter specifies whether or not the output LUT is enabled, and
  *     the size of the LUT.  The parameter should be an
  *     NVC372_CTRL_IMP_LUT_USAGE_xxx value.
+ *     On Volta, the value should be one of these:
+ *     NVC372_CTRL_IMP_LUT_USAGE_1025, NVC372_CTRL_IMP_LUT_USAGE_257 or
+ *     NVC372_CTRL_IMP_LUT_USAGE_NONE
+ *
+ *     After Volta, the value should be one of these:
+ *     NVC372_CTRL_IMP_LUT_USAGE_HW_MAX (this indicates that LUT is allowed) or
+ *     NVC372_CTRL_IMP_LUT_USAGE_NONE
+ *     (On older post-Volta products, clients may set other
+ *      NVC372_CTRL_IMP_LUT_USAGE_xxx values, but they map to
+ *      NVC372_CTRL_IMP_LUT_USAGE_HW_MAX in RM-SW.)
+
  *
  *   head.cursorSize32p
  *     This parameter specifies the width of the cursor, in units of 32 pixels.
@@ -141,6 +153,21 @@
  *   head.bEnableDsc
  *     bEnableDsc indicates whether or not DSC is enabled
  *
+ *   head.possibleDscSliceCountMask
+ *     This is a bit mask indicating how many DSC slices are allowed in a
+ *     scanline.  If a bit n is set in the bit mask, it means that one possible
+ *     configuration has n+1 DSC slices per scanline.
+ *
+ *     This field is required only on systems that support tiling, and only if
+ *     head.bEnableDsc is true.
+ *
+ *   head.maxDscSliceWidth
+ *     The maximum allowed DSC slice width is determined by spec restrictions
+ *     and monitor capabilities.
+ *
+ *     This field is required only on systems that support tiling, and only if
+ *     head.bEnableDsc is true.
+ *
  *   head.bYUV420Format
  *     This parameter indicates output format is YUV420.
  *     Refer to NVD_YUV420_Output_Functional_Description.docx for more details.
@@ -148,6 +175,10 @@
  *   head.bIs2Head1Or
  *     This parameter specifies if the head operates in 2Head1Or mode.
  *     Refer to NVD_2_Heads_Driving_1_OR_Functional_Description.docx for more details.
+ * 
+ *   head.bGetOSLDOutput
+ *     This parameter specifies if the client requires output for the OSLD 
+ *     (One Shot Mode with Stall Lock Disabled) mode along with legacy outputs.
  * 
  *   head.bDisableMidFrameAndDWCFWatermark
  *     WAR for bug 200508242. 
@@ -220,11 +251,31 @@
  *     This parameter specifies whether or not the input LUT is enabled, and
  *     the size of the LUT.  The parameter should be an
  *     NVC372_CTRL_IMP_LUT_USAGE_xxx value.
+ *     On Volta, the value should be one of these:
+ *     NVC372_CTRL_IMP_LUT_USAGE_1025, NVC372_CTRL_IMP_LUT_USAGE_257 or
+ *     NVC372_CTRL_IMP_LUT_USAGE_NONE
+ *
+ *     After Volta, the value should be one of these:
+ *     NVC372_CTRL_IMP_LUT_USAGE_HW_MAX (this indicates that LUT is allowed) or
+ *     NVC372_CTRL_IMP_LUT_USAGE_NONE
+ *     (On older post-Volta products, clients may set other
+ *      NVC372_CTRL_IMP_LUT_USAGE_xxx values, but they map to
+ *      NVC372_CTRL_IMP_LUT_USAGE_HW_MAX in RM-SW.)
  *
  *   window.tmoLut
  *     This parameter specifies whether or not the tmo LUT is enabled, and
  *     the size of the LUT. This lut is used for HDR.  The parameter should be
  *     an NVC372_CTRL_IMP_LUT_USAGE_xxx value.
+ *     On Volta, the value should be one of these:
+ *     NVC372_CTRL_IMP_LUT_USAGE_1025, NVC372_CTRL_IMP_LUT_USAGE_257 or
+ *     NVC372_CTRL_IMP_LUT_USAGE_NONE
+ *
+ *     After Volta, the value should be one of these:
+ *     NVC372_CTRL_IMP_LUT_USAGE_HW_MAX (this indicates that LUT is allowed) or
+ *     NVC372_CTRL_IMP_LUT_USAGE_NONE
+ *     (On older post-Volta products, clients may set other
+ *      NVC372_CTRL_IMP_LUT_USAGE_xxx values, but they map to
+ *      NVC372_CTRL_IMP_LUT_USAGE_HW_MAX in RM-SW.)
  *
  *   numHeads
  *     This is the number of heads in the "head" array of the
@@ -269,8 +320,17 @@
  *
  * Outputs:
  *   bIsPossible
- *     This output tells if the specified mode can be supported.
+ *     This output tells if the specified mode can be supported.  To know if 
+ *     the mode is possible with OSLD, the bIsOSLDPossible result must 
+ *     be checked.
  *
+ *   bIsOSLDPossible
+ *     This output is returned for each head and suggests to the clients
+ *     if the mode will be possible or not on that head when OSLD is enabled. 
+ *     The output is only valid if bGetOSLDOutput is set in the head input.
+ *     Note that with OSLD output, RM will also return the legacy output
+ *     values.
+ *    
  *   minImpVPState
  *     minImpVPState returns the minimum v-pstate at which the mode is possible
  *     (assuming bIsPossible is TRUE).  This output is valid only on dGPU, and
@@ -317,6 +377,25 @@
  *     support the mode.  This output is valid only on Tegra, and only if 
  *     NVC372_CTRL_IS_MODE_POSSIBLE_OPTIONS_NEED_MIN_VPSTATE was set in the
  *     "options" field.
+ *
+ *   vblankIncreaseInLinesForOSLDMode
+ *     vblankIncreaseInLinesForOSLDMode returns the amount, in lines, by 
+ *     which vblank needs to be extended to achieve optimized MSCG when OSLD 
+ *     Mode is enabled (assuming bIsPossible is TRUE). Features like Panel
+ *     Replay and Panel Self Refresh enable OSLD mode. This value is 0 if 
+ *     the vblank is large enough to accommodate spool up and MSCG latencies.
+ *     This output is valid only if 
+ *     NVC372_CTRL_IS_MODE_POSSIBLE_OPTIONS_NEED_MIN_VPSTATE was set in the
+ *     "options" field and bGetOSLDOutput was specified in the head input.
+ *
+ *   wakeUpRgLineForOSLDMode
+ *     wakeUpRgLineForOSLDMode returns the rg line in the vblank region at which 
+ *     the clients will be required to send a timestamped update to achieve
+ *     optimized MSCG when OSLD Mode is enabled (assuming bIsPossible is 
+ *     is TRUE).  Features like Panel Replay and Panel Self Refresh enable 
+ *     OSLD mode. This output is valid only if 
+ *     NVC372_CTRL_IS_MODE_POSSIBLE_OPTIONS_NEED_MIN_VPSTATE was set in the
+ *     "options" field and bGetOSLDOutput was specified in the head input.
  * 
  *   worstCaseMargin
  *     worstCaseMargin returns the ratio of available bandwidth to required
@@ -350,6 +429,101 @@
  *     Returns a short text string naming the domain for the margin returned in
  *     "worstCaseMargin".  See "worstCaseMargin" for more information.
  *
+ *   numTilingAssignments
+ *     This is the number of entries in the tilingAssignments array, each of
+ *     which represents a possible distinct tiling configuration.  The client
+ *     will do the actual assignment of tiles during the modeset, but the
+ *     information provided here will help the client to know how many tiles
+ *     to assign to each head.
+ *
+ *     The first tiling assignment (tilingAssignments[0]) is required; it will
+ *     specify that one or more tiles must be assigned to each active head in
+ *     order for the mode to be possible.  Subsequent tiling assignments are
+ *     optional; each higher assignment will reduce the required dispclk to a
+ *     lower frequency, so the client may choose to use some or all of these
+ *     assignments because they might reduce power consumption.
+ *
+ *     The tiling assignments are incremental; the client may choose how many
+ *     assignments to use (after the first one, which is required), but they
+ *     must be used in sequence.  For example, if there are five possible
+ *     assignments (numTilingAssignments = 5), and the client wishes to apply
+ *     the third assignment, the tiles from the first two assignments must also
+ *     be allocated.
+ *
+ *     If the client decides to use a particular tiling assignment, it should
+ *     assign all tiles specified in that assignment.  (Otherwise, there will
+ *     be no benefit from that assignment for reducing dispclk.)
+ *
+ *     A 3-head example of a set of tiling assignments is:
+ *       numTilingAssignments = 3
+ *       tilingAssignments[0].numTiles = 4
+ *       tilingAssignments[1].numTiles = 2
+ *       tilingAssignments[2].numTiles = 1
+ *       tileList[0].head = 0   (first tile for tilingAssignments[0])
+ *       tileList[0].headDscSlices = 2
+ *       tileList[1].head = 0   (second tile for tilingAssignments[0])
+ *       tileList[1].headDscSlices = xxx (not used, because it is specified in
+ *                                   tileList[0].headDscSlices)
+ *       tileList[2].head = 1   (third tile for tilingAssignments[0])
+ *       tileList[2].headDscSlices = 1
+ *       tileList[3].head = 2   (fourth tile for tilingAssignments[0])
+ *       tileList[3].headDscSlices = 1
+ *       tileList[4].head = 1   (first tile for tilingAssignments[1])
+ *       tileList[4].headDscSlices = 2
+ *       tileList[5].head = 2   (second tile for tilingAssignments[1])
+ *       tileList[5].headDscSlices = 2
+ *       tileList[6].head = 0   (tile for tilingAssignments[2]
+ *       tileList[6].headDscSlices = 3
+ *
+ *     tilingAssignments[0] always specifies the minimum tiling assignment
+ *     necessary to make the mode possible.  In this example, two tiles are
+ *     required on head 0, but heads 1 and 2 can work with a single tile each.
+ *
+ *     After the four required tiles are assigned for tilingAssignments[0], the
+ *     client may choose to apply tilingAssignment[1] as well, to reduce
+ *     dispclk further.  Two additional tiles would be required for this, one
+ *     on head 1 and one on head 2.  Note that there would be no benefit to
+ *     assigning a tile to only one of these two heads; all heads specified in
+ *     the tilingAssignment must be assigned (if the tilingAssignment is to be
+ *     used).  After this assignment, head 1 and head 2 would each have two
+ *     tiles assigned (one from tilingAssignment[0] and one from
+ *     tilingAssignent[1]).  Head 0 would still have 2 tiles assigned.
+ *
+ *     If tilingAssignments[2] is also used, an additional tile would be
+ *     assigned to head 0, bringing the tile total to three for that head.  The
+ *     number of DSC slices required for that head would be increased to three.
+ *
+ *   tilingAssignments.numTiles
+ *     This is the number of additional tiles required for the indexed tiling
+ *     assignment.  The tilingAssignment does not provide any benefit unless
+ *     all of its specified tiles are assigned.
+ *
+ *   tileList.head
+ *     This specifies the head to which a tile must be assigned, to receive a
+ *     benefit (dispclk reduction) for a given tiling assignment.
+ *     tileList entries (head indexes) are assigned consecutively, based on the
+ *     tilingAssignments.numTiles entries.  For example, if
+ *     tilingAssignments[0].numTiles = 3 and tilingAssignments[1].numTiles = 2,
+ *     then the first three tileList entries (indexes 0, 1, and 2) would be for tiling
+ *     assignment 0 and the next 2 entries (indexes 3 and 4) would be for
+ *     tiling assignment 1.
+ *
+ *     A single assignment may have multiple tileList.head entries for the same
+ *     head (if a single head requires that more than one additional tile be
+ *     assigned).
+ *
+ *   tileList.headDscSlices
+ *     headDscSlices gives the recommended number of DSC slices for each
+ *     scanline for the head specified in tileList.head.  If a specific tiling
+ *     assignment has multiple tiles assigned to the same head, the
+ *     headDscSlices value for the first tileList entry should be used;
+ *     subsequent entries may be ignored.  If multiple tilingAssignments are
+ *     applied, the headDscSlices entry for the highest indexed
+ *     tilingAssignment takes precedence over any entries from lower indexed
+ *     assignments, for the same head.
+ *
+ *     This field is relevant only if head.bEnableDsc is true.
+ *
  * Possible status values returned are:
  *     NVOS_STATUS_SUCCESS
  *     NVOS_STATUS_ERROR_GENERIC
@@ -357,6 +531,7 @@
 #define NVC372_CTRL_IMP_LUT_USAGE_NONE   0
 #define NVC372_CTRL_IMP_LUT_USAGE_257    1
 #define NVC372_CTRL_IMP_LUT_USAGE_1025   2
+#define NVC372_CTRL_IMP_LUT_USAGE_HW_MAX 3
 
 typedef struct NVC372_CTRL_IMP_HEAD {
     NvU8  headIndex;
@@ -406,9 +581,15 @@ typedef struct NVC372_CTRL_IMP_HEAD {
 
     NvBool bEnableDsc;
 
+    NvU32  possibleDscSliceCountMask;
+
+    NvU32  maxDscSliceWidth;
+
     NvBool bYUV420Format;
 
     NvBool bIs2Head1Or;
+
+    NvBool bGetOSLDOutput;
 
     NvBool bDisableMidFrameAndDWCFWatermark;
 } NVC372_CTRL_IMP_HEAD;
@@ -429,6 +610,15 @@ typedef struct NVC372_CTRL_IMP_WINDOW {
     NvU8   tmoLut;
 } NVC372_CTRL_IMP_WINDOW;
 typedef struct NVC372_CTRL_IMP_WINDOW *PNVC372_CTRL_IMP_WINDOW;
+
+typedef struct NVC372_TILING_ASSIGNMENT {
+    NvU8 numTiles;
+} NVC372_TILING_ASSIGNMENT;
+
+typedef struct NVC372_TILE_ENTRY {
+    NvU8 head;
+    NvU8 headDscSlices;
+} NVC372_TILE_ENTRY;
 
 #define NVC372_CTRL_IS_MODE_POSSIBLE_OPTIONS_GET_MARGIN       (0x00000001)
 #define NVC372_CTRL_IS_MODE_POSSIBLE_OPTIONS_NEED_MIN_VPSTATE (0x00000002)
@@ -452,6 +642,8 @@ typedef struct NVC372_CTRL_IS_MODE_POSSIBLE_PARAMS {
 
     NvBool                      bIsPossible;
 
+    NvBool                      bIsOSLDPossible[NVC372_CTRL_MAX_POSSIBLE_HEADS];
+
     NvU32                       minImpVPState;
 
     NvU32                       minPState;
@@ -462,9 +654,19 @@ typedef struct NVC372_CTRL_IS_MODE_POSSIBLE_PARAMS {
 
     NvU32                       minRequiredHubclkKHz;
 
+    NvU32                       vblankIncreaseInLinesForOSLDMode[NVC372_CTRL_MAX_POSSIBLE_HEADS];
+
+    NvU32                       wakeUpRgLineForOSLDMode[NVC372_CTRL_MAX_POSSIBLE_HEADS];
+
     NvU32                       worstCaseMargin;
 
     NvU32                       dispClkKHz;
+
+    NvU32                       numTilingAssignments;
+
+    NVC372_TILING_ASSIGNMENT    tilingAssignments[NVC372_CTRL_MAX_POSSIBLE_TILES];
+
+    NVC372_TILE_ENTRY           tileList[NVC372_CTRL_MAX_POSSIBLE_TILES];
 
     char                        worstCaseDomain[8];
 
@@ -500,10 +702,11 @@ typedef struct NVC372_CTRL_IS_MODE_POSSIBLE_PARAMS *PNVC372_CTRL_IS_MODE_POSSIBL
 #define NVC372_CTRL_IMP_INSUFFICIENT_BANDWIDTH                        5
 #define NVC372_CTRL_IMP_DISPCLK_TOO_LOW                               6
 #define NVC372_CTRL_IMP_ELV_START_TOO_HIGH                            7
-#define NVC372_CTRL_IMP_INSUFFICIENT_THREAD_GROUPS                    8
-#define NVC372_CTRL_IMP_INVALID_PARAMETER                             9
-#define NVC372_CTRL_IMP_UNRECOGNIZED_FORMAT                           10
-#define NVC372_CTRL_IMP_UNSPECIFIED                                   11
+#define NVC372_CTRL_IMP_OSLD_ELV_START_TOO_HIGH                       8
+#define NVC372_CTRL_IMP_INSUFFICIENT_THREAD_GROUPS                    9
+#define NVC372_CTRL_IMP_INVALID_PARAMETER                             10
+#define NVC372_CTRL_IMP_UNRECOGNIZED_FORMAT                           11
+#define NVC372_CTRL_IMP_UNSPECIFIED                                   12
 
 /*
  * The calculated margin is multiplied by a constant, so that it can be

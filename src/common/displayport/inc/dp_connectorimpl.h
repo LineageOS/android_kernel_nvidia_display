@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -89,11 +89,17 @@ namespace DisplayPort
         Timer * timer;                          // OS provided timer services
         Connector::EventSink * sink;            // Event Sink
 
+        // Cached Source OUI for restoring eDP OUI when powering up
+        unsigned cachedSourceOUI;
+        char     cachedSourceModelName[NV_DPCD_SOURCE_DEV_ID_STRING__SIZE + 1];
+        NvU8     cachedSourceChipRevision;
+
         unsigned ouiId;                                             // Sink ouiId
         char modelName[NV_DPCD_SOURCE_DEV_ID_STRING__SIZE + 1];     // Device Model-name
         bool    bIgnoreSrcOuiHandshake;                             // Skip writing source OUI
 
-        LinkPolicy  linkPolicy;
+        LinkPolicy    linkPolicy;
+
         bool    linkGuessed;                    // True when link was "guessed" during HPD in TMDS mode
         bool    isLinkQuiesced;                 // True when link was set to quiet mode by TMDS modeset
 
@@ -120,6 +126,7 @@ namespace DisplayPort
         bool    bPConConnected;                 // HDMI2.1-Protocol Converter (Support SRC control mode) connected.
         bool    bSkipAssessLinkForPCon;         // Skip assessLink() for PCON. DD will call assessFRLLink later.
         bool    bHdcpAuthOnlyOnDemand;          // True if only initiate Hdcp authentication on demand and MST won't auto-trigger authenticate at device attach.
+        bool    bReassessMaxLink;               // Retry assessLink() if the first assessed link config is lower than the panel max config.
 
         bool    constructorFailed;
 
@@ -322,6 +329,12 @@ namespace DisplayPort
         //
         bool        bDscCapBasedOnParent;
 
+        //
+        // MST device connnected to dock may issue IRQ for link lost.
+        // Send PowerDown path msg to suppress that.
+        //
+        bool        bPowerDownPhyBeforeD3;
+
         void sharedInit();
         ConnectorImpl(MainLink * main, AuxBus * auxBus, Timer * timer, Connector::EventSink * sink);
 
@@ -366,6 +379,7 @@ namespace DisplayPort
         }
 
         void populateAllDpConfigs();
+        virtual LinkRates* importDpLinkRates();
 
         //
         //  Suspend resume API
@@ -393,11 +407,13 @@ namespace DisplayPort
             unsigned rasterHeight,
             unsigned rasterBlankStartX,
             unsigned rasterBlankEndX,
-            unsigned depth);
+            unsigned depth,
+            DP_IMP_ERROR *errorStatus = NULL);
 
         virtual bool compoundQueryAttach(Group * target,
                                          const DpModesetParams &modesetParams,      // Modeset info
-                                         DscParams *pDscParams = NULL);             // DSC parameters
+                                         DscParams *pDscParams = NULL,              // DSC parameters
+                                         DP_IMP_ERROR *pErrorCode = NULL);          // Error Status code
 
         virtual bool endCompoundQuery();
 
@@ -500,6 +516,7 @@ namespace DisplayPort
         void populateDscGpuCaps(DSC_INFO* dscInfo);
         void populateForcedDscParams(DSC_INFO* dscInfo, DSC_INFO::FORCED_DSC_PARAMS* forcedParams);
         void populateDscSinkCaps(DSC_INFO* dscInfo, DeviceImpl * dev);
+        void populateDscBranchCaps(DSC_INFO* dscInfo, DeviceImpl * dev);
         void populateDscModesetInfo(MODESET_INFO * pModesetInfo, const DpModesetParams * pModesetParams);
 
         bool train(const LinkConfiguration & lConfig, bool force, LinkTrainingType trainType = NORMAL_LINK_TRAINING);
@@ -563,6 +580,7 @@ namespace DisplayPort
         virtual void setDp11ProtocolForced();
         virtual void resetDp11ProtocolForced();
         virtual bool isDp11ProtocolForced();
+
         bool isAcpiInitDone();
         virtual void notifyAcpiInitDone();
         Group * createFirmwareGroup();

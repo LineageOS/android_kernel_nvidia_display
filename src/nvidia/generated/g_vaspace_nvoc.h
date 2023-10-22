@@ -7,7 +7,7 @@ extern "C" {
 #endif
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2013-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2013-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -64,6 +64,18 @@ typedef struct VirtMemAllocator VirtMemAllocator;
 
 typedef struct MMU_MAP_TARGET       MMU_MAP_TARGET;
 typedef struct NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS;
+struct Device;
+
+#ifndef __NVOC_CLASS_Device_TYPEDEF__
+#define __NVOC_CLASS_Device_TYPEDEF__
+typedef struct Device Device;
+#endif /* __NVOC_CLASS_Device_TYPEDEF__ */
+
+#ifndef __nvoc_class_id_Device
+#define __nvoc_class_id_Device 0xe0ac20
+#endif /* __nvoc_class_id_Device */
+
+
 
 typedef struct
 {
@@ -114,7 +126,6 @@ typedef enum
 // BAR_IFB                    Used for IFB
 // PERFMON                    Used for Perfmon
 // PMU                        Used for PMU
-// DEFAULT_SIZE               Ignore varange parameters and use default
 // SET_MIRRORED               <DEPRECATED.........>
 //                            This flag will create a privileged PDB as part of this vaspace
 //                            This new PDB will mirror all of the allocations made in the
@@ -169,14 +180,12 @@ typedef enum
 #define VASPACE_FLAGS_RESTRICTED_RM_INTERNAL_VALIMITS             NVBIT(3)
 #define VASPACE_FLAGS_MINIMIZE_PTETABLE_SIZE                      NVBIT(4)
 #define VASPACE_FLAGS_RETRY_PTE_ALLOC_IN_SYS                      NVBIT(5)
-// unused                                                         NVBIT(6)
+#define VASPACE_FLAGS_REQUIRE_FIXED_OFFSET                        NVBIT(6)
 #define VASPACE_FLAGS_BAR_BAR1                                    NVBIT(7)
 #define VASPACE_FLAGS_BAR_BAR2                                    NVBIT(8)
 #define VASPACE_FLAGS_BAR_IFB                                     NVBIT(9)
 #define VASPACE_FLAGS_PERFMON                                     NVBIT(10)
 #define VASPACE_FLAGS_PMU                                         NVBIT(11)
-#define VASPACE_FLAGS_DEFAULT_SIZE                                NVBIT(12)
-#define VASPACE_FLAGS_DEFAULT_PARAMS                              NVBIT(13)
 #define VASPACE_FLAGS_PTETABLE_PMA_MANAGED                        NVBIT(14)
 #define VASPACE_FLAGS_INVALIDATE_SCOPE_NVLINK_TLB                 NVBIT(15)
 #define VASPACE_FLAGS_DISABLE_SPLIT_VAS                           NVBIT(16)
@@ -353,6 +362,7 @@ static inline NvBool vaspaceIsInternalVaRestricted_DISPATCH(struct OBJVASPACE *p
 }
 
 void vaspaceIncRefCnt_IMPL(struct OBJVASPACE *pVAS);
+
 #ifdef __nvoc_vaspace_h_disabled
 static inline void vaspaceIncRefCnt(struct OBJVASPACE *pVAS) {
     NV_ASSERT_FAILED_PRECOMP("OBJVASPACE was disabled!");
@@ -362,6 +372,7 @@ static inline void vaspaceIncRefCnt(struct OBJVASPACE *pVAS) {
 #endif //__nvoc_vaspace_h_disabled
 
 void vaspaceDecRefCnt_IMPL(struct OBJVASPACE *pVAS);
+
 #ifdef __nvoc_vaspace_h_disabled
 static inline void vaspaceDecRefCnt(struct OBJVASPACE *pVAS) {
     NV_ASSERT_FAILED_PRECOMP("OBJVASPACE was disabled!");
@@ -371,6 +382,7 @@ static inline void vaspaceDecRefCnt(struct OBJVASPACE *pVAS) {
 #endif //__nvoc_vaspace_h_disabled
 
 NV_STATUS vaspaceGetByHandleOrDeviceDefault_IMPL(struct RsClient *pClient, NvHandle hDeviceOrSubDevice, NvHandle hVASpace, struct OBJVASPACE **ppVAS);
+
 #define vaspaceGetByHandleOrDeviceDefault(pClient, hDeviceOrSubDevice, hVASpace, ppVAS) vaspaceGetByHandleOrDeviceDefault_IMPL(pClient, hDeviceOrSubDevice, hVASpace, ppVAS)
 #undef PRIVATE_FIELD
 

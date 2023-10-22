@@ -7,7 +7,7 @@ extern "C" {
 #endif
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -163,6 +163,18 @@ typedef struct ADDRESS_TRANSLATION_ *ADDRESS_TRANSLATION;
 #define AT_VALUE(x)    ((NvU64)(NvUPtr)(x))
 
 //
+// RM defined Memdesc surface names. The names are sent to Mods to enable feature verification.
+//
+#define NV_RM_SURF_NAME_INSTANCE_BLOCK                      "rm_instance_block_surface"
+#define NV_RM_SURF_NAME_PAGE_TABLE                          "rm_page_table_surface"
+#define NV_RM_SURF_NAME_NONREPLAYABLE_FAULT_BUFFER          "rm_non_replayable_fault_buffer_surface"
+#define NV_RM_SURF_NAME_REPLAYABLE_FAULT_BUFFER             "rm_replayable_fault_buffer_surface"
+#define NV_RM_SURF_NAME_CE_FAULT_METHOD_BUFFER              "rm_ce_fault_method_buffer_surface"
+#define NV_RM_SURF_NAME_ACCESS_COUNTER_BUFFER               "rm_access_counter_buffer_surface"
+#define NV_RM_SURF_NAME_VAB                                 "rm_vab_surface"
+#define NV_RM_SURF_NAME_GR_CIRCULAR_BUFFER                  "rm_gr_ctx_circular_buffer_surface"
+
+//
 // Overrides address translation in SR-IOV enabled usecases
 //
 // In SRIOV systems, an access from guest has to go through the following
@@ -203,7 +215,7 @@ typedef struct MEMORY_DESCRIPTOR
     NvU64 _flags;
 
     // Size of mapping used for this allocation.  Multiple mappings on Fermi must always use the same page size.
-    NvU32 _pageSize;
+    NvU64 _pageSize;
 
     // Size of the memory allocation in pages
     NvU64 PageCount;
@@ -332,6 +344,9 @@ typedef struct MEMORY_DESCRIPTOR
     // Serve as a head node in a list of submemdescs
     MEMORY_DESCRIPTOR_LIST *pSubMemDescList;
 
+    // Reserved for RM exclusive use
+    NvBool bRmExclusiveUse;
+
     // If strung in a intrusive linked list
     ListNode   node;
 
@@ -366,6 +381,16 @@ typedef struct MEMORY_DESCRIPTOR
 
     // We verified that memdesc is safe to be mapped as large pages
     NvBool bForceHugePages;
+
+    // Memory handle that libos 3+ returns for dynamically mapped sysmem
+    NvU32 libosRegionHandle;
+    NvU64 baseVirtualAddress;
+
+    // Indicates granularity of mapping. Will be used to implement dynamic page sizes.
+    NvU32 pageArrayGranularity;
+
+    // NUMA node ID from which memory should be allocated
+    NvS32 numaNode;
 
     //
     // If PhysicallyContiguous is NV_TRUE, this array consists of one element.
@@ -478,7 +503,7 @@ void memdescDescribe(MEMORY_DESCRIPTOR *pMemDesc,
 // Fill in a MEMORY_DESCRIPTOR with the physical page addresses returned by PMA.
 // It should already be initialized with memdescCreate*().
 void memdescFillPages(MEMORY_DESCRIPTOR *pMemDesc, NvU32 offset,
-                      NvU64 *pPages, NvU32 pageCount, NvU32 pageSize);
+                      NvU64 *pPages, NvU32 pageCount, NvU64 pageSize);
 
 // Create a MEMORY_DESCRIPTOR for a subset of an existing memory allocation.
 // The new MEMORY_DESCRIPTOR must be freed with memdescDestroy.
@@ -555,7 +580,7 @@ MEMORY_DESCRIPTOR *memdescGetMemDescFromIndex(MEMORY_DESCRIPTOR *pMemDesc, NvU32
 void memdescPrintMemdesc(MEMORY_DESCRIPTOR *pMemDesc, NvBool bPrintIndividualPages, const char *pPrefixMessage);
 
 // Get the page offset for an arbitrary power of two page size
-NvU64 memdescGetPageOffset(MEMORY_DESCRIPTOR *pMemDesc, NvU32 pageSize);
+NvU64 memdescGetPageOffset(MEMORY_DESCRIPTOR *pMemDesc, NvU64 pageSize);
 
 //
 // Internal APIs for the IOVASPACE to manage IOMMU mappings in a memdesc.
@@ -625,11 +650,14 @@ NvBool memdescGetContiguity(PMEMORY_DESCRIPTOR pMemDesc, ADDRESS_TRANSLATION add
 void memdescSetContiguity(PMEMORY_DESCRIPTOR pMemDesc, ADDRESS_TRANSLATION addressTranslation, NvBool isContiguous);
 NvBool memdescCheckContiguity(PMEMORY_DESCRIPTOR pMemDesc, ADDRESS_TRANSLATION addressTranslation);
 NV_ADDRESS_SPACE memdescGetAddressSpace(PMEMORY_DESCRIPTOR pMemDesc);
-NvU32 memdescGetPageSize(MEMORY_DESCRIPTOR *pMemDesc, ADDRESS_TRANSLATION addressTranslation);
-void  memdescSetPageSize(MEMORY_DESCRIPTOR *pMemDesc, ADDRESS_TRANSLATION addressTranslation, NvU32 pageSize);
+NvU64 memdescGetPageSize(MEMORY_DESCRIPTOR *pMemDesc, ADDRESS_TRANSLATION addressTranslation);
+void  memdescSetPageSize(MEMORY_DESCRIPTOR *pMemDesc, ADDRESS_TRANSLATION addressTranslation, NvU64 pageSize);
 PMEMORY_DESCRIPTOR memdescGetRootMemDesc(PMEMORY_DESCRIPTOR pMemDesc, NvU64 *pRootOffset);
 void memdescSetCustomHeap(PMEMORY_DESCRIPTOR);
 NvBool memdescGetCustomHeap(PMEMORY_DESCRIPTOR);
+NV_STATUS memdescSetPageArrayGranularity(MEMORY_DESCRIPTOR *pMemDesc, NvU64 pageArrayGranularity);
+
+NvBool memdescAcquireRmExclusiveUse(MEMORY_DESCRIPTOR *pMemDesc);
 
 /*!
  *  @brief Get PTE kind
@@ -820,6 +848,31 @@ memdescGetSize(PMEMORY_DESCRIPTOR pMemDesc)
 }
 
 /*!
+ *  @brief Set CPU NUMA node to allocate memory from
+ *
+ *  @param[in]  pMemDesc    Memory Descriptor to use
+ *  @param[in]  numaNode    NUMA node to allocate memory from
+ */
+static NV_INLINE void
+memdescSetNumaNode(MEMORY_DESCRIPTOR *pMemDesc, NvS32 numaNode)
+{
+    pMemDesc->numaNode = numaNode;
+}
+
+/*!
+ *  @brief Get CPU NUMA node to allocate memory from
+ *
+ *  @param[in]  pMemDesc    Memory Descriptor to use
+ *
+ *  @returns    NUMA node to allocate memory from
+ */
+static NV_INLINE NvS32
+memdescGetNumaNode(MEMORY_DESCRIPTOR *pMemDesc)
+{
+    return pMemDesc->numaNode;
+}
+
+/*!
  *  @brief Checks if subdevice memory descriptors are present
  *
  *  See memdescGetMemDescFromSubDeviceInst for an explanation of subdevice memory
@@ -888,12 +941,40 @@ NV_STATUS memdescRegisterToGSP(OBJGPU *pGpu, NvHandle hClient, NvHandle hParent,
 
 NV_STATUS memdescDeregisterFromGSP(OBJGPU *pGpu, NvHandle hClient, NvHandle hParent, NvHandle hMemory);
 
+/*!
+* @brief Send memory descriptor from CPU-RM to GSP
+*
+* This function will create a MemoryList object with the MEMORY_DESCRIPTOR information on CPU-RM
+* It will then use memdescRegisterToGSP API to create a corresponding MemoryList object on GSP-RM
+* with the same Handle as that on CPU-RM
+*
+* This MemoryList object has the same MEMORY_DESCRIPTOR info as the input pMemDesc
+* The CPU-RM handle can be sent to GSP-RM and then used on GSP end to retrieve the MemoryList object
+* and then the corresponding MEMORY_DESCRIPTOR
+*
+* @param[in]  pGpu          OBJGPU pointer
+* @param[in]  pMemDesc      MemDesc pointer
+* @param[out] pHandle       Pointer to handle of MemoryList object
+*
+* @returns NV_STATUS
+*/
+NV_STATUS memdescSendMemDescToGSP(OBJGPU *pGpu, MEMORY_DESCRIPTOR *pMemDesc, NvHandle *pHandle);
+
 // cache maintenance functions
 void memdescFlushCpuCaches(OBJGPU *pGpu, MEMORY_DESCRIPTOR *pMemDesc);
 
 // Map memory descriptor for RM internal access
 void* memdescMapInternal(OBJGPU *pGpu, MEMORY_DESCRIPTOR *pMemDesc, NvU32 flags);
 void memdescUnmapInternal(OBJGPU *pGpu, MEMORY_DESCRIPTOR *pMemDesc, NvU32 flags);
+
+/*!
+ * @brief Set the name of the surface.
+ *
+ * @param[in] pGpu     OBJGPU pointer.
+ * @param[in] pMemDesc MEMORY_DESCRIPTOR pointer that the name is to be set for.
+ * @param[in] name     const char pointer to the name to be set.
+ */
+void memdescSetName(OBJGPU*, MEMORY_DESCRIPTOR *pMemDesc, const char *name, const char *suffix);
 
 //
 // External flags:
@@ -1066,6 +1147,25 @@ void memdescUnmapInternal(OBJGPU *pGpu, MEMORY_DESCRIPTOR *pMemDesc, NvU32 flags
 // is to remove this by r525.
 //
 #define MEMDESC_FLAGS_WSL_SHARED_MEMORY             NVBIT64(46)
+
+//
+// Skip IOMMU mapping creation during alloc for sysmem.
+// A mapping might be requested later with custom parameters.
+//
+#define MEMDESC_FLAGS_SKIP_IOMMU_MAPPING            NVBIT64(47)
+
+//
+// Specical case to allocate the runlists for Guests from its GPA
+// In MODS, VM's GPA allocated from subheap so using this define to
+// Forcing memdesc to allocated from subheap
+//
+#define MEMDESC_FLAGS_FORCE_ALLOC_FROM_SUBHEAP      NVBIT64(48)
+
+//
+// Indicate if memdesc needs to restore pte kind in the static bar1 mode
+// when it is freed.
+//
+#define MEMDESC_FLAGS_RESTORE_PTE_KIND_ON_FREE      NVBIT64(49)
 
 #endif // _MEMDESC_H_
 

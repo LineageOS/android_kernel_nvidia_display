@@ -1,5 +1,6 @@
+
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -28,19 +29,43 @@
 #include "rmapi/client_resource.h"
 #include "rmapi/param_copy.h"
 #include "rmapi/rs_utils.h"
+#include "rmapi/rmapi.h"
 #include "gpu/gpu.h"
 #include "gpu/device/device.h"
+#include "gpu/gpu_uuid.h"
 #include "gpu_mgr/gpu_mgr.h"
 #include "resserv/rs_client.h"
 #include "resserv/rs_server.h"
 #include "resserv/rs_access_map.h"
 #include "nvBldVer.h"
 #include "nvVer.h"
+#include "nvpcf.h"
 #include "mem_mgr/mem.h"
 #include "nvsecurityinfo.h"
 #include "resource_desc.h"
 
+#include "nvop.h"
 #include "mem_mgr/virt_mem_mgr.h"
+
+#define CONFIG_2X_BUFF_SIZE_MIN                                             (2)
+
+//
+// Controller Table v2.2 has removed some params, set them using these
+// default values instead
+//
+// EWMA retention weight (232/256) results in tau being 10x the sampling period
+//
+#define CONTROLLER_GRP_DEFAULT_BASE_SAMPLING_PERIOD_MS                    (100)
+#define CONTROLLER_GRP_DEFAULT_SAMPLING_MULTIPLIER                          (1)
+#define CONTROLLER_GRP_DEFAULT_EWMA_WEIGHT                                (232)
+#define CONTROLLER_GRP_DEFAULT_INCREASE_GAIN_UFXP4_12                    (3686)
+#define CONTROLLER_GRP_DEFAULT_DECREASE_GAIN_UFXP4_12                    (4096)
+
+/*!
+ * Define the filter types.
+ */
+#define NVPCF0100_CTRL_CONTROLLER_FILTER_TYPE_EMWA                           (0)
+#define NVPCF0100_CTRL_CONTROLLER_FILTER_TYPE_MOVING_MAX                     (1)
 
 NV_STATUS
 cliresConstruct_IMPL
@@ -163,6 +188,31 @@ cliresShareCallback_IMPL
     return resShareCallback_IMPL(staticCast(pRmCliRes, RsResource), pInvokingClient, pParentRef, pSharePolicy);
 }
 
+NV_STATUS
+cliresControl_Prologue_IMPL
+(
+    RmClientResource *pRmCliRes,
+    CALL_CONTEXT *pCallContext,
+    RS_RES_CONTROL_PARAMS_INTERNAL *pParams
+)
+{
+    NV_STATUS status = serverDeserializeCtrlDown(pCallContext, pParams->cmd, &pParams->pParams, &pParams->paramsSize, &pParams->flags);
+
+    return status;
+}
+
+void
+cliresControl_Epilogue_IMPL
+(
+    RmClientResource *pRmCliRes,
+    CALL_CONTEXT *pCallContext,
+    RS_RES_CONTROL_PARAMS_INTERNAL *pParams
+)
+{
+    NV_ASSERT_OK(serverSerializeCtrlUp(pCallContext, pParams->cmd, &pParams->pParams, &pParams->paramsSize, &pParams->flags));
+    serverFreeSerializeStructures(pCallContext, pParams->pParams);
+}
+
 // ****************************************************************************
 //                              Helper functions
 // ****************************************************************************
@@ -185,7 +235,8 @@ CliControlSystemEvent
         return NV_ERR_INVALID_ARGUMENT;
     }
 
-    if (NV_OK != serverutilGetClientUnderLock(hClient, &pClient))
+    pClient = serverutilGetClientUnderLock(hClient);
+    if (pClient == NULL)
         return NV_ERR_INVALID_CLIENT;
 
     CliGetEventNotificationList(hClient, hClient, NULL, &pEventNotification);
@@ -236,9 +287,9 @@ CliGetSystemEventStatus
 )
 {
     NvU32 Head, Tail;
-    RmClient *pClient;
+    RmClient *pClient = serverutilGetClientUnderLock(hClient);
 
-    if (NV_OK != serverutilGetClientUnderLock(hClient, &pClient))
+    if (pClient == NULL)
         return NV_ERR_INVALID_CLIENT;
 
     Head = pClient->CliSysEventInfo.systemEventsQueue.Head;
@@ -284,7 +335,7 @@ cliresCtrlCmdSystemGetFeatures_IMPL
 
     NV_ASSERT_OR_RETURN(pSys != NULL, NV_ERR_INVALID_STATE);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     if (pSys->getProperty(pSys, PDB_PROP_SYS_IS_UEFI))
     {
@@ -318,7 +369,7 @@ cliresCtrlCmdSystemGetBuildVersionV2_IMPL
     NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_V2_PARAMS *pParams
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     ct_assert(sizeof(NV_VERSION_STRING) <= sizeof(pParams->driverVersionBuffer));
     ct_assert(sizeof(NV_BUILD_BRANCH_VERSION) <= sizeof(pParams->versionBuffer));
@@ -353,7 +404,7 @@ cliresCtrlCmdSystemGetCpuInfo_IMPL
 {
     OBJSYS    *pSys = SYS_GET_INSTANCE();
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     pCpuInfoParams->type = pSys->cpuInfo.type;
     pCpuInfoParams->capabilities = pSys->cpuInfo.caps;
@@ -367,6 +418,7 @@ cliresCtrlCmdSystemGetCpuInfo_IMPL
     pCpuInfoParams->family = pSys->cpuInfo.family;
     pCpuInfoParams->model = pSys->cpuInfo.model;
     pCpuInfoParams->stepping = pSys->cpuInfo.stepping;
+    pCpuInfoParams->bSEVEnabled = (sysGetStaticConfig(pSys))->bOsCCEnabled;
     portMemCopy(pCpuInfoParams->name,
                 sizeof (pCpuInfoParams->name), pSys->cpuInfo.name,
                 sizeof (pCpuInfoParams->name));
@@ -392,7 +444,7 @@ cliresCtrlCmdSystemSetMemorySize_IMPL
     OBJSYS *pSys = SYS_GET_INSTANCE();
     OBJOS *pOS = SYS_GET_OS(pSys);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner() && rmGpuLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
 
     pOS->SystemMemorySize = pParams->memorySize;
 
@@ -448,7 +500,7 @@ cliresCtrlCmdSystemGetClassList_IMPL
 {
     NV_STATUS status;
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner() && rmGpuLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
 
     status = classGetSystemClasses(pParams);
 
@@ -576,7 +628,7 @@ cliresCtrlCmdGpuGetAttachedIds_IMPL
     NV0000_CTRL_GPU_GET_ATTACHED_IDS_PARAMS *pGpuAttachedIds
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     return gpumgrGetAttachedGpuIds(pGpuAttachedIds);
 }
@@ -594,7 +646,7 @@ cliresCtrlCmdGpuGetIdInfo_IMPL
     NV0000_CTRL_GPU_GET_ID_INFO_PARAMS *pGpuIdInfoParams
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     return gpumgrGetGpuIdInfo(pGpuIdInfoParams);
 }
@@ -606,7 +658,7 @@ cliresCtrlCmdGpuGetIdInfoV2_IMPL
     NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS *pGpuIdInfoParams
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     return gpumgrGetGpuIdInfoV2(pGpuIdInfoParams);
 }
@@ -625,7 +677,7 @@ cliresCtrlCmdGpuGetInitStatus_IMPL
     NV0000_CTRL_GPU_GET_INIT_STATUS_PARAMS *pGpuInitStatusParams
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     return gpumgrGetGpuInitStatus(pGpuInitStatusParams);
 }
@@ -644,7 +696,7 @@ cliresCtrlCmdGpuGetDeviceIds_IMPL
     NV0000_CTRL_GPU_GET_DEVICE_IDS_PARAMS *pDeviceIdsParams
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     pDeviceIdsParams->deviceIds = gpumgrGetDeviceInstanceMask();
 
@@ -668,7 +720,7 @@ cliresCtrlCmdGpuGetPciInfo_IMPL
     NV_STATUS status;
     NvU64 gpuDomainBusDevice;
 
-    NV_ASSERT(rmApiLockIsOwner());
+    NV_ASSERT(rmapiLockIsOwner());
 
     status = gpumgrGetProbedGpuDomainBusDevice(pPciInfoParams->gpuId, &gpuDomainBusDevice);
     if (status != NV_OK)
@@ -695,7 +747,7 @@ cliresCtrlCmdGpuGetProbedIds_IMPL
     NV0000_CTRL_GPU_GET_PROBED_IDS_PARAMS *pGpuProbedIds
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     return gpumgrGetProbedGpuIds(pGpuProbedIds);
 }
@@ -718,7 +770,7 @@ cliresCtrlCmdGpuAttachIds_IMPL
     NvU32 i, j;
     NV_STATUS status = NV_OK;
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     if (pGpuAttachIds->gpuIds[0] == NV0000_CTRL_GPU_ATTACH_ALL_PROBED_IDS)
     {
@@ -782,7 +834,7 @@ cliresCtrlCmdGpuDetachIds_IMPL
     NvU32 i, j;
     NV_STATUS status = NV_OK;
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     if (pGpuDetachIds->gpuIds[0] == NV0000_CTRL_GPU_DETACH_ALL_ATTACHED_IDS)
     {
@@ -866,7 +918,7 @@ cliresCtrlCmdGsyncGetAttachedIds_IMPL
 {
     NvU32 i;
 
-    for (i = 0; i < NV_ARRAY_ELEMENTS32(pGsyncAttachedIds->gsyncIds); i++)
+    for (i = 0; i < NV_ARRAY_ELEMENTS(pGsyncAttachedIds->gsyncIds); i++)
     {
         pGsyncAttachedIds->gsyncIds[i] = NV0000_CTRL_GSYNC_INVALID_ID;
     }
@@ -908,6 +960,16 @@ cliresCtrlCmdEventGetSystemEventStatus_IMPL
     return CliGetSystemEventStatus(hClient, &pSystemEventStatusParams->event, &pSystemEventStatusParams->status);
 }
 
+NV_STATUS
+cliresCtrlCmdSystemNVPCFGetPowerModeInfo_IMPL
+(
+    RmClientResource *pRmCliRes,
+    NV0000_CTRL_CMD_SYSTEM_NVPCF_GET_POWER_MODE_INFO_PARAMS *pParams
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+
+}
 
 NV_STATUS
 cliresCtrlCmdSystemGetPrivilegedStatus_IMPL
@@ -1126,9 +1188,9 @@ cliresCtrlCmdSetSubProcessID_IMPL
 )
 {
     NvHandle  hClient = RES_GET_CLIENT_HANDLE(pRmCliRes);
-    RmClient *pClient;
+    RmClient *pClient = serverutilGetClientUnderLock(hClient);
 
-    if (NV_OK != serverutilGetClientUnderLock(hClient, &pClient))
+    if (pClient == NULL)
         return NV_ERR_INVALID_CLIENT;
 
     pClient->SubProcessID = pParams->subProcessID;
@@ -1150,9 +1212,9 @@ cliresCtrlCmdDisableSubProcessUserdIsolation_IMPL
 )
 {
     NvHandle  hClient = RES_GET_CLIENT_HANDLE(pRmCliRes);
-    RmClient *pClient;
+    RmClient *pClient = serverutilGetClientUnderLock(hClient);
 
-    if (NV_OK != serverutilGetClientUnderLock(hClient, &pClient))
+    if (pClient == NULL)
         return NV_ERR_INVALID_CLIENT;
 
     pClient->bIsSubProcessDisabled = pParams->bIsSubProcessDisabled;
@@ -1404,6 +1466,26 @@ cliresCtrlCmdClientGetChildHandle_IMPL
 }
 
 NV_STATUS
+cliresCtrlCmdObjectsAreDuplicates_IMPL
+(
+    RmClientResource *pRmCliRes,
+    NV0000_CTRL_CLIENT_OBJECTS_ARE_DUPLICATES_PARAMS *pParams
+)
+{
+    RsResourceRef *pResRef;
+    RsClient *pClient = RES_GET_CLIENT(pRmCliRes);
+
+    NV_CHECK_OK_OR_RETURN(LEVEL_SILENT,
+        clientGetResourceRef(pClient, pParams->hObject1, &pResRef));
+
+    NV_CHECK_OK_OR_RETURN(LEVEL_SILENT,
+        resIsDuplicate(pResRef->pResource, pParams->hObject2,
+                       &pParams->bDuplicates));
+
+    return NV_OK;
+}
+
+NV_STATUS
 cliresCtrlCmdGpuGetMemOpEnable_IMPL
 (
     RmClientResource *pRmCliRes,
@@ -1451,6 +1533,27 @@ cliresCtrlCmdGpuDisableNvlinkInit_IMPL
     }
 
     return gpumgrSetGpuInitDisabledNvlinks(pParams->gpuId, pParams->mask, pParams->bSkipHwNvlinkDisable);
+}
+
+NV_STATUS
+cliresCtrlCmdGpuSetNvlinkBwMode_IMPL
+(
+    RmClientResource *pRmCliRes,
+    NV0000_CTRL_GPU_SET_NVLINK_BW_MODE_PARAMS *pParams
+)
+{
+    return gpumgrSetGpuNvlinkBwMode(pParams->mode);
+}
+
+NV_STATUS
+cliresCtrlCmdGpuGetNvlinkBwMode_IMPL
+(
+    RmClientResource *pRmCliRes,
+    NV0000_CTRL_GPU_GET_NVLINK_BW_MODE_PARAMS *pParams
+)
+{
+    pParams->mode = gpumgrGetGpuNvlinkBwMode();
+    return NV_OK;
 }
 
 NV_STATUS
@@ -1534,4 +1637,46 @@ NV_STATUS cliresCtrlCmdSystemGetClientDatabaseInfo_IMPL
     pParams->resourceCount = g_resServ.activeResourceCount;
     return NV_OK;
 }
+
+/*!
+ * @brief Used to push the GSP ucode into RM. This function is used only on
+ *        VMware
+ *
+ * @return
+ *      NV_OK                   The sent data is stored successfully
+ *      NV_ERR_INVALID_ARGUMENT if the arguments are not proper
+ *      NV_ERR_NO_MEMORY        if memory allocation failed
+ *      NV_ERR_NOT_SUPPORTED    if function is invoked on non-GSP setup or any
+ *                              setup other than VMware host
+ */
+NV_STATUS cliresCtrlCmdPushGspUcode_IMPL
+(
+    RmClientResource *pRmCliRes,
+    NV0000_CTRL_GPU_PUSH_GSP_UCODE_PARAMS *pParams
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS cliresCtrlCmdSystemRmctrlCacheModeCtrl_IMPL
+(
+    RmClientResource *pRmCliRes,
+    NV0000_CTRL_SYSTEM_RMCTRL_CACHE_MODE_CTRL_PARAMS *pParams
+)
+{
+    switch (pParams->cmd)
+    {
+        case NV0000_CTRL_SYSTEM_RMCTRL_CACHE_MODE_CTRL_CMD_SET:
+            rmapiControlCacheSetMode(pParams->mode);
+            break;
+        case NV0000_CTRL_SYSTEM_RMCTRL_CACHE_MODE_CTRL_CMD_GET:
+            pParams->mode = rmapiControlCacheGetMode();
+            break;
+        default:
+            return NV_ERR_INVALID_ARGUMENT;
+    }
+    return NV_OK;
+}
+
+// GPS HOSUNGK DELETE after KMD, NvAPI changes are made
 

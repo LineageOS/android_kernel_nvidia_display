@@ -1,6 +1,6 @@
 //*****************************************************************************
 //
-//  SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+//  SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //  SPDX-License-Identifier: MIT
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a
@@ -997,6 +997,10 @@ static NVT_STATUS parseDisplayIdRangeLimits(NvU8 * block, NVT_DISPLAYID_INFO *pI
 {
     NVT_DISPLAYID_RANGE_LIMITS * rl;
     DISPLAYID_RANGE_LIMITS_BLOCK * blk = (DISPLAYID_RANGE_LIMITS_BLOCK *)block;
+    NVT_STATUS status = NVT_STATUS_SUCCESS;
+    NvU32 minPclk = 0;
+    NvU32 maxPclk = 0;
+
     if (blk->header.data_bytes != DISPLAYID_RANGE_LIMITS_BLOCK_LEN)
     {
         // Assert since this error is ignored
@@ -1004,20 +1008,31 @@ static NVT_STATUS parseDisplayIdRangeLimits(NvU8 * block, NVT_DISPLAYID_INFO *pI
         return NVT_STATUS_ERR;
     }
 
-    if (pInfo == NULL) return NVT_STATUS_SUCCESS;
+    minPclk = blk->pixel_clock_min[0] | (blk->pixel_clock_min[1] << 8) | (blk->pixel_clock_min[2] << 16);
+    maxPclk = blk->pixel_clock_max[0] | (blk->pixel_clock_max[1] << 8) | (blk->pixel_clock_max[2] << 16);
+
+    if (blk->vertical_refresh_rate_min == 0 || blk->vertical_refresh_rate_max == 0 ||
+        blk->vertical_refresh_rate_min > blk->vertical_refresh_rate_max ||
+        minPclk > maxPclk)
+    {
+        nvt_assert(0 && "wrong range limit");
+        status = NVT_STATUS_ERR;
+    }
+
+    if (pInfo == NULL) return status;
 
     if (pInfo->rl_num >= NVT_DISPLAYID_RANGE_LIMITS_MAX_COUNT)
     {
         // Assert since this error is ignored
-        nvt_assert(0);        
+        nvt_assert(0);
         return NVT_STATUS_ERR;
     }
 
     rl = pInfo->range_limits + pInfo->rl_num;
     (pInfo->rl_num)++;
     
-    rl->pclk_min  = blk->pixel_clock_min[0] | (blk->pixel_clock_min[1] << 8) | (blk->pixel_clock_min[2] << 16);
-    rl->pclk_max = blk->pixel_clock_max[0] | (blk->pixel_clock_max[1] << 8) | (blk->pixel_clock_max[2] << 16);
+    rl->pclk_min = minPclk;
+    rl->pclk_max = maxPclk;
 
     rl->interlaced = DRF_VAL(T_DISPLAYID, _RANGE_LIMITS, _INTERLACE, blk->optns);
     rl->cvt = DRF_VAL(T_DISPLAYID, _RANGE_LIMITS, _CVT_STANDARD, blk->optns);
@@ -1357,9 +1372,9 @@ static NVT_STATUS parseDisplayIdCtaData(NvU8 * block, NVT_EDID_INFO *pInfo)
     // yuv420-only video
     parse861bShortYuv420Timing(p861info, pInfo, FROM_DISPLAYID_13_DATA_BLOCK);
     // CEA861-F at 7.5.12 section about VFPDB block.
-    if (p861info->total_vfpdb != 0)
+    if (p861info->total_svr != 0)
     {
-        parse861bShortPreferredTiming(p861info, pInfo, FROM_DISPLAYID_13_DATA_BLOCK);
+        parseCta861NativeOrPreferredTiming(p861info, pInfo, FROM_DISPLAYID_13_DATA_BLOCK);
     }
 
     return NVT_STATUS_SUCCESS;

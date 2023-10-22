@@ -26,10 +26,10 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: class/cl9170.finn
+// Source file:      class/cl9170.finn
 //
 
-#define NV9170_DISPLAY (0x00009170)
+#define NV9170_DISPLAY (0x9170U) /* finn: Evaluated from "NV9170_ALLOCATION_PARAMETERS_MESSAGE_ID" */
 
 #define NV9170_ALLOCATION_PARAMETERS_MESSAGE_ID (0x9170U)
 

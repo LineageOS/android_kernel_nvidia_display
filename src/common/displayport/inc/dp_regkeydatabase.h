@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -59,6 +59,15 @@
 
 #define NV_DP_REGKEY_FORCE_EDP_ILR                    "DP_BYPASS_EDP_ILR_REV_CHECK"
 
+// Message to power down video stream before power down link (set D3)
+#define NV_DP_REGKEY_POWER_DOWN_PHY                   "DP_POWER_DOWN_PHY"
+
+//
+// Regkey to re-assess max link if the first assessed link config 
+// is lower than the panel max
+//
+#define NV_DP_REGKEY_REASSESS_MAX_LINK                "DP_REASSESS_MAX_LINK"
+
 //
 // DSC capability of downstream device should be decided based on device's own
 // and its parent's DSC capability.
@@ -96,6 +105,8 @@ struct DP_REGKEY_DATABASE
     bool  bOptLinkKeptAliveSst;
     bool  bBypassEDPRevCheck;
     bool  bDscMstCapBug3143315;
+    bool  bPowerDownPhyBeforeD3;
+    bool  bReassessMaxLink;
 };
 
 #endif //INCLUDED_DP_REGKEYDATABASE_H

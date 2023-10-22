@@ -77,6 +77,7 @@ const struct ChipID
     {                               0x0,                            0x0,   0x0 } , // GA107  (disabled)
     {                               0x0,                            0x0,   0x0 } , // GA10B  (disabled)
     {                               0x0,                            0x0,   0x0 } , // GA102F (disabled)
+    {                               0x0,                            0x0,   0x0 } , // GH202  (disabled)
     {                               0x0,                            0x0,   0x0 } , // T001_FERMI_NOT_EXIST (disabled)
     {                               0x0,                            0x0,   0x0 } , // T124   (disabled)
     {                               0x0,                            0x0,   0x0 } , // T132   (disabled)
@@ -85,6 +86,8 @@ const struct ChipID
     {                               0x0,                            0x0,   0x0 } , // T194   (disabled)
     {                               0x0,                            0x0,   0x0 } , // T002_TURING_NOT_EXIST (disabled)
     {                               0x0,                            0x0,   0x0 } , // T234   (disabled)
+    {                               0x0,                            0x0,   0x0 } , // T003_ADA_NOT_EXIST (disabled)
+    {                               0x0,                            0x0,   0x0 } , // T004_HOPPER_NOT_EXIST (disabled)
     {                               0x0,                            0x0, 0x235 } , // T234D 
     {                               0x0,                            0x0,   0x0 } , // AMODEL (disabled)
 

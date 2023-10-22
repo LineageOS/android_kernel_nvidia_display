@@ -101,13 +101,6 @@
 #   define NV_ANDROID
 #endif
 
-
-
-
-
-
-
-
 #if defined(DceCore) && !defined(NV_DCECORE)
 #    define NV_DCECORE
 #endif
@@ -249,7 +242,7 @@
 #endif
 
 /* For verification-only features not intended to be included in normal drivers */
-#if defined(NV_MODS) && defined(DEBUG) && !defined(DISABLE_VERIF_FEATURES)
+#if defined(ENABLE_VERIF_FEATURES)
 #define NV_VERIF_FEATURES
 #endif
 
@@ -348,15 +341,6 @@
 #else
 #define NVOS_IS_INTEGRITY 0
 #endif
-
-
-
-
-
-
-
-
-
 
 #if defined(NVCPU_X86)
 #define NVCPU_IS_X86 1

@@ -43,10 +43,39 @@
 #include "dp_vrr.h"
 #include "../../modeset/timing/nvt_dsc_pps.h"
 #include "ctrl/ctrl0073/ctrl0073dp.h"
+#include "nvcfg_sdk.h"
 
 namespace DisplayPort
 {
     class EvoInterface;
+ 
+    typedef enum
+    {
+        DP_IMP_ERROR_NONE,
+        DP_IMP_ERROR_ZERO_VALUE_PARAMS,
+        DP_IMP_ERROR_AUDIO_BEYOND_48K,
+        DP_IMP_ERROR_DSC_SYNAPTICS_COLOR_FORMAT,
+        DP_IMP_ERROR_PPS_DSC_DUAL_FORCE,
+        DP_IMP_ERROR_DSC_PCON_FRL_BANDWIDTH,
+        DP_IMP_ERROR_DSC_PCON_HDMI2_BANDWIDTH,
+        DP_IMP_ERROR_DSC_LAST_HOP_BANDWIDTH,
+        DP_IMP_ERROR_INSUFFICIENT_BANDWIDTH,
+        DP_IMP_ERROR_INSUFFICIENT_BANDWIDTH_DSC,
+        DP_IMP_ERROR_INSUFFICIENT_BANDWIDTH_NO_DSC,
+        DP_IMP_ERROR_WATERMARK_BLANKING,
+        DP_IMP_ERROR_PPS_COLOR_FORMAT_NOT_SUPPORTED,
+        DP_IMP_ERROR_PPS_INVALID_HBLANK,
+        DP_IMP_ERROR_PPS_INVALID_BPC,
+        DP_IMP_ERROR_PPS_MAX_LINE_BUFFER_ERROR,
+        DP_IMP_ERROR_PPS_OVERALL_THROUGHPUT_ERROR,
+        DP_IMP_ERROR_PPS_DSC_SLICE_ERROR,
+        DP_IMP_ERROR_PPS_PPS_SLICE_COUNT_ERROR,
+        DP_IMP_ERROR_PPS_PPS_SLICE_HEIGHT_ERROR,
+        DP_IMP_ERROR_PPS_PPS_SLICE_WIDTH_ERROR,
+        DP_IMP_ERROR_PPS_INVALID_PEAK_THROUGHPUT,
+        DP_IMP_ERROR_PPS_MIN_SLICE_COUNT_ERROR,
+        DP_IMP_ERROR_PPS_GENERIC_ERROR,
+    } DP_IMP_ERROR;
 
     typedef enum
     {
@@ -124,10 +153,11 @@ namespace DisplayPort
         ForceDsc forceDsc;                         // [IN]     - Client telling DP Library to force enable/disable DSC
         DSC_INFO::FORCED_DSC_PARAMS* forcedParams; // [IN]     - Client telling DP Library to force certain DSC params.
         bool bEnableDsc;                           // [OUT]    - DP Library telling client that DSC is needed for this mode.
+        NvU32 sliceCountMask;                      // [OUT]    - DP Library telling client what all slice counts can be used for the mode.
         unsigned bitsPerPixelX16;                  // [IN/OUT] - Bits per pixel value multiplied by 16
         DscOutParams *pDscOutParams;               // [OUT]    - DSC parameters
 
-        DscParams() : bCheckWithDsc(false), forceDsc(DSC_DEFAULT), forcedParams(NULL), bEnableDsc(false), bitsPerPixelX16(0), pDscOutParams(NULL) {}
+        DscParams() : bCheckWithDsc(false), forceDsc(DSC_DEFAULT), forcedParams(NULL), bEnableDsc(false), sliceCountMask(0), bitsPerPixelX16(0), pDscOutParams(NULL) {}
     };
 
     class Group;
@@ -202,6 +232,9 @@ namespace DisplayPort
         virtual bool getDpcdRevision(unsigned * major, unsigned * minor) = 0;  // get the dpcd revision (maybe cached)
 
         virtual bool getSDPExtnForColorimetrySupported() = 0;
+        virtual bool getAsyncSDPSupported() = 0;
+
+        virtual bool getPanelFwRevision(NvU16 *revision) = 0;
 
         virtual bool getIgnoreMSACap() = 0;
 
@@ -210,6 +243,10 @@ namespace DisplayPort
         virtual NvBool isDSCPossible() = 0;
 
         virtual NvBool isDSCSupported() = 0;
+
+        virtual NvBool isDSCDecompressionSupported() = 0;
+
+        virtual NvBool isDSCPassThroughSupported() = 0;
 
         virtual DscCaps getDscCaps() = 0;
 
@@ -259,9 +296,9 @@ namespace DisplayPort
         // If the sink support MSA override in MST environment.
         virtual bool isMSAOverMSTCapable() = 0;
         virtual bool isFakedMuxDevice() = 0;
-
         virtual bool setPanelReplayConfig(panelReplayConfig prcfg) = 0;
         virtual bool isPanelReplaySupported() = 0;
+        virtual bool getPanelReplayStatus(PanelReplayStatus *pPrStatus) = 0;
 
     protected:
             virtual ~Device() {}
@@ -434,11 +471,13 @@ namespace DisplayPort
                                  unsigned rasterHeight,
                                  unsigned rasterBlankStartX,
                                  unsigned rasterBlankEndX,
-                                 unsigned depth) = 0;
+                                 unsigned depth,
+                                 DP_IMP_ERROR *errorStatus = NULL) = 0;
 
         virtual bool compoundQueryAttach(Group * target,
                                          const DpModesetParams &modesetParams,      // Modeset info
-                                         DscParams *pDscParams) = 0;                // DSC parameters
+                                         DscParams *pDscParams,				     // DSC parameters
+                                         DP_IMP_ERROR *errorStatus = NULL) = 0;     // Error Status code     
 
         virtual bool endCompoundQuery() = 0;
 

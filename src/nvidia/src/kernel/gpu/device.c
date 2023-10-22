@@ -35,6 +35,7 @@
 #include "resserv/rs_client.h"
 #include "resserv/rs_resource.h"
 #include "gpu/device/device.h"
+#include "gpu/subdevice/subdevice.h"
 
 #include "class/cl0080.h"
 #include "core/locks.h"
@@ -173,8 +174,6 @@ deviceDestruct_IMPL
     NV_STATUS               rmStatus = NV_OK;
     NV_STATUS               tmpStatus;
     NvHandle                hClient;
-    NODE                   *pNode;
-    RM_API                 *pRmApi = rmapiGetInterface(RMAPI_GPU_LOCK_INTERNAL);
 
     resGetFreeParams(staticCast(pDevice, RsResource), &pCallContext, &pParams);
 
@@ -183,18 +182,6 @@ deviceDestruct_IMPL
     NV_PRINTF(LEVEL_INFO, "    type: device\n");
 
     LOCK_METER_DATA(FREE_DEVICE, 0, 0, 0);
-
-    // Free all device memory
-    btreeEnumStart(0, &pNode, pDevice->DevMemoryTable);
-    while (pNode != NULL)
-    {
-        Memory *pMemory = pNode->Data;
-        btreeEnumNext(&pNode, pDevice->DevMemoryTable);
-
-        tmpStatus = pRmApi->Free(pRmApi, hClient, RES_GET_HANDLE(pMemory));
-        if ((tmpStatus != NV_OK) && (rmStatus == NV_OK))
-            rmStatus = tmpStatus;
-    }
 
     // free the device
     if (_deviceTeardownRef(pDevice, pCallContext) != NV_OK ||
@@ -322,7 +309,6 @@ deviceInit_IMPL
 
     pDevice->hTargetClient  = hTargetClient;
     pDevice->hTargetDevice  = hTargetDevice;
-    pDevice->pHostVgpuDevice = NULL;
     pDevice->pKernelHostVgpuDevice = NULL;
 
     pDevice->deviceInst = deviceInst;
@@ -336,6 +322,12 @@ deviceInit_IMPL
                                   vaStartInternal, vaLimitInternal, allocFlags);
     if (NV_OK != status)
         goto done;
+
+    if (allocFlags & NV_DEVICE_ALLOCATION_FLAGS_PLUGIN_CONTEXT)
+    {
+        NV_ASSERT_OR_RETURN(allocFlags & NV_DEVICE_ALLOCATION_FLAGS_HOST_VGPU_DEVICE,
+            NV_ERR_INVALID_ARGUMENT);
+    }
 
 done:
     if (status != NV_OK)
@@ -454,29 +446,6 @@ deviceGetByGpu_IMPL
 // ****************************************************************************
 //                            Deprecated Functions
 // ****************************************************************************
-
-/**
- * WARNING: This function is deprecated! Please use deviceGetByHandle.
- */
-Device *
-CliGetDeviceInfo
-(
-    NvHandle hClient,
-    NvHandle hDevice
-)
-{
-    RsClient   *pClient;
-    NV_STATUS   status;
-    Device     *pDevice;
-
-    status = serverGetClientUnderLock(&g_resServ, hClient, &pClient);
-    if (status != NV_OK)
-        return NULL;
-
-    status = deviceGetByHandle(pClient, hDevice, &pDevice);
-
-    return (status == NV_OK) ? pDevice : NULL;
-}
 
 /**
  * WARNING: This function is deprecated and use is *strongly* discouraged

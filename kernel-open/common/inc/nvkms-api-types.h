@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2014-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -29,6 +29,7 @@
 #include <nvlimits.h>
 
 #define NVKMS_MAX_SUBDEVICES                  NV_MAX_SUBDEVICES
+#define NVKMS_MAX_HEADS_PER_DISP              NV_MAX_HEADS
 
 #define NVKMS_LEFT                            0
 #define NVKMS_RIGHT                           1
@@ -43,6 +44,8 @@
 #define NVKMS_DP_ADDRESS_STRING_LENGTH        64
 
 #define NVKMS_DEVICE_ID_TEGRA                 0x0000ffff
+
+#define NVKMS_MAX_SUPERFRAME_VIEWS            4
 
 typedef NvU32 NvKmsDeviceHandle;
 typedef NvU32 NvKmsDispHandle;
@@ -530,6 +533,18 @@ typedef struct {
     NvBool noncoherent;
 } NvKmsDispIOCoherencyModes;
 
+enum NvKmsInputColorRange {
+    /*
+     * If DEFAULT is provided, driver will assume full range for RGB formats
+     * and limited range for YUV formats.
+     */
+    NVKMS_INPUT_COLORRANGE_DEFAULT = 0,
+
+    NVKMS_INPUT_COLORRANGE_LIMITED = 1,
+
+    NVKMS_INPUT_COLORRANGE_FULL = 2,
+};
+
 enum NvKmsInputColorSpace {
     /* Unknown colorspace; no de-gamma will be applied */
     NVKMS_INPUT_COLORSPACE_NONE = 0,
@@ -602,6 +617,31 @@ struct NvKmsHDRStaticMetadata {
      * where 0x0001 represents 1 cd/m2 and 0xFFFF represents 65535 cd/m2.
      */
     NvU16 maxFALL;
+};
+
+/*!
+ * A superframe is made of two or more video streams that are combined in
+ * a specific way. A DP serializer (an external device connected to a Tegra
+ * ARM SOC over DP or HDMI) can receive a video stream comprising multiple
+ * videos combined into a single frame and then split it into multiple
+ * video streams. The following structure describes the number of views
+ * and dimensions of each view inside a superframe.
+ */
+struct NvKmsSuperframeInfo {
+    NvU8 numViews;
+    struct {
+        /* x offset inside superframe at which this view starts */
+        NvU16 x;
+
+        /* y offset inside superframe at which this view starts */
+        NvU16 y;
+
+        /* Horizontal active width in pixels for this view */
+        NvU16 width;
+
+        /* Vertical active height in lines for this view */
+        NvU16 height;
+    } view[NVKMS_MAX_SUPERFRAME_VIEWS];
 };
 
 #endif /* NVKMS_API_TYPES_H */

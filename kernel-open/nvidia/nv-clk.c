@@ -26,6 +26,14 @@
 #include "os-interface.h"
 #include "nv-linux.h"
 
+#if defined(NV_SOC_TEGRA_BPMP_ABI_H_PRESENT)
+#include <soc/tegra/bpmp-abi.h>
+#endif
+
+#if defined(NV_SOC_TEGRA_BPMP_H_PRESENT)
+#include <soc/tegra/bpmp.h>
+#endif
+
 /*!
  * @brief The below defined static const array points to the
  * clock mentioned in enum defined in below file.
@@ -98,6 +106,11 @@ static const char *osMapClk[] = {
     [TEGRASOC_WHICH_CLK_MIPI_CAL]          = "mipi_cal_clk",
     [TEGRASOC_WHICH_CLK_UART_FST_MIPI_CAL] = "uart_fst_mipi_cal_clk",
     [TEGRASOC_WHICH_CLK_SOR0_DIV]          = "sor0_div_clk",
+    [TEGRASOC_WHICH_CLK_DISP_ROOT]         = "disp_root",
+    [TEGRASOC_WHICH_CLK_HUB_ROOT]          = "hub_root",
+    [TEGRASOC_WHICH_CLK_PLLA_DISP]         = "plla_disp",
+    [TEGRASOC_WHICH_CLK_PLLA_DISPHUB]      = "plla_disphub",
+    [TEGRASOC_WHICH_CLK_PLLA]              = "plla",
 };
 
 /*!
@@ -627,4 +640,99 @@ NV_STATUS NV_API_CALL nv_get_parent
 
     nv_printf(NV_DBG_ERRORS, "NVRM: invalid source clock requested\n");
     return NV_ERR_OBJECT_NOT_FOUND;
+}
+
+NV_STATUS NV_API_CALL nv_dp_uphy_pll_init
+(
+    nv_state_t *nv,
+    NvU32 link_rate,
+    NvU32 lanes_bitmap
+)
+{
+#if defined(NV_SOC_TEGRA_BPMP_ABI_H_PRESENT) && defined(NV_CMD_UPHY_DISPLAY_PORT_INIT_PRESENT)
+    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
+    struct tegra_bpmp *bpmp;
+    struct tegra_bpmp_message msg;
+    struct mrq_uphy_request req;
+    struct mrq_uphy_response resp;
+    int rc;
+    NV_STATUS status = NV_OK;
+
+    bpmp = tegra_bpmp_get(nvl->dev);
+    if (IS_ERR(bpmp))
+    {
+        nv_printf(NV_DBG_ERRORS,
+                  "NVRM:  Error getting bpmp struct: %s\n",
+                  PTR_ERR(bpmp));
+        return NV_ERR_GENERIC;
+    }
+
+    req.cmd = CMD_UPHY_DISPLAY_PORT_INIT;
+    req.display_port_init.link_rate = link_rate;
+    req.display_port_init.lanes_bitmap = lanes_bitmap;
+
+    memset(&msg, 0, sizeof(msg));
+    msg.mrq = MRQ_UPHY;
+    msg.tx.data = &req;
+    msg.tx.size = sizeof(req);
+    msg.rx.data = &resp;
+    msg.rx.size = sizeof(resp);
+
+    rc = tegra_bpmp_transfer(bpmp, &msg);
+    if (rc)
+    {
+        nv_printf(NV_DBG_ERRORS, "DP UPHY pll initialization failed, rc - %d\n", rc);
+        status = NV_ERR_GENERIC;
+    }
+
+    tegra_bpmp_put(bpmp);
+
+    return status;
+#else
+    return NV_ERR_NOT_SUPPORTED;
+#endif
+}
+
+NV_STATUS NV_API_CALL nv_dp_uphy_pll_deinit(nv_state_t *nv)
+{
+#if defined(NV_SOC_TEGRA_BPMP_ABI_H_PRESENT) && defined(NV_CMD_UPHY_DISPLAY_PORT_OFF_PRESENT)
+    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
+    struct tegra_bpmp *bpmp;
+    struct tegra_bpmp_message msg;
+    struct mrq_uphy_request req;
+    struct mrq_uphy_response resp;
+    int rc;
+    NV_STATUS status = NV_OK;
+
+    bpmp = tegra_bpmp_get(nvl->dev);
+    if (IS_ERR(bpmp))
+    {
+        nv_printf(NV_DBG_ERRORS,
+                  "NVRM:  Error getting bpmp struct: %s\n",
+                  PTR_ERR(bpmp));
+        return NV_ERR_GENERIC;
+    }
+
+    req.cmd = CMD_UPHY_DISPLAY_PORT_OFF;
+
+    memset(&msg, 0, sizeof(msg));
+    msg.mrq = MRQ_UPHY;
+    msg.tx.data = &req;
+    msg.tx.size = sizeof(req);
+    msg.rx.data = &resp;
+    msg.rx.size = sizeof(resp);
+
+    rc = tegra_bpmp_transfer(bpmp, &msg);
+    if (rc)
+    {
+        nv_printf(NV_DBG_ERRORS, "DP UPHY pll de-initialization failed, rc - %d\n", rc);
+        status = NV_ERR_GENERIC;
+    }
+
+    tegra_bpmp_put(bpmp);
+
+    return status;
+#else
+    return NV_ERR_NOT_SUPPORTED;
+#endif
 }

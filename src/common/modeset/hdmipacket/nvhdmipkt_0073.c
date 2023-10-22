@@ -109,6 +109,12 @@ hdmiPacketWrite0073(NVHDMIPKT_CLASS*   pThis,
                     NvU8 const *const  pPacket)
 {
     NVHDMIPKT_RESULT result = NVHDMIPKT_SUCCESS;
+
+    if (packetLen > NV0073_CTRL_SET_OD_MAX_PACKET_SIZE)
+    {
+        return NVHDMIPKT_INVALID_ARG;
+    }
+
     NV0073_CTRL_SPECIFIC_SET_OD_PACKET_PARAMS params = {0};
 
     NVMISC_MEMSET(&params, 0, sizeof(params));
@@ -331,10 +337,10 @@ hdmiQueryFRLConfigDummy(NVHDMIPKT_CLASS                     *pThis,
 
 NVHDMIPKT_RESULT
 hdmiSetFRLConfigDummy(NVHDMIPKT_CLASS               *pThis,
-                       NvU32                         subDevice,
-                       NvU32                         displayId,
-                       NvBool                        bFakeLt,
-                       HDMI_FRL_CONFIG              *pFRLConfig)
+                      NvU32                         subDevice,
+                      NvU32                         displayId,
+                      NvBool                        bFakeLt,
+                      HDMI_FRL_CONFIG              *pFRLConfig)
 {
     NvHdmiPkt_Print(pThis, "ERROR - Dummy function hdmiSetFRLConfigDummy called. "
                            "Should never be called.");
@@ -344,8 +350,8 @@ hdmiSetFRLConfigDummy(NVHDMIPKT_CLASS               *pThis,
 
 NVHDMIPKT_RESULT
 hdmiClearFRLConfigDummy(NVHDMIPKT_CLASS                   *pThis,
-                       NvU32                              subDevice,
-                       NvU32                              displayId)
+                        NvU32                              subDevice,
+                        NvU32                              displayId)
 {
     NvHdmiPkt_Print(pThis, "ERROR - Dummy function hdmiClearFRLConfigDummy called. "
                            "Should never be called.");
@@ -382,4 +388,5 @@ initializeHdmiPktInterface0073(NVHDMIPKT_CLASS* pClass)
     pClass->hdmiQueryFRLConfig          = hdmiQueryFRLConfigDummy;
     pClass->hdmiSetFRLConfig            = hdmiSetFRLConfigDummy;
     pClass->hdmiClearFRLConfig          = hdmiClearFRLConfigDummy;
+
 }

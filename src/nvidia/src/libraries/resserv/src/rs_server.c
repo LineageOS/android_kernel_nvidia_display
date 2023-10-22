@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -20,7 +20,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
- 
+
 #define NVOC_RS_SERVER_H_PRIVATE_ACCESS_ALLOWED
 #include "nvlog_inc.h"
 #include "resserv/resserv.h"
@@ -68,7 +68,7 @@ static NV_STATUS _serverFindNextAvailableClientHandleInBucket(RsServer *pServer,
  * @param[in]   pServer
  * @param[in]   hClient
  */
-static NV_STATUS _serverCreateEntryAndLockForNewClient(RsServer *pServer, NvHandle *phClient, NvBool bInternalHandle, CLIENT_ENTRY **ppClientEntry );
+static NV_STATUS _serverCreateEntryAndLockForNewClient(RsServer *pServer, NvHandle *phClient, NvBool bInternalHandle, CLIENT_ENTRY **ppClientEntry, API_SECURITY_INFO *pSecInfo);
 
 /**
  * Lock and retrieve the RsClient associated with a client handle.
@@ -198,15 +198,14 @@ NV_STATUS serverFreeResourceRpcUnderLock(RsServer *pServer, RS_RES_FREE_PARAMS *
 //
 //  Client handle format:
 //
-//  fn  [ C 1 D/E ] [  *INDEX*  ]
-//  bit 31       20 19          0
+//  fn  [ C[1..3][0..F]] [  *INDEX*  ]
+//  bit 31            20 19          0
 //
 
-#define RS_CLIENT_HANDLE_DECODE_MASK 0xFFFFF
+#define RS_CLIENT_HANDLE_DECODE_MASK (RS_CLIENT_HANDLE_MAX - 1)
 #define CLIENT_DECODEHANDLE(handle)                 (handle & RS_CLIENT_HANDLE_DECODE_MASK)
 
-#define CLIENT_ENCODEHANDLE(index)                  (RS_CLIENT_HANDLE_BASE | index)
-#define CLIENT_ENCODEHANDLE_INTERNAL(internalBase, index)   (internalBase | index)
+#define CLIENT_ENCODEHANDLE(handleBase, index)        (handleBase | index)
 
 NV_STATUS
 serverConstruct
@@ -225,6 +224,7 @@ serverConstruct
     pServer->bDebugFreeList     = NV_FALSE;
     pServer->bRsAccessEnabled   = NV_TRUE;
     pServer->internalHandleBase = RS_CLIENT_INTERNAL_HANDLE_BASE;
+    pServer->clientHandleBase   = RS_CLIENT_HANDLE_BASE;
     pServer->activeClientCount  = 0;
     pServer->activeResourceCount= 0;
     pServer->roTopLockApiMask   = 0;
@@ -272,6 +272,9 @@ serverConstruct
         listDestroy(&pServer->globalInternalSharePolicyList);
         goto fail;
     }
+
+    listInitIntrusive(&pServer->disabledClientList);
+    pServer->pDisabledClientListLock = portSyncSpinlockCreate(pAllocator);
 
     return NV_OK;
 fail:
@@ -336,6 +339,9 @@ serverDestruct
         listDestroy(&pServer->pClientSortedList[i]);
     }
 
+    listDestroy(&pServer->disabledClientList);
+    portSyncSpinlockDestroy(pServer->pDisabledClientListLock);
+
     PORT_FREE(pServer->pAllocator, pServer->pClientSortedList);
     mapDestroy(&pServer->shareMap);
     listDestroy(&pServer->defaultInheritedSharePolicyList);
@@ -352,6 +358,35 @@ serverDestruct
     portMemAllocatorRelease(pServer->pAllocator);
 
     pServer->bConstructed = NV_FALSE;
+
+    return NV_OK;
+}
+
+NV_STATUS
+serverSetClientHandleBase
+(
+    RsServer *pServer,
+    NvU32 clientHandleBase
+)
+{
+    NvU32 releaseFlags = 0;
+    RS_LOCK_INFO lockInfo;
+    portMemSet(&lockInfo, 0, sizeof(lockInfo));
+
+    // Grab top level lock before updating the internal state
+    NV_ASSERT_OK_OR_RETURN(serverTopLock_Prologue(pServer, LOCK_ACCESS_WRITE, &lockInfo, &releaseFlags));
+
+    // Do not allow fixedClientHandle base to be same as internalHandleBase
+    if (clientHandleBase != pServer->internalHandleBase)
+    {
+        pServer->clientHandleBase = clientHandleBase;
+    }
+    else
+    {
+        NV_PRINTF(LEVEL_ERROR, "Error setting fixed Client handle base\n");
+    }
+
+    serverTopLock_Epilogue(pServer, LOCK_ACCESS_WRITE, &lockInfo, &releaseFlags);
 
     return NV_OK;
 }
@@ -382,6 +417,13 @@ _serverFreeClient_underlock
     pClientEntry->hClient = 0;
 
     clientFreeAccessBackRefs(pClient, pServer);
+
+    if (pClient->bDisabled)
+    {
+        portSyncSpinlockAcquire(pServer->pDisabledClientListLock);
+        listRemove(&pServer->disabledClientList, pClient);
+        portSyncSpinlockRelease(pServer->pDisabledClientListLock);
+    }
 
     objDelete(pClient);
 
@@ -492,7 +534,7 @@ serverAllocClient
     }
 #endif
 
-    status = _serverCreateEntryAndLockForNewClient(pServer, &hClient, !!(pParams->allocState & ALLOC_STATE_INTERNAL_CLIENT_HANDLE), &pClientEntry);
+    status = _serverCreateEntryAndLockForNewClient(pServer, &hClient, !!(pParams->allocState & ALLOC_STATE_INTERNAL_CLIENT_HANDLE), &pClientEntry, pParams->pSecInfo);
 
     if (status != NV_OK)
     {
@@ -532,10 +574,7 @@ done:
             PORT_FREE(pServer->pAllocator, pClientEntry);
         }
 
-        if (pClient != NULL)
-        {
-            objDelete(pClient);
-        }
+        objDelete(pClient);
     }
 
     return status;
@@ -600,6 +639,7 @@ serverAllocResource
     RS_LOCK_INFO       *pLockInfo;
     RsClient           *pSecondClient = NULL;
     NvHandle            hSecondClient;
+    CALL_CONTEXT        callContext = {0};
 
     if (!pServer->bConstructed)
         return NV_ERR_NOT_READY;
@@ -622,16 +662,18 @@ serverAllocResource
 
     if (status == NV_OK)
     {
+        NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
+            serverDeserializeAllocDown(&callContext, pParams->externalClassId, &pParams->pAllocParams, &pParams->paramsSize, &pParams->allocFlags),
+            done);
+
         if (bClientAlloc)
         {
             status = serverAllocClient(pServer, pParams);
         }
         else
         {
-            status = serverLookupSecondClient(pParams, &hSecondClient);
-
-            if (status != NV_OK)
-                goto done;
+            hSecondClient = serverAllocLookupSecondClient(pParams->externalClassId, 
+                                                          pParams->pAllocParams);
 
             if (hSecondClient == 0)
             {
@@ -703,6 +745,10 @@ done:
         }
     }
 
+    NV_CHECK_OK_OR_CAPTURE_FIRST_ERROR(status, LEVEL_ERROR,
+        serverSerializeAllocUp(&callContext, pParams->externalClassId, &pParams->pAllocParams, &pParams->paramsSize, &pParams->allocFlags));
+    serverFreeSerializeStructures(&callContext, pParams->pAllocParams);
+
     serverTopLock_Epilogue(pServer, topLockAccess, pLockInfo, &releaseFlags);
 
     // copyout as needed, being careful not to overwrite a useful status value
@@ -750,6 +796,18 @@ serverAllocResourceUnderLock
 done:
     serverResLock_Epilogue(pServer, LOCK_ACCESS_WRITE, pParams->pLockInfo, &releaseFlags);
     return status;
+}
+
+NvU32
+serverAllocClientHandleBase
+(
+    RsServer          *pServer,
+    NvBool             bInternalHandle,
+    API_SECURITY_INFO *pSecInfo
+)
+{
+    return bInternalHandle ? pServer->internalHandleBase :
+                             pServer->clientHandleBase;
 }
 #endif
 
@@ -819,7 +877,7 @@ done:
 }
 
 NV_STATUS
-serverFreeClientList
+serverMarkClientListDisabled
 (
     RsServer *pServer,
     NvHandle *phClientList,
@@ -828,33 +886,120 @@ serverFreeClientList
     API_SECURITY_INFO *pSecInfo
 )
 {
-    NvU32 i, j;
-
-    //
-    // Call serverFreeClient twice; first for high priority resources
-    // then again for remaining resources
-    //
-    for (i = 0; i < 2; ++i)
+    NvU32 i;
+    for (i = 0; i < numClients; ++i)
     {
-        for (j = 0; j < numClients; ++j)
-        {
-            RS_CLIENT_FREE_PARAMS params;
-            portMemSet(&params, 0, sizeof(params));
+        RS_CLIENT_FREE_PARAMS params;
+        portMemSet(&params, 0, sizeof(params));
 
-            if (phClientList[j] == 0)
-                continue;
+        if (phClientList[i] == 0)
+            continue;
 
-            params.hClient = phClientList[j];
-            params.bHiPriOnly = (i == 0);
-            params.state = freeState;
-            params.pSecInfo = pSecInfo;
+        params.hClient = phClientList[i];
+        params.bDisableOnly = NV_TRUE;
+        params.state = freeState;
+        params.pSecInfo = pSecInfo;
 
-            serverFreeClient(pServer, &params);
-        }
+        // If individual calls fail not much to do, just log error and move on
+        NV_ASSERT_OK(serverFreeClient(pServer, &params));
     }
 
     return NV_OK;
 }
+
+// Returns pServer->pNextDisabledClient and advances it by one node ahead
+static RsClient *
+_getNextDisabledClient(RsServer *pServer)
+{
+    RsClient *pClient;
+    portSyncSpinlockAcquire(pServer->pDisabledClientListLock);
+
+    pClient =
+        (pServer->pNextDisabledClient != NULL) ?
+            pServer->pNextDisabledClient :
+            listHead(&pServer->disabledClientList);
+
+    pServer->pNextDisabledClient =
+        (pClient != NULL) ?
+            listNext(&pServer->disabledClientList, pClient) :
+            listHead(&pServer->disabledClientList);
+
+    portSyncSpinlockRelease(pServer->pDisabledClientListLock);
+    return pClient;
+}
+
+NV_STATUS serverFreeDisabledClients
+(
+    RsServer *pServer,
+    NvU32 freeState,
+    NvU32 limit
+)
+{
+    RsClient *pClient;
+    RS_RES_FREE_PARAMS params;
+    API_SECURITY_INFO secInfo;
+    RS_LOCK_INFO lockInfo;
+    NV_STATUS status = NV_OK;
+
+    //
+    // Only allow one instance of this function at a time.
+    // Multiple calls can happen if one thread requested delayed free via worker,
+    // while another tries to flush disabled clients immediately.
+    // It doesn't matter which one ends up running, they all free everything
+    //
+    static volatile NvU32 inProgress;
+    if (!portAtomicCompareAndSwapU32(&inProgress, 1, 0))
+        return NV_ERR_IN_USE;
+
+    portMemSet(&params,   0, sizeof(params));
+    portMemSet(&secInfo,  0, sizeof(secInfo));
+    portMemSet(&lockInfo, 0, sizeof(lockInfo));
+
+    secInfo.privLevel     = RS_PRIV_LEVEL_KERNEL;
+    secInfo.paramLocation = PARAM_LOCATION_KERNEL;
+    lockInfo.state        = freeState;
+    params.pLockInfo      = &lockInfo;
+    params.pSecInfo       = &secInfo;
+
+    while ((pClient = _getNextDisabledClient(pServer)))
+    {
+        NV_ASSERT(pClient->bDisabled);
+
+        params.hClient   = pClient->hClient;
+        params.hResource = pClient->hClient;
+
+        //
+        // We call serverFreeClient twice; first for high priority resources
+        // then again for remaining resources
+        //
+        if (!pClient->bHighPriorityFreeDone)
+        {
+            params.bHiPriOnly = NV_TRUE;
+            pClient->bHighPriorityFreeDone = NV_TRUE;
+        }
+        else
+        {
+            params.bHiPriOnly = NV_FALSE;
+        }
+
+        serverFreeResourceTree(pServer, &params);
+
+        //
+        // If limit is 0, it'll wrap-around and count down from 0xFFFFFFFF
+        // But RS_CLIENT_HANDLE_MAX is well below that, so it effectively
+        // means process all of them
+        //
+        if (--limit == 0)
+        {
+            status = NV_WARN_MORE_PROCESSING_REQUIRED;
+            break;
+        }
+    }
+
+    portAtomicSetU32(&inProgress, 0);
+    return status;
+}
+
 
 NV_STATUS
 serverFreeResourceTree
@@ -921,6 +1066,44 @@ serverFreeResourceTree
     }
     pParams->pResourceRef = pResourceRef;
     freeStack.pResourceRef = pResourceRef;
+
+    if (pParams->bDisableOnly)
+    {
+        if (!pClient->bDisabled)
+        {
+            pClient->bDisabled = NV_TRUE;
+            portSyncSpinlockAcquire(pServer->pDisabledClientListLock);
+            listAppendExisting(&pServer->disabledClientList, pClient);
+            portSyncSpinlockRelease(pServer->pDisabledClientListLock);
+        }
+        else
+        {
+            status = NV_ERR_INVALID_STATE;
+            goto done;
+        }
+
+        pClient->bActive = NV_FALSE;
+        status = NV_OK;
+
+        // Unmap all CPU mappings
+        {
+            CALL_CONTEXT callContext;
+            RS_ITERATOR it;
+            portMemSet(&callContext, 0, sizeof(callContext));
+            callContext.pServer = pServer;
+            callContext.pClient = pClient;
+            callContext.pLockInfo = pLockInfo;
+
+            it = clientRefIter(pClient, NULL, 0, RS_ITERATE_DESCENDANTS, NV_TRUE);
+            while (clientRefIterNext(pClient, &it))
+            {
+                callContext.pResourceRef = it.pResourceRef;
+                clientUnmapResourceRefMappings(pClient, &callContext, pLockInfo);
+            }
+        }
+
+        goto done;
+    }
 
     if (pParams->bInvalidateOnly && pResourceRef->bInvalidated)
     {
@@ -1005,8 +1188,7 @@ serverFreeResourceTree
 
     if (bPopFreeStack)
     {
-        if (pClient != NULL)
-            pClient->pFreeStack = freeStack.pPrev;
+        pClient->pFreeStack = freeStack.pPrev;
         bPopFreeStack = NV_FALSE;
     }
 
@@ -1028,7 +1210,7 @@ serverFreeResourceTree
         if (bReAcquireLock)
         {
             serverTopLock_Epilogue(pServer, topLockAccess, pLockInfo, &releaseFlags);
-            serverTopLock_Prologue(pServer, LOCK_ACCESS_WRITE, pLockInfo, &releaseFlags);
+            NV_CHECK_OK(status, LEVEL_INFO, serverTopLock_Prologue(pServer, LOCK_ACCESS_WRITE, pLockInfo, &releaseFlags));
             _serverFreeClient(pServer, &clientFreeParams);
             serverTopLock_Epilogue(pServer, LOCK_ACCESS_WRITE, pLockInfo, &releaseFlags);
             initialLockState &= ~RS_LOCK_STATE_CLIENT_LOCK_ACQUIRED;
@@ -2022,6 +2204,12 @@ _serverInsertClientEntry
     {
         ppClientEntry = (CLIENT_ENTRY **)listInsertNew(pClientList, ppClientNext);
     }
+
+    if (ppClientEntry == NULL)
+    {
+        return NV_ERR_NO_MEMORY;
+    }
+
     *ppClientEntry = pClientEntry;
 
     return NV_OK;
@@ -2087,22 +2275,23 @@ _serverFindNextAvailableClientHandleInBucket
     return  NV_OK;
 }
 
-
 static
 NV_STATUS
 _serverCreateEntryAndLockForNewClient
 (
-    RsServer      *pServer,
-    NvHandle      *phClient,
-    NvBool         bInternalHandle,
-    CLIENT_ENTRY **ppClientEntry
+    RsServer          *pServer,
+    NvHandle          *phClient,
+    NvBool             bInternalHandle,
+    CLIENT_ENTRY     **ppClientEntry,
+    API_SECURITY_INFO *pSecInfo
 )
 {
     CLIENT_ENTRY  *pClientEntry;
     NV_STATUS      status = NV_OK;
     NvHandle       hClient = *phClient;
     CLIENT_ENTRY **ppClientNext = 0;
-    PORT_RWLOCK    *pLock=NULL;
+    PORT_RWLOCK   *pLock = NULL;
+    NvU32          handleBase = serverAllocClientHandleBase(pServer, bInternalHandle, pSecInfo);
 
     if (hClient == 0)
     {
@@ -2110,10 +2299,7 @@ _serverCreateEntryAndLockForNewClient
         NvU16 clientHandleBucketInit = clientHandleIndex & RS_CLIENT_HANDLE_BUCKET_MASK;
         do
         {
-            hClient = bInternalHandle
-                ? CLIENT_ENCODEHANDLE_INTERNAL(pServer->internalHandleBase, clientHandleIndex)
-                : CLIENT_ENCODEHANDLE(clientHandleIndex);
-
+            hClient = CLIENT_ENCODEHANDLE(handleBase, clientHandleIndex);
             clientHandleIndex++;
             if (clientHandleIndex > RS_CLIENT_HANDLE_DECODE_MASK)
             {
@@ -2138,9 +2324,7 @@ _serverCreateEntryAndLockForNewClient
 #if !(RS_COMPATABILITY_MODE)
         // Re-encode handle so it matches expected format
         NvU32 clientIndex = CLIENT_DECODEHANDLE(hClient);
-        hClient = bInternalHandle
-            ? CLIENT_ENCODEHANDLE_INTERNAL(clientIndex)
-            : CLIENT_ENCODEHANDLE(clientIndex);
+        hClient = CLIENT_ENCODEHANDLE(handleBase, clientIndex);
 #endif
 
         if (_serverFindClientEntry(pServer, hClient, NV_FALSE, NULL) == NV_OK)
@@ -2246,10 +2430,10 @@ _serverLockClient
     }
 
     pClient = pClientEntry->pClient;
-    NV_ASSERT(pClient->hClient == pClientEntry->hClient);
 
     if ((pClient == NULL) || (pClient->hClient != hClient))
     {
+        NV_ASSERT(0);
         if (access == LOCK_ACCESS_READ)
             RS_RWLOCK_RELEASE_READ(pClientEntry->pLock, &pClientEntry->lockVal);
         else
@@ -2613,12 +2797,15 @@ NV_STATUS serverFreeClient(RsServer *pServer, RS_CLIENT_FREE_PARAMS* pParams)
 
     portMemSet(&lockInfo, 0, sizeof(lockInfo));
     portMemSet(&params, 0, sizeof(params));
-    params.hClient = pParams->hClient;
-    params.hResource = pParams->hClient;
-    params.bHiPriOnly = pParams->bHiPriOnly;
-    lockInfo.state = pParams->state;
-    params.pLockInfo = &lockInfo;
-    params.pSecInfo = pParams->pSecInfo;
+
+    lockInfo.state      = pParams->state;
+    lockInfo.flags      = RS_LOCK_FLAGS_LOW_PRIORITY;
+    params.pLockInfo    = &lockInfo;
+    params.hClient      = pParams->hClient;
+    params.hResource    = pParams->hClient;
+    params.bHiPriOnly   = pParams->bHiPriOnly;
+    params.bDisableOnly = pParams->bDisableOnly;
+    params.pSecInfo     = pParams->pSecInfo;
 
     return serverFreeResourceTree(pServer, &params);
 }
@@ -2838,7 +3025,7 @@ serverAllocShareWithHalspecParent
     status = objCreateDynamicWithFlags(&pDynamic,
                                        pHalspecParent,
                                        (const NVOC_CLASS_INFO*)(const void*)pClassInfo,
-                                       flags); 
+                                       flags);
     if (status != NV_OK)
         return status;
 
@@ -2869,10 +3056,7 @@ serverAllocShareWithHalspecParent
     return NV_OK;
 
 fail:
-    if (pShare != NULL)
-    {
-        objDelete(pShare);
-    }
+    objDelete(pShare);
 
     return status;
 }
@@ -2968,6 +3152,131 @@ serverShareIterNext
     return NV_FALSE;
 }
 
+#if RS_STANDALONE
+NV_STATUS
+serverSerializeCtrlDown
+(
+    CALL_CONTEXT *pCallContext,
+    NvU32 cmd,
+    void **ppParams,
+    NvU32 *pParamsSize,
+    NvU32 *flags
+)
+{
+    return NV_OK;
+}
+
+NV_STATUS
+serverDeserializeCtrlDown
+(
+    CALL_CONTEXT *pCallContext,
+    NvU32 cmd,
+    void **ppParams,
+    NvU32 *pParamsSize,
+    NvU32 *flags
+)
+{
+    return NV_OK;
+}
+
+NV_STATUS
+serverSerializeCtrlUp
+(
+    CALL_CONTEXT *pCallContext,
+    NvU32 cmd,
+    void **ppParams,
+    NvU32 *pParamsSize,
+    NvU32 *flags
+)
+{
+    return NV_OK;
+}
+
+NV_STATUS
+serverDeserializeCtrlUp
+(
+    CALL_CONTEXT *pCallContext,
+    NvU32 cmd,
+    void **ppParams,
+    NvU32 *pParamsSize,
+    NvU32 *flags
+)
+{
+    return NV_OK;
+}
+
+NV_STATUS
+serverSerializeAllocDown
+(
+    CALL_CONTEXT *pCallContext,
+    NvU32 classId,
+    void **ppParams,
+    NvU32 *pParamsSize,
+    NvU32 *flags
+)
+{
+    return NV_OK;
+}
+
+NV_STATUS
+serverDeserializeAllocDown
+(
+    CALL_CONTEXT *pCallContext,
+    NvU32 classId,
+    void **ppParams,
+    NvU32 *pParamsSize,
+    NvU32 *flags
+)
+{
+    return NV_OK;
+}
+
+NV_STATUS
+serverSerializeAllocUp
+(
+    CALL_CONTEXT *pCallContext,
+    NvU32 classId,
+    void **ppParams,
+    NvU32 *pParamsSize,
+    NvU32 *flags
+)
+{
+    return NV_OK;
+}
+
+NV_STATUS
+serverDeserializeAllocUp
+(
+    CALL_CONTEXT *pCallContext,
+    NvU32 classId,
+    void **pParams,
+    NvU32 *pParamsSize,
+    NvU32 *flags
+)
+{
+    return NV_OK;
+}
+
+void
+serverFreeSerializeStructures
+(
+    CALL_CONTEXT *pCallContext,
+    void *pParams
+)
+{
+}
+#endif // RS_STANDALONE
+
+void
+serverDisableReserializeControl
+(
+    CALL_CONTEXT *pCallContext
+)
+{
+    NV_CHECK_OR_RETURN_VOID(LEVEL_INFO, pCallContext != NULL);
+    pCallContext->bReserialize = NV_FALSE;
+}
+
 #if (RS_PROVIDES_API_STATE)
 NV_STATUS
 serverAllocApiCopyIn
@@ -3008,16 +3317,14 @@ serverAllocEpilogue_WAR
     return status;
 }
 
-NV_STATUS
-serverLookupSecondClient
+NvHandle
+serverAllocLookupSecondClient
 (
-    RS_RES_ALLOC_PARAMS_INTERNAL *pParams,
-    NvHandle *phClient
+    NvU32    externalClassId,
+    void     *pAllocParams
 )
 {
-    *phClient = 0;
-
-    return NV_OK;
+    return 0;
 }
 
 NV_STATUS serverTopLock_Prologue
@@ -3544,7 +3851,7 @@ NV_STATUS serverControl_Prologue
     if (status != NV_OK)
         return status;
 
-    serverControlLookupLockFlags(pServer, RS_LOCK_RESOURCE, pParams, pParams->pCookie, pAccess);
+    status = serverControlLookupLockFlags(pServer, RS_LOCK_RESOURCE, pParams, pParams->pCookie, pAccess);
     if (status != NV_OK)
         return status;
 

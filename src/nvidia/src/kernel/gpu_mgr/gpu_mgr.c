@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -30,15 +30,20 @@
 #include "core/system.h"
 #include "core/locks.h"
 #include "gpu_mgr/gpu_mgr.h"
+#include "gpu/device/device.h"
 #include "gpu/gpu.h"
 #include "tls/tls.h"
 #include "nvrm_registry.h"
 #include "nv_ref.h"
 #include "nvlimits.h"
+#include "nv-firmware-registry.h"
+
+#include "virtualization/hypervisor/hypervisor.h"
 
 // local static funcs
-static void  gpumgrSetAttachInfo(OBJGPU *, GPUATTACHARG *);
-static void  gpumgrGetGpuHalFactor(NvU32 *pChipId0, NvU32 *pChipId1, RM_RUNTIME_VARIANT *pRmVariant, GPUATTACHARG *pAttachArg);
+static void   gpumgrSetAttachInfo(OBJGPU *, GPUATTACHARG *);
+static void   gpumgrGetGpuHalFactor(NvU32 *pChipId0, NvU32 *pChipId1, NvU32 *pSocChipId0, RM_RUNTIME_VARIANT *pRmVariant, TEGRA_CHIP_TYPE *pTegraType, GPUATTACHARG *pAttachArg);
+static NvBool _gpumgrGetPcieP2PCapsFromCache(NvU32 gpuMask, NvU8* pP2PWriteCapsStatus, NvU8* pP2PReadCapsStatus);
 
 static void
 _gpumgrUnregisterRmCapsForGpuUnderLock(NvU64 gpuDomainBusDevice)
@@ -151,6 +156,8 @@ gpumgrConstruct_IMPL(OBJGPUMGR *pGpuMgr)
 
     pGpuMgr->powerDisconnectedGpuCount = 0;
 
+    NV_ASSERT_OK_OR_RETURN(gpumgrInitPcieP2PCapsCache(pGpuMgr));
+
     return NV_OK;
 }
 
@@ -161,6 +168,9 @@ gpumgrDestruct_IMPL(OBJGPUMGR *pGpuMgr)
     NV_PRINTF(LEVEL_INFO, "gpumgrDestruct\n");
 
     portSyncMutexDestroy(pGpuMgr->probedGpusLock);
+
+    gpumgrDestroyPcieP2PCapsCache(pGpuMgr);
+
 }
 
 //
@@ -242,10 +252,7 @@ _gpumgrDestroyGpu(NvU32 gpuInstance)
 
     pGpu = gpumgrGetGpu(gpuInstance);
 
-    if (pGpu != NULL)
-    {
-        objDelete(pGpu);
-    }
+    objDelete(pGpu);
 
     for (i = 0; i < pGpuMgr->numGpuHandles; i++)
     {
@@ -528,6 +535,7 @@ gpumgrUnregisterGpuId(NvU32 gpuId)
 
         if (pProbedGpu->gpuId == gpuId)
         {
+            gpumgrRemovePcieP2PCapsFromCache(pProbedGpu->gpuId);
             _gpumgrUnregisterRmCapsForGpuUnderLock(pProbedGpu->gpuDomainBusDevice);
             pProbedGpu->gpuId = NV0000_CTRL_GPU_INVALID_ID;
             pProbedGpu->bDrainState = NV_FALSE;
@@ -697,6 +705,179 @@ gpumgrGetGpuHalFactorOfVirtual(NvBool *pIsVirtual, GPUATTACHARG *pAttachArg)
     *pIsVirtual = NV_FALSE;
 }
 
+NvBool gpumgrGetRmFirmwareLogsEnabled
+(
+    NvU32   enableFirmwareLogsRegVal
+)
+{
+    // Check for logs
+    if ((enableFirmwareLogsRegVal == NV_REG_ENABLE_GPU_FIRMWARE_LOGS_ENABLE)
+#if defined(DEBUG) || defined(DEVELOP)
+        || (enableFirmwareLogsRegVal == NV_REG_ENABLE_GPU_FIRMWARE_LOGS_ENABLE_ON_DEBUG)
+#endif // defined(DEBUG) || defined(DEVELOP)
+       )
+    {
+        return NV_TRUE;
+    }
+
+    return NV_FALSE;
+}
+
+void gpumgrGetRmFirmwarePolicy
+(
+    NvU32   chipId,
+    NvU32   pmcBoot42,
+    NvBool  bIsSoc,
+    NvU32   enableFirmwareRegVal,
+    NvBool *pbRequestFirmware,
+    NvBool *pbAllowFallbackToMonolithicRm
+)
+{
+    NvBool bFirmwareCapable = NV_FALSE;
+    NvBool bEnableByDefault = NV_FALSE;
+    NvU32  regkeyFirmwareMode;
+
+    regkeyFirmwareMode =
+        enableFirmwareRegVal & NV_REG_ENABLE_GPU_FIRMWARE_MODE_MASK;
+    *pbAllowFallbackToMonolithicRm =
+        !!(enableFirmwareRegVal & NV_REG_ENABLE_GPU_FIRMWARE_POLICY_ALLOW_FALLBACK);
+
+    bFirmwareCapable = gpumgrIsDeviceRmFirmwareCapable(chipId, pmcBoot42,
+                                                       bIsSoc,
+                                                       &bEnableByDefault);
+
+    *pbRequestFirmware =
+        (bFirmwareCapable &&
+         ((regkeyFirmwareMode == NV_REG_ENABLE_GPU_FIRMWARE_MODE_ENABLED) ||
+          (bEnableByDefault && (regkeyFirmwareMode != NV_REG_ENABLE_GPU_FIRMWARE_MODE_DISABLED))));
+}
+
+static NvBool _gpumgrIsRmFirmwareCapableChip(NvU32 pmcBoot42)
+{
+    return (DRF_VAL(_PMC, _BOOT_42, _ARCHITECTURE, pmcBoot42) >= NV_PMC_BOOT_42_ARCHITECTURE_TU100);
+}
+
+static NvBool _gpumgrIsVgxRmFirmwareCapableChip(NvU32 pmcBoot42)
+{
+    return (DRF_VAL(_PMC, _BOOT_42, _ARCHITECTURE, pmcBoot42) >= NV_PMC_BOOT_42_ARCHITECTURE_GA100) &&
+           (DRF_VAL(_PMC, _BOOT_42, _CHIP_ID, pmcBoot42) > NV_PMC_BOOT_42_CHIP_ID_GA100);
+}
+
+static NvBool _gpumgrIsRmFirmwareDefaultChip(NvU32 pmcBoot42)
+{
+    return NV_FALSE;
+}
+
+static NvBool _gpumgrIsVgxRmFirmwareDefaultChip(NvU32 pmcBoot42)
+{
+
+    return NV_FALSE;
+}
+
+NvBool gpumgrIsDeviceRmFirmwareCapable
+(
+    NvU16 devId,
+    NvU32 pmcBoot42,
+    NvBool bIsSoc,
+    NvBool *pbEnabledByDefault
+)
+{
+    NvBool bEnabledByDefault = NV_FALSE;
+    NvBool bFirmwareCapable  = NV_TRUE;
+
+    // SoC is treated as always firmware capable and not enabled by default
+    if (bIsSoc)
+        goto finish;
+
+    if (!hypervisorIsVgxHyper() && !_gpumgrIsRmFirmwareCapableChip(pmcBoot42))
+    {
+        bFirmwareCapable = NV_FALSE;
+        goto finish;
+    }
+    else if (hypervisorIsVgxHyper() && !_gpumgrIsVgxRmFirmwareCapableChip(pmcBoot42))
+    {
+        bFirmwareCapable = NV_FALSE;
+        goto finish;
+    }
+
+#if NVCPU_IS_FAMILY_PPC
+    // Disable default enablement for GSP on PowerPC until it is fully tested
+    bEnabledByDefault = NV_FALSE;
+    goto finish;
+#else
+    {
+        static const NvU16 defaultGspRmGpus[] = {
+            0x1E37, // GFN
+            0x1E38, // TU102
+            0x1EB4, // T4G
+            0x1EB8, // T4
+            0x1EB9, // T4
+
+            0x20B0, // A100
+            0x20B1, // A100
+            0x20B2, // A100
+            0x20B3, // A200
+            0x20B5, // A100 80GB
+            0x20B6, // A100
+            0x20B7, // A30
+            0x20B8, // A100X SKU230/231 Roy-100
+            0x20B9, // A30X  SKU205/206 Roy-30
+            0x20F0, // A100
+            0x20F1, // A100
+            0x20F2, // A100
+            0x2235, // A40
+            0x2236, // A10   SKU215     Pris-24
+            0x2237, // A10G  SKU215     Pris-24
+            0x25B6, // A16
+            0x20F5, // A800-80
+            0x20F6, // A800-40
+            0x20FD, // A100T RoyB
+
+            0x26B5, // L40
+            0x26B8, // L40G
+            0x26F5, // L40-CNX
+            0x27B7, // L16
+            0x27B8, // L4 (both SKUs)
+        };
+
+        if (hypervisorIsVgxHyper() && _gpumgrIsVgxRmFirmwareDefaultChip(pmcBoot42))
+        {
+            bEnabledByDefault = NV_TRUE;
+        }
+        else if (!hypervisorIsVgxHyper() && _gpumgrIsRmFirmwareDefaultChip(pmcBoot42))
+        {
+            bEnabledByDefault = NV_TRUE;
+        }
+        else if (!hypervisorIsVgxHyper() || RMCFG_FEATURE_PLATFORM_GSP)
+        {
+            for (NvU32 i = 0; i < NV_ARRAY_ELEMENTS(defaultGspRmGpus); i++)
+            {
+                if (defaultGspRmGpus[i] == devId)
+                {
+                    bEnabledByDefault = NV_TRUE;
+                    break;
+                }
+            }
+        }
+    }
+#endif
+
+finish:
+    if (pbEnabledByDefault != NULL)
+    {
+        *pbEnabledByDefault = bEnabledByDefault;
+
+        if (bEnabledByDefault)
+        {
+            NV_PRINTF(LEVEL_INFO,
+                      "DevId 0x%x is GSP-RM enabled by default\n",
+                      devId);
+        }
+    }
+
+    return bFirmwareCapable;
+}
+
 static NvBool gpumgrCheckRmFirmwarePolicy
 (
     NvU64  nvDomainBusDeviceFunc,
@@ -716,31 +897,37 @@ static NvBool gpumgrCheckRmFirmwarePolicy
 //
 // Get Gpu Hal factors those are used to init Hal binding
 //
-// TODO : later this function will be used to read out NVOC Halspec init value for OBJGPU
-//
 static void
 gpumgrGetGpuHalFactor
 (
     NvU32  *pChipId0,
     NvU32  *pChipId1,
+    NvU32  *pSocChipId0,
     RM_RUNTIME_VARIANT *pRmVariant,
+    TEGRA_CHIP_TYPE    *pTegraType,
     GPUATTACHARG *pAttachArg
 )
 {
     NvBool isVirtual;
     NvBool isFwClient;
 
-    DEVICE_MAPPING  gpuDevMapping = {0};
-    gpuDevMapping.gpuNvAddr = pAttachArg->regBaseAddr;
-    gpuDevMapping.gpuNvLength = pAttachArg->regLength;
+    *pTegraType = TEGRA_CHIP_TYPE_DEFAULT;
 
     // get ChipId0 and ChipId1
     if (pAttachArg->socDeviceArgs.specified)
     {
-        // This path is taken for T234D+ devices.
-
         *pChipId0 = pAttachArg->socDeviceArgs.socChipId0;
+
+        // iGPU has a PMC_BOOT_0, Display does not
+        if (pAttachArg->socDeviceArgs.bIsIGPU)
+        {
+            DEVICE_MAPPING *pGpuDevMapping = NULL;
+            pGpuDevMapping = &pAttachArg->socDeviceArgs.deviceMapping[DEVICE_INDEX_GPU];
+            *pChipId0 = osDevReadReg032(/*pGpu=*/ NULL, pGpuDevMapping, NV_PMC_BOOT_0);
+        }
+
         *pChipId1 = 0;
+        *pSocChipId0 = pAttachArg->socDeviceArgs.socChipId0;
          isVirtual = NV_FALSE;
     }
     else if (pAttachArg->bIsSOC)
@@ -749,18 +936,38 @@ gpumgrGetGpuHalFactor
 
         *pChipId0 = pAttachArg->socChipId0;
         *pChipId1 = 0;
+        *pSocChipId0 = pAttachArg->socChipId0;
          isVirtual = NV_FALSE;
     }
     else
     {
+        DEVICE_MAPPING  gpuDevMapping = {0};
+        gpuDevMapping.gpuNvAddr = pAttachArg->regBaseAddr;
+        gpuDevMapping.gpuNvLength = pAttachArg->regLength;
+
         //
         // PMC_BOOT_42 register is added above G94+ chips which is internal to NVIDIA
         // Earlier we used PMC_BOOT_0 as Internal ID which is now exposed to customers
         //
         *pChipId0 = osDevReadReg032(/*pGpu=*/ NULL, &gpuDevMapping, NV_PMC_BOOT_0);
         *pChipId1 = osDevReadReg032(/*pGpu=*/ NULL, &gpuDevMapping, NV_PMC_BOOT_42);
+        *pSocChipId0 = 0;
 
         gpumgrGetGpuHalFactorOfVirtual(&isVirtual, pAttachArg);
+
+        //
+        // If socChipId0 has valid value, then running environment is SOCV.
+        // The Tegra chip after Ampere arch is using PCIE interface which connects
+        // iGPU to SoC for BAR and control accesses (interrupt).
+        // The code between TEGRA_CHIP_TYPE_PCIE and TEGRA_CHIP_TYPE_SOC
+        // shares same dGPU ARCH specific HAL mostly except manual differences due to
+        // latency of manual updates between nvgpu (Standlone iGPU/Full Chip Verification)
+        // and nvmobile (SOC) trees.
+        //
+        if (pAttachArg->socChipId0 != 0)
+        {
+            *pTegraType = TEGRA_CHIP_TYPE_SOC;
+        }
     }
 
     isFwClient = gpumgrCheckRmFirmwarePolicy(pAttachArg->nvDomainBusDeviceFunc,
@@ -775,6 +982,10 @@ gpumgrGetGpuHalFactor
         *pRmVariant = RM_RUNTIME_VARIANT_PF_KERNEL_ONLY;
     else
         *pRmVariant = RM_RUNTIME_VARIANT_PF_MONOLITHIC;    // default, monolithic mode
+
+    NV_PRINTF(LEVEL_INFO,
+        "ChipId0[0x%x] ChipId1[0x%x] SocChipId0[0x%x] isFwClient[%d] RmVariant[%d] tegraType[%d]\n",
+        *pChipId0, *pChipId1, *pSocChipId0, isFwClient, *pRmVariant, *pTegraType);
 }
 
 
@@ -793,14 +1004,16 @@ _gpumgrCreateGpu(NvU32 gpuInstance, GPUATTACHARG *pAttachArg)
     OBJGPU    *pGpu;
     NV_STATUS  status;
     RM_RUNTIME_VARIANT  rmVariant;
+    TEGRA_CHIP_TYPE     tegraType;
     NvU32      chipId0;     // 32-bit chipId (pmcBoot0 on GPU)
     NvU32      chipId1;     // 32-bit chipId (pmcBoot42 on GPU)
+    NvU32      socChipId0;  // 32-bit SOC chipId
     NvU32      hidrev, majorRev;
 
-    gpumgrGetGpuHalFactor(&chipId0, &chipId1, &rmVariant, pAttachArg);
+    gpumgrGetGpuHalFactor(&chipId0, &chipId1, &socChipId0, &rmVariant, &tegraType, pAttachArg);
 
-    hidrev = DRF_VAL(_PAPB_MISC, _GP_HIDREV, _CHIPID, chipId0);
-    majorRev = DRF_VAL(_PAPB_MISC, _GP_HIDREV, _MAJORREV, chipId0);
+    hidrev = DRF_VAL(_PAPB_MISC, _GP_HIDREV, _CHIPID, socChipId0);
+    majorRev = DRF_VAL(_PAPB_MISC, _GP_HIDREV, _MAJORREV, socChipId0);
 
     // WAR: The majorrev of t234 shows 0xa on fmodel instead of 0x4
     if ((hidrev == 0x23) && (majorRev == 0xa))
@@ -816,6 +1029,7 @@ _gpumgrCreateGpu(NvU32 gpuInstance, GPUATTACHARG *pAttachArg)
                     /* ChipHal_impl = */ DRF_VAL(_PMC, _BOOT_42, _IMPLEMENTATION, chipId1),
                   /* ChipHal_hidrev = */ hidrev,
           /* RmVariantHal_rmVariant = */ rmVariant,
+          /* TegraChipHal_tegraType = */ tegraType,
                  /* DispIpHal_ipver = */ 0,  // initialized later
                 /* ctor.gpuInstance = */ gpuInstance);
     if (status != NV_OK)
@@ -824,7 +1038,7 @@ _gpumgrCreateGpu(NvU32 gpuInstance, GPUATTACHARG *pAttachArg)
     }
 
     // legacy chip-config Hal registration path
-    status = gpuBindHalLegacy(pGpu, chipId0, chipId1);
+    status = gpuBindHalLegacy(pGpu, chipId0, chipId1, socChipId0);
     if (status != NV_OK)
     {
         objDelete(pGpu);
@@ -865,7 +1079,7 @@ gpumgrAttachGpu(NvU32 gpuInstance, GPUATTACHARG *pAttachArg)
     OBJGPU    *pGpu = NULL;
     NV_STATUS  status;
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     // create the new OBJGPU
     if ((status = _gpumgrCreateGpu(gpuInstance, pAttachArg)) != NV_OK)
@@ -927,6 +1141,9 @@ gpumgrAttachGpu(NvU32 gpuInstance, GPUATTACHARG *pAttachArg)
     // Add entry into system partition topo array
     gpumgrAddSystemMIGInstanceTopo(pAttachArg->nvDomainBusDeviceFunc);
 
+    if (!IS_GSP_CLIENT(pGpu))
+        pGpuMgr->gpuMonolithicRmMask |= NVBIT(gpuInstance);
+
     return status;
 
 gpumgrAttach_error_and_exit:
@@ -960,7 +1177,7 @@ gpumgrDetachGpu(NvU32 gpuInstance)
     OBJGPU *pGpu = gpumgrGetGpu(gpuInstance);
     NvBool bDelClientResourcesFromGpuMask = !pGpu->getProperty(pGpu, PDB_PROP_GPU_IN_TIMEOUT_RECOVERY);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     // Mark for deletion the stale clients related to the GPU mask
     if (bDelClientResourcesFromGpuMask)
@@ -982,6 +1199,7 @@ gpumgrDetachGpu(NvU32 gpuInstance)
         rmapiDelPendingClients();
     }
 
+    pGpuMgr->gpuMonolithicRmMask &= ~NVBIT(gpuInstance);
     NV_ASSERT(pGpuMgr->gpuAttachMask & NVBIT(gpuInstance));
     pGpuMgr->gpuAttachMask &= ~NVBIT(gpuInstance);
     pGpuMgr->gpuAttachCount--;
@@ -1193,7 +1411,7 @@ gpumgrSetAttachInfo(OBJGPU *pGpu, GPUATTACHARG *pAttachArg)
     {
         NvU32 idx;
         NvU32 maxIdx;
-        // This path is taken for T234D+ SOC devices.
+        // This path is taken for Tegra Display and iGPU
 
         //
         // TODO: This existing field is specifically used to safeguard
@@ -1231,7 +1449,7 @@ gpumgrSetAttachInfo(OBJGPU *pGpu, GPUATTACHARG *pAttachArg)
         pGpu->idInfo.PCIDeviceID    = pAttachArg->socId;
         pGpu->idInfo.PCISubDeviceID = pAttachArg->socSubId;
         pGpu->busInfo.iovaspaceId   = pAttachArg->iovaspaceId;
-        if (RMCFG_FEATURE_PLATFORM_MODS || RMCFG_FEATURE_PLATFORM_WINDOWS_LDDM)
+        if (RMCFG_FEATURE_PLATFORM_MODS)
         {
             NV_ASSERT(sizeof(pGpu->deviceMappings) == sizeof(pAttachArg->socDeviceMappings));
             portMemCopy(pGpu->deviceMappings, sizeof(pGpu->deviceMappings), pAttachArg->socDeviceMappings, sizeof(pGpu->deviceMappings));
@@ -1291,7 +1509,11 @@ gpumgrSetAttachInfo(OBJGPU *pGpu, GPUATTACHARG *pAttachArg)
         }
     }
 
-    gpuId = gpuGenerate32BitId(gpuGetDomain(pGpu), gpuGetBus(pGpu), gpuGetDevice(pGpu));
+    // Generate GPU ID using end-point address for PCIe devices, otherwise use MMIO address
+    gpuId = (!RMCFG_FEATURE_PLATFORM_WINDOWS_LDDM || !pGpu->bIsSOC)
+        ? gpuGenerate32BitId(gpuGetDomain(pGpu), gpuGetBus(pGpu), gpuGetDevice(pGpu))
+        : gpuGenerate32BitIdFromPhysAddr(pAttachArg->socDeviceArgs.deviceMapping[DEVICE_INDEX_GPU].gpuNvPAddr);
+
     if (gpuId != NV0000_CTRL_GPU_INVALID_ID)
     {
         gpumgrSetGpuId(pGpu, gpuId);
@@ -1765,7 +1987,7 @@ gpumgrGetGpuIdInfoV2(NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS *pGpuInfo)
         return NV_ERR_INVALID_ARGUMENT;
     }
 
-    LOCK_ASSERT_AND_RETURN(rmGpuLockIsOwner());
+    NV_ASSERT_OR_RETURN(gpumgrIsSafeToReadGpuInfo(), NV_ERR_INVALID_LOCK_STATE);
 
     //
     // We have a valid gpuInstance, so now let's get the corresponding
@@ -1795,7 +2017,10 @@ gpumgrGetGpuIdInfoV2(NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS *pGpuInfo)
     {
         pGpuInfo->gpuFlags |= DRF_NUM(0000, _CTRL_GPU_ID_INFO, _ATS_ENABLED,
                                       NV0000_CTRL_GPU_ID_INFO_ATS_ENABLED_TRUE);
-        pGpuInfo->numaId = pGpu->numaNodeId;
+
+        {
+            pGpuInfo->numaId = pGpu->numaNodeId;
+        }
     }
 
     // is this gpu in use?
@@ -1852,20 +2077,6 @@ gpumgrGetGpuIdInfo(NV0000_CTRL_GPU_GET_ID_INFO_PARAMS *pGpuInfo)
     pGpuInfo->boardId = pGpuInfoV2.boardId;
     pGpuInfo->gpuInstance = pGpuInfoV2.gpuInstance;
     pGpuInfo->numaId = pGpuInfoV2.numaId;
-
-    // If we get a non-NULL szName parameter, let os-dependent code
-    // fill it in from information we already have.
-    if (NvP64_VALUE(pGpuInfo->szName) != NULL)
-    {
-        status = osDeviceClassToDeviceName(pGpuInfo->deviceInstance,
-                                           NvP64_VALUE(pGpuInfo->szName));
-        if (status != NV_OK)
-        {
-            NV_PRINTF(LEVEL_ERROR,
-                      "gpumgrGetGpuInfo: deviceInstance to szName translation failed\n");
-            return status;
-        }
-    }
 
     return status;
 }
@@ -2549,6 +2760,278 @@ gpumgrGetGpuBridgeType(void)
 {
     OBJSYS *pSys = SYS_GET_INSTANCE();
     OBJGPUMGR *pGpuMgr = SYS_GET_GPUMGR(pSys);
-    
+
     return pGpuMgr->gpuBridgeType;
+}
+
+/**
+* @brief Init the PCIE P2P info cache
+*/
+NV_STATUS
+gpumgrInitPcieP2PCapsCache_IMPL(OBJGPUMGR* pGpuMgr)
+{
+    listInitIntrusive(&pGpuMgr->pcieP2PCapsInfoCache);
+    pGpuMgr->pcieP2PCapsInfoLock = portSyncMutexCreate(portMemAllocatorGetGlobalNonPaged());
+    if (pGpuMgr->pcieP2PCapsInfoLock == NULL)
+    {
+        return NV_ERR_INSUFFICIENT_RESOURCES;
+    }
+    return NV_OK;
+}
+
+/**
+* @brief Destroy the PCIE P2P info cache
+*/
+void
+gpumgrDestroyPcieP2PCapsCache_IMPL(OBJGPUMGR* pGpuMgr)
+{
+    PCIEP2PCAPSINFO *pPcieCapsInfo, *pPcieCapsInfoNext;
+
+    portSyncMutexAcquire(pGpuMgr->pcieP2PCapsInfoLock);
+
+    // Remove and free all entries that have this GPU
+    for (pPcieCapsInfo = listHead(&(pGpuMgr->pcieP2PCapsInfoCache));
+         pPcieCapsInfo != NULL;
+         pPcieCapsInfo = pPcieCapsInfoNext)
+    {
+        pPcieCapsInfoNext = listNext(&(pGpuMgr->pcieP2PCapsInfoCache), pPcieCapsInfo);
+        portMemFree(pPcieCapsInfo);
+    }
+
+    listDestroy(&pGpuMgr->pcieP2PCapsInfoCache);
+    portSyncMutexRelease(pGpuMgr->pcieP2PCapsInfoLock);
+
+    portSyncMutexDestroy(pGpuMgr->pcieP2PCapsInfoLock);
+}
+
+/**
+* @brief Add an entry in the PCIE P2P info cache
+ * @param[in]   gpuMask             NvU32 value
+ * @param[in]   p2pWriteCapsStatus  NvU8 value
+ * @param[in]   pP2PReadCapsStatus  NvU8 value
+ *
+ * @return      NV_OK or NV_ERR_NO_MEMORY
+ */
+NV_STATUS
+gpumgrStorePcieP2PCapsCache_IMPL
+(
+    NvU32  gpuMask,
+    NvU8   p2pWriteCapsStatus,
+    NvU8   p2pReadCapsStatus
+)
+{
+    OBJSYS          *pSys     = SYS_GET_INSTANCE();
+    OBJGPUMGR       *pGpuMgr  = SYS_GET_GPUMGR(pSys);
+    PCIEP2PCAPSINFO *pPcieCapsInfo;
+    NvU32            gpuInstance;
+    OBJGPU          *pGpu;
+    NvU32            gpuCount = 0;
+    NvU32            status   = NV_OK;
+
+    portSyncMutexAcquire(pGpuMgr->pcieP2PCapsInfoLock);
+    if (_gpumgrGetPcieP2PCapsFromCache(gpuMask, NULL, NULL))
+    {
+        // Entry already present in cache
+        goto exit;
+    }
+
+    pPcieCapsInfo = portMemAllocNonPaged(sizeof(PCIEP2PCAPSINFO));
+    if (pPcieCapsInfo == NULL)
+    {
+        status = NV_ERR_NO_MEMORY;
+        goto exit;
+    }
+    listAppendExisting(&(pGpuMgr->pcieP2PCapsInfoCache), pPcieCapsInfo);
+
+    gpuInstance = 0;
+    while ((pGpu = gpumgrGetNextGpu(gpuMask, &gpuInstance)) != NULL)
+    {
+        pPcieCapsInfo->gpuId[gpuCount] = pGpu->gpuId;
+        gpuCount++;
+    }
+
+    pPcieCapsInfo->gpuCount = gpuCount;
+    pPcieCapsInfo->p2pWriteCapsStatus = p2pWriteCapsStatus;
+    pPcieCapsInfo->p2pReadCapsStatus = p2pReadCapsStatus;
+
+exit:
+    portSyncMutexRelease(pGpuMgr->pcieP2PCapsInfoLock);
+    return status;
+}
+
+/**
+ * @brief Get the PCIE P2P info from cache if present
+ * - Helper function
+ *
+ * @param[in]   gpuMask             NvU32 value
+ * @param[out]  pP2PWriteCapsStatus NvU8* pointer
+ *                  Can be NULL
+ * @param[out]  pP2PReadCapsStatus  NvU8* pointer
+ *                  Can be NULL
+ * Return       bFound              NvBool
+ */
+static NvBool
+_gpumgrGetPcieP2PCapsFromCache
+(
+    NvU32   gpuMask,
+    NvU8   *pP2PWriteCapsStatus,
+    NvU8   *pP2PReadCapsStatus)
+{
+    OBJSYS          *pSys = SYS_GET_INSTANCE();
+    OBJGPUMGR       *pGpuMgr = SYS_GET_GPUMGR(pSys);
+    PCIEP2PCAPSINFO *pPcieCapsInfo;
+    pcieP2PCapsInfoListIter it;
+    NvU32            gpuInstance;
+    NvU32            gpuCount;
+    NvU32            remainingGpuCount;
+    OBJGPU          *pGpu;
+    NvU32            gpuIdLoop;
+    NvBool           bFound = NV_FALSE;
+
+    gpuCount = gpumgrGetSubDeviceCount(gpuMask);
+
+    it = listIterAll(&pGpuMgr->pcieP2PCapsInfoCache);
+    while (listIterNext(&it))
+    {
+        pPcieCapsInfo = it.pValue;
+        if (gpuCount != pPcieCapsInfo->gpuCount)
+        {
+            continue;
+        }
+
+        //
+        // Same count  of GPUs in gpuId array  and GPU mask.
+        // All GPU in the gpuMask must have a match in gpuId[]
+        //
+        gpuInstance = 0;
+        remainingGpuCount = gpuCount;
+        while ((pGpu = gpumgrGetNextGpu(gpuMask, &gpuInstance)) != NULL)
+        {
+            gpuIdLoop = 0;
+            while (gpuIdLoop < gpuCount)
+            {
+                if (pPcieCapsInfo->gpuId[gpuIdLoop] == pGpu->gpuId)
+                {
+                    remainingGpuCount--;
+                    break;
+                }
+                gpuIdLoop++;
+            }
+            if (remainingGpuCount == 0)
+            {
+                break;
+            }
+        }
+
+        if (remainingGpuCount == 0)
+        {
+            if (pP2PWriteCapsStatus != NULL)
+                *pP2PWriteCapsStatus = pPcieCapsInfo->p2pWriteCapsStatus;
+            if (pP2PReadCapsStatus != NULL)
+                *pP2PReadCapsStatus = pPcieCapsInfo->p2pReadCapsStatus;
+            bFound = NV_TRUE;
+            break;
+        }
+    }
+    return bFound;
+}
+
+/**
+ * @brief Get the PCIE P2P info from cache if present
+ * - Take cache locks
+ *
+ * @param[in]   gpuMask             NvU32 value
+ * @param[out]  pP2PWriteCapsStatus NvU8* pointer
+ *                  Can be NULL
+ * @param[out]  pP2PReadCapsStatus  NvU8* pointer
+ *                  Can be NULL
+ *
+ * return       bFound              NvBool
+ */
+NvBool
+gpumgrGetPcieP2PCapsFromCache_IMPL
+(
+    NvU32   gpuMask,
+    NvU8   *pP2PWriteCapsStatus,
+    NvU8   *pP2PReadCapsStatus
+)
+{
+    OBJSYS    *pSys    = SYS_GET_INSTANCE();
+    OBJGPUMGR *pGpuMgr = SYS_GET_GPUMGR(pSys);
+    NvBool     bFound;
+
+    portSyncMutexAcquire(pGpuMgr->pcieP2PCapsInfoLock);
+
+    bFound = _gpumgrGetPcieP2PCapsFromCache(gpuMask, pP2PWriteCapsStatus, pP2PReadCapsStatus);
+
+    portSyncMutexRelease(pGpuMgr->pcieP2PCapsInfoLock);
+
+    return bFound;
+}
+
+
+/**
+ * @brief Remove the PCIE P2P info from cache if present
+ *
+ * @param[in]   gpuId             NvU32 value
+ */
+void
+gpumgrRemovePcieP2PCapsFromCache_IMPL
+(
+   NvU32 gpuId
+)
+{
+    OBJSYS          *pSys = SYS_GET_INSTANCE();
+    OBJGPUMGR       *pGpuMgr = SYS_GET_GPUMGR(pSys);
+    PCIEP2PCAPSINFO *pPcieCapsInfo, *pPcieCapsInfoNext;
+    NvU32            gpuIdLoop;
+
+    portSyncMutexAcquire(pGpuMgr->pcieP2PCapsInfoLock);
+
+    // Remove and free all entries that have this GPU
+    for (pPcieCapsInfo = listHead(&(pGpuMgr->pcieP2PCapsInfoCache));
+         pPcieCapsInfo != NULL;
+         pPcieCapsInfo = pPcieCapsInfoNext)
+    {
+        // As we potentially remove an entry we need to save off the next one.
+        pPcieCapsInfoNext = listNext(&(pGpuMgr->pcieP2PCapsInfoCache), pPcieCapsInfo);
+        gpuIdLoop = 0;
+        while (gpuIdLoop < pPcieCapsInfo->gpuCount)
+        {
+            if (pPcieCapsInfo->gpuId[gpuIdLoop] == gpuId)
+            {
+                listRemove(&pGpuMgr->pcieP2PCapsInfoCache, pPcieCapsInfo);
+                portMemFree(pPcieCapsInfo);
+                // Go to next entry (for loop)
+                break;
+            }
+            gpuIdLoop++;
+        }
+    }
+    portSyncMutexRelease(pGpuMgr->pcieP2PCapsInfoLock);
+}
+
+NvBool gpumgrAreAllGpusInOffloadMode(void)
+{
+    OBJSYS    *pSys = SYS_GET_INSTANCE();
+    OBJGPUMGR *pGpuMgr = SYS_GET_GPUMGR(pSys);
+
+    return pGpuMgr->gpuMonolithicRmMask == 0;
+}
+
+NvBool gpumgrIsSafeToReadGpuInfo(void)
+{
+    //
+    // A thread that tears down the GPU must own both the API lock for WRITE
+    // and all GPU locks.
+    //
+    // Conversely, if you hold the API lock (either READ or WRITE), or hold
+    // any GPU locks, you know that no GPUs will be freed from under you.
+    //
+
+    //
+    // NOTE: Currently rmapiLockIsOwner() returns TRUE if you own the lock in
+    // either READ or WRITE modes
+    //
+    return rmapiLockIsOwner() || (rmGpuLocksGetOwnedMask() != 0);
 }

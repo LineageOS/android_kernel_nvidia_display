@@ -44,7 +44,7 @@
 
 #if defined(NV_LINUX_NVHOST_H_PRESENT) && defined(CONFIG_TEGRA_GRHOST)
 #include <linux/nvhost.h>
-#elif defined(NV_LINUX_HOST1X_NEXT_H_PRESENT)
+#elif defined(NV_LINUX_HOST1X_NEXT_H_PRESENT)            
 #include <linux/host1x-next.h>
 #endif
 
@@ -74,23 +74,6 @@ nv_drm_atomic_replace_property_blob_from_id(struct drm_device *dev,
     drm_property_blob_put(new_blob);
 
     return 0;
-}
-
-static bool nv_drm_plane_atomic_hdr_metadata_equal(struct nv_drm_plane_state *old_state,
-                                                   struct nv_drm_plane_state *new_state)
-{
-       struct drm_property_blob *old_blob = old_state->hdr_output_metadata;
-       struct drm_property_blob *new_blob = new_state->hdr_output_metadata;
-
-       if (!old_blob || !new_blob) {
-           return old_blob == new_blob;
-       }
-
-       if (old_blob->length != new_blob->length) {
-           return false;
-       }
-
-       return !memcmp(old_blob->data, new_blob->data, old_blob->length);
 }
 #endif
 
@@ -132,9 +115,6 @@ cursor_plane_req_config_update(struct drm_plane *plane,
 {
     struct nv_drm_plane *nv_plane = to_nv_plane(plane);
     struct NvKmsKapiCursorRequestedConfig old_config = *req_config;
-    struct nv_drm_device *nv_dev = to_nv_device(plane->dev);
-    struct nv_drm_plane_state *nv_drm_plane_state =
-        to_nv_drm_plane_state(plane_state);
 
     if (plane_state->fb == NULL) {
         cursor_req_config_disable(req_config);
@@ -234,7 +214,6 @@ plane_req_config_update(struct drm_plane *plane,
     struct nv_drm_device *nv_dev = to_nv_device(plane->dev);
     struct nv_drm_plane_state *nv_drm_plane_state =
         to_nv_drm_plane_state(plane_state);
-    int ret = 0;
 
     if (plane_state->fb == NULL) {
         plane_req_config_disable(req_config);
@@ -371,10 +350,10 @@ plane_req_config_update(struct drm_plane *plane,
 #if defined(NV_LINUX_NVHOST_H_PRESENT) && defined(CONFIG_TEGRA_GRHOST)
 #if defined(NV_NVHOST_DMA_FENCE_UNPACK_PRESENT)
         if (plane_state->fence != NULL) {
-            ret = nvhost_dma_fence_unpack(
-                      plane_state->fence,
-                      &req_config->config.syncptParams.preSyncptId,
-                      &req_config->config.syncptParams.preSyncptValue);
+            int ret = nvhost_dma_fence_unpack(
+                          plane_state->fence,
+                          &req_config->config.syncptParams.preSyncptId,
+                          &req_config->config.syncptParams.preSyncptValue);
             if (ret != 0) {
                 return ret;
             }
@@ -384,21 +363,21 @@ plane_req_config_update(struct drm_plane *plane,
 
         if (nv_drm_plane_state->fd_user_ptr) {
             req_config->config.syncptParams.postSyncptRequested = true;
-        }
-#elif defined(NV_LINUX_HOST1X_NEXT_H_PRESENT)
-        if (plane_state->fence != NULL) {
-            ret = host1x_fence_extract(
-                      plane_state->fence,
-                      &req_config->config.syncptParams.preSyncptId,
-                      &req_config->config.syncptParams.preSyncptValue);
-            if (ret != 0) {
-                return ret;
-            }
-            req_config->config.syncptParams.preSyncptSpecified = true;
-        }
+        }           
+#elif defined(NV_LINUX_HOST1X_NEXT_H_PRESENT)            
+        if (plane_state->fence != NULL) {            
+            int ret = host1x_fence_extract(            
+                      plane_state->fence,            
+                      &req_config->config.syncptParams.preSyncptId,            
+                      &req_config->config.syncptParams.preSyncptValue);            
+            if (ret != 0) {            
+                return ret;            
+            }            
+            req_config->config.syncptParams.preSyncptSpecified = true;            
+        }            
 
-        if (nv_drm_plane_state->fd_user_ptr) {
-            req_config->config.syncptParams.postSyncptRequested = true;
+        if (nv_drm_plane_state->fd_user_ptr) {            
+            req_config->config.syncptParams.postSyncptRequested = true;            
         }
 #else
         return -1;
@@ -406,61 +385,57 @@ plane_req_config_update(struct drm_plane *plane,
     }
 
 #if defined(NV_DRM_HAS_HDR_OUTPUT_METADATA)
-     if (!nv_drm_plane_atomic_hdr_metadata_equal(
-                 to_nv_drm_plane_state(plane->state),
-                 nv_drm_plane_state)) {
-         if (nv_drm_plane_state->hdr_output_metadata) {
-             struct hdr_output_metadata *hdr_metadata =
-                 nv_drm_plane_state->hdr_output_metadata->data;
-             struct hdr_metadata_infoframe *info_frame =
-                 &hdr_metadata->hdmi_metadata_type1;
-             struct nv_drm_device *nv_dev = to_nv_device(plane->dev);
-             uint32_t i;
+    if (nv_drm_plane_state->hdr_output_metadata != NULL) {
+        struct hdr_output_metadata *hdr_metadata =
+            nv_drm_plane_state->hdr_output_metadata->data;
+        struct hdr_metadata_infoframe *info_frame =
+            &hdr_metadata->hdmi_metadata_type1;
+        struct nv_drm_device *nv_dev = to_nv_device(plane->dev);
+        uint32_t i;
 
-             if (hdr_metadata->metadata_type != HDMI_STATIC_METADATA_TYPE1) {
-                 NV_DRM_DEV_LOG_ERR(nv_dev, "Unsupported Metadata Type");
-                 return -1;
-             }
+        if (hdr_metadata->metadata_type != HDMI_STATIC_METADATA_TYPE1) {
+            NV_DRM_DEV_LOG_ERR(nv_dev, "Unsupported Metadata Type");
+            return -1;
+        }
 
-             for (i = 0; i < ARRAY_SIZE(info_frame->display_primaries); i ++) {
-                 req_config->config.hdrMetadata.displayPrimaries[i].x =
-                     info_frame->display_primaries[i].x;
-                 req_config->config.hdrMetadata.displayPrimaries[i].y =
-                     info_frame->display_primaries[i].y;
-             }
+        for (i = 0; i < ARRAY_SIZE(info_frame->display_primaries); i ++) {
+            req_config->config.hdrMetadata.displayPrimaries[i].x =
+                info_frame->display_primaries[i].x;
+            req_config->config.hdrMetadata.displayPrimaries[i].y =
+                info_frame->display_primaries[i].y;
+        }
 
-             req_config->config.hdrMetadata.whitePoint.x =
-                 info_frame->white_point.x;
-             req_config->config.hdrMetadata.whitePoint.y =
-                 info_frame->white_point.y;
-             req_config->config.hdrMetadata.maxDisplayMasteringLuminance =
-                 info_frame->max_display_mastering_luminance;
-             req_config->config.hdrMetadata.minDisplayMasteringLuminance =
-                 info_frame->min_display_mastering_luminance;
-             req_config->config.hdrMetadata.maxCLL =
-                 info_frame->max_cll;
-             req_config->config.hdrMetadata.maxFALL =
-                 info_frame->max_fall;
+        req_config->config.hdrMetadata.whitePoint.x =
+            info_frame->white_point.x;
+        req_config->config.hdrMetadata.whitePoint.y =
+            info_frame->white_point.y;
+        req_config->config.hdrMetadata.maxDisplayMasteringLuminance =
+            info_frame->max_display_mastering_luminance;
+        req_config->config.hdrMetadata.minDisplayMasteringLuminance =
+            info_frame->min_display_mastering_luminance;
+        req_config->config.hdrMetadata.maxCLL =
+            info_frame->max_cll;
+        req_config->config.hdrMetadata.maxFALL =
+            info_frame->max_fall;
 
-             req_config->config.hdrMetadataSpecified = true;
+        req_config->config.hdrMetadataSpecified = true;
 
-             switch (info_frame->eotf) {
-                 case HDMI_EOTF_SMPTE_ST2084:
-                     req_config->config.tf = NVKMS_OUTPUT_TF_PQ;
-                     break;
-                 case HDMI_EOTF_TRADITIONAL_GAMMA_SDR:
-                     req_config->config.tf =
-                         NVKMS_OUTPUT_TF_TRADITIONAL_GAMMA_SDR;
-                     break;
-                 default:
-                     NV_DRM_DEV_LOG_ERR(nv_dev, "Unsupported EOTF");
-                     return -1;
-             }
-         } else {
-             req_config->config.hdrMetadataSpecified = false;
-             req_config->config.tf = NVKMS_OUTPUT_TF_NONE;
-         }
-     }
+        switch (info_frame->eotf) {
+            case HDMI_EOTF_SMPTE_ST2084:
+                req_config->config.tf = NVKMS_OUTPUT_TF_PQ;
+                break;
+            case HDMI_EOTF_TRADITIONAL_GAMMA_SDR:
+                req_config->config.tf =
+                    NVKMS_OUTPUT_TF_TRADITIONAL_GAMMA_SDR;
+                break;
+            default:
+                NV_DRM_DEV_LOG_ERR(nv_dev, "Unsupported EOTF");
+                return -1;
+        }
+    } else {
+        req_config->config.hdrMetadataSpecified = false;
+        req_config->config.tf = NVKMS_OUTPUT_TF_NONE;
+    }
 #endif
 
     /*
@@ -657,8 +632,8 @@ static int nv_drm_plane_atomic_get_property(
     uint64_t *val)
 {
     struct nv_drm_device *nv_dev = to_nv_device(plane->dev);
-    struct nv_drm_plane_state *nv_drm_plane_state =
-        to_nv_drm_plane_state(state);
+    const struct nv_drm_plane_state *nv_drm_plane_state =
+        to_nv_drm_plane_state_const(state);
 
     if (property == nv_dev->nv_out_fence_property) {
         return 0;
@@ -668,8 +643,8 @@ static int nv_drm_plane_atomic_get_property(
     }
 #if defined(NV_DRM_HAS_HDR_OUTPUT_METADATA)
     else if (property ==  nv_dev->nv_hdr_output_metadata_property) {
-        struct nv_drm_plane_state *nv_drm_plane_state =
-            to_nv_drm_plane_state(state);
+        const struct nv_drm_plane_state *nv_drm_plane_state =
+            to_nv_drm_plane_state_const(state);
         *val = nv_drm_plane_state->hdr_output_metadata ?
             nv_drm_plane_state->hdr_output_metadata->base.id : 0;
         return 0;
@@ -717,9 +692,11 @@ static inline void __nv_drm_plane_atomic_destroy_state(
 #endif
 
 #if defined(NV_DRM_HAS_HDR_OUTPUT_METADATA)
-    struct nv_drm_plane_state *nv_drm_plane_state =
-        to_nv_drm_plane_state(state);
-    drm_property_blob_put(nv_drm_plane_state->hdr_output_metadata);
+    {
+        struct nv_drm_plane_state *nv_drm_plane_state =
+            to_nv_drm_plane_state(state);
+        drm_property_blob_put(nv_drm_plane_state->hdr_output_metadata);
+    }
 #endif
 }
 
@@ -1181,6 +1158,8 @@ nv_drm_plane_create(struct drm_device *dev,
             plane,
             validLayerRRTransforms);
 
+    nv_drm_free(formats);
+
     return plane;
 
 failed_plane_init:
@@ -1223,6 +1202,7 @@ static struct drm_crtc *__nv_drm_crtc_create(struct nv_drm_device *nv_dev,
     nv_crtc->head = head;
     INIT_LIST_HEAD(&nv_crtc->flip_list);
     spin_lock_init(&nv_crtc->flip_list_lock);
+    nv_crtc->modeset_permission_filep = NULL;
 
     ret = drm_crtc_init_with_planes(nv_dev->dev,
                                     &nv_crtc->base,
@@ -1321,11 +1301,13 @@ void nv_drm_enumerate_crtcs_and_planes(
         }
 
         for (layer = 0; layer < pResInfo->numLayers[i]; layer++) {
+            struct drm_plane *overlay_plane = NULL;
+
             if (layer == NVKMS_KAPI_LAYER_PRIMARY_IDX) {
                 continue;
             }
 
-            struct drm_plane *overlay_plane =
+            overlay_plane =
                 nv_drm_plane_create(nv_dev->dev,
                                     DRM_PLANE_TYPE_OVERLAY,
                                     layer,
@@ -1350,10 +1332,16 @@ static void NvKmsKapiCrcsToDrm(const struct NvKmsKapiCrcs *crcs,
 {
     drmCrcs->outputCrc32.value = crcs->outputCrc32.value;
     drmCrcs->outputCrc32.supported = crcs->outputCrc32.supported;
+    drmCrcs->outputCrc32.__pad0 = 0;
+    drmCrcs->outputCrc32.__pad1 = 0;
     drmCrcs->rasterGeneratorCrc32.value = crcs->rasterGeneratorCrc32.value;
     drmCrcs->rasterGeneratorCrc32.supported = crcs->rasterGeneratorCrc32.supported;
+    drmCrcs->rasterGeneratorCrc32.__pad0 = 0;
+    drmCrcs->rasterGeneratorCrc32.__pad1 = 0;
     drmCrcs->compositorCrc32.value = crcs->compositorCrc32.value;
     drmCrcs->compositorCrc32.supported = crcs->compositorCrc32.supported;
+    drmCrcs->compositorCrc32.__pad0 = 0;
+    drmCrcs->compositorCrc32.__pad1 = 0;
 }
 
 int nv_drm_get_crtc_crc32_v2_ioctl(struct drm_device *dev,
@@ -1369,7 +1357,7 @@ int nv_drm_get_crtc_crc32_v2_ioctl(struct drm_device *dev,
         return -ENOENT;
     }
 
-    crtc = nv_drm_crtc_find(dev, params->crtc_id);
+    crtc = nv_drm_crtc_find(dev, filep, params->crtc_id);
     if (!crtc) {
         return -ENOENT;
     }
@@ -1397,7 +1385,7 @@ int nv_drm_get_crtc_crc32_ioctl(struct drm_device *dev,
         return -ENOENT;
     }
 
-    crtc = nv_drm_crtc_find(dev, params->crtc_id);
+    crtc = nv_drm_crtc_find(dev, filep, params->crtc_id);
     if (!crtc) {
         return -ENOENT;
     }

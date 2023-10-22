@@ -207,7 +207,7 @@ static void _nv04Alloc
     XlateUserModeArgsToSecInfo(bUserModeArgs, NV_FALSE, &secInfo);
 
     pArgs->status = pRmApi->AllocWithSecInfo(pRmApi, pArgs->hRoot, pArgs->hObjectParent, &pArgs->hObjectNew,
-                                             pArgs->hClass, pArgs->pAllocParms, RMAPI_ALLOC_FLAGS_NONE,
+                                             pArgs->hClass, pArgs->pAllocParms, pArgs->paramsSize, RMAPI_ALLOC_FLAGS_NONE,
                                              NvP64_NULL, &secInfo);
 } // end of Nv04Alloc()
 
@@ -231,7 +231,7 @@ static void _nv04AllocWithSecInfo
     RM_API *pRmApi = rmapiGetInterface(RMAPI_EXTERNAL);
 
     pArgs->status = pRmApi->AllocWithSecInfo(pRmApi, pArgs->hRoot, pArgs->hObjectParent, &pArgs->hObjectNew,
-                                             pArgs->hClass, pArgs->pAllocParms, RMAPI_ALLOC_FLAGS_NONE,
+                                             pArgs->hClass, pArgs->pAllocParms, pArgs->paramsSize, RMAPI_ALLOC_FLAGS_NONE,
                                              NvP64_NULL, &secInfo);
 } // end of _nv04AllocWithSecInfo()
 
@@ -254,12 +254,16 @@ static void _nv04AllocWithAccess
 )
 {
     RM_API            *pRmApi = rmapiGetInterface(RMAPI_EXTERNAL);
+    NvU32              flags = RMAPI_ALLOC_FLAGS_NONE;
     API_SECURITY_INFO  secInfo;
 
     XlateUserModeArgsToSecInfo(bUserModeArgs, NV_FALSE, &secInfo);
 
+    if (pArgs->flags & NVOS64_FLAGS_FINN_SERIALIZED)
+        flags |= RMAPI_ALLOC_FLAGS_SERIALIZED;
+
     pArgs->status = pRmApi->AllocWithSecInfo(pRmApi, pArgs->hRoot, pArgs->hObjectParent, &pArgs->hObjectNew,
-                                             pArgs->hClass, pArgs->pAllocParms, RMAPI_ALLOC_FLAGS_NONE,
+                                             pArgs->hClass, pArgs->pAllocParms, pArgs->paramsSize, flags,
                                              pArgs->pRightsRequested, &secInfo);
 } // end of _nv04AllocWithAccess()
 
@@ -270,9 +274,13 @@ static void _nv04AllocWithAccessSecInfo
 )
 {
     RM_API *pRmApi = rmapiGetInterface(RMAPI_EXTERNAL);
+    NvU32   flags = RMAPI_ALLOC_FLAGS_NONE;
+
+    if (pArgs->flags & NVOS64_FLAGS_FINN_SERIALIZED)
+        flags |= RMAPI_ALLOC_FLAGS_SERIALIZED;
 
     pArgs->status = pRmApi->AllocWithSecInfo(pRmApi, pArgs->hRoot, pArgs->hObjectParent, &pArgs->hObjectNew,
-                                             pArgs->hClass, pArgs->pAllocParms, RMAPI_ALLOC_FLAGS_NONE,
+                                             pArgs->hClass, pArgs->pAllocParms, pArgs->paramsSize, flags,
                                              pArgs->pRightsRequested, &secInfo);
 } // end of _nv04AllocWithAccessSecInfo()
 

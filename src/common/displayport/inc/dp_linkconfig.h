@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2010-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2010-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -43,24 +43,59 @@ namespace DisplayPort
     class LinkRates : virtual public Object
     {
     public:
-        // Store link rate in multipler of 270MBPS to save space
-        NvU8 element[NV_DPCD_SUPPORTED_LINK_RATES__SIZE];
         NvU8 entries;
 
-        LinkRates() : entries(0) {}
+        virtual void clear() = 0;
+        virtual bool import(NvU8 linkBw)
+        {
+            DP_ASSERT(0);
+            return false;
+        }
 
-        void clear()
+        virtual LinkRate getLowerRate(LinkRate rate) = 0;
+        virtual LinkRate getMaxRate() = 0;
+        virtual NvU8 getNumElements() = 0;
+
+        NvU8 getNumLinkRates()
+        {
+            return entries;
+        }
+
+    };
+
+    class LinkRates1x : virtual public LinkRates
+    {
+    public:
+        // Store link rate in multipler of 270MBPS to save space
+        NvU8 element[NV_SUPPORTED_DP1X_LINK_RATES__SIZE];
+
+        LinkRates1x()
         {
             entries = 0;
-            for (int i = 0; i < NV_DPCD_SUPPORTED_LINK_RATES__SIZE; i++)
+            for (int i = 0; i < NV_SUPPORTED_DP1X_LINK_RATES__SIZE; i++)
             {
                 element[i] = 0;
             }
         }
 
-        bool import(NvU8 linkBw)
+        virtual void clear()
         {
-            if (entries < NV_DPCD_SUPPORTED_LINK_RATES__SIZE)
+            entries = 0;
+            for (int i = 0; i < NV_SUPPORTED_DP1X_LINK_RATES__SIZE; i++)
+            {
+                element[i] = 0;
+            }
+        }
+
+        virtual bool import(NvU8 linkBw)
+        {
+            if (!IS_VALID_LINKBW(linkBw))
+            {
+                DP_ASSERT(0 && "Unsupported Link Bandwidth");
+                return false;
+            }
+
+            if (entries < NV_SUPPORTED_DP1X_LINK_RATES__SIZE)
             {
                 element[entries] = linkBw;
                 entries++;
@@ -70,12 +105,7 @@ namespace DisplayPort
                 return false;
         }
 
-        NvU8 getNumLinkRates()
-        {
-            return entries;
-        }
-
-        LinkRate getLowerRate(LinkRate rate)
+        virtual LinkRate getLowerRate(LinkRate rate)
         {
             int i;
             NvU8 linkBw = (NvU8)(rate / DP_LINK_BW_FREQ_MULTI_MBPS);
@@ -93,24 +123,29 @@ namespace DisplayPort
             return rate;
         }
 
-        LinkRate getMaxRate()
+        virtual LinkRate getMaxRate()
         {
             LinkRate rate = 0;
             if ((entries > 0) &&
-                (entries <= NV_DPCD_SUPPORTED_LINK_RATES__SIZE))
+                (entries <= NV_SUPPORTED_DP1X_LINK_RATES__SIZE))
             {
                 rate = (LinkRate)element[entries - 1] * DP_LINK_BW_FREQ_MULTI_MBPS;
             }
 
             return rate;
         }
+        virtual NvU8 getNumElements()
+        {
+            return NV_SUPPORTED_DP1X_LINK_RATES__SIZE;
+        }
+
     };
 
     class LinkPolicy : virtual public Object
     {
-        bool        bNoFallback;                // No fallback when LT fails
-        LinkRates   linkRates;
-
+    protected:
+        bool            bNoFallback;                // No fallback when LT fails
+        LinkRates1x     linkRates;
     public:
         LinkPolicy() : bNoFallback(false)
         {
@@ -129,24 +164,31 @@ namespace DisplayPort
             return &linkRates;
         }
     };
+
     enum
     {
         totalTimeslots = 64,
         totalUsableTimeslots = totalTimeslots - 1
     };
 
-    // in MBps
+    //
+    // In MBPS,
+    // For non-UHBR, data rate = link rate * (8 / 10) / 8
+    //                         = link rate * 0.1
+    // For UHBR,     data rate = link rate * (128 / 132) / 8
+    //                         = link rate * 4 / 33
+    //                        ~= link rate * 0.12
+    //
     enum
     {
-        RBR         = 162000000,
-        EDP_2_16GHZ = 216000000,
-        EDP_2_43GHZ = 243000000,
-        HBR         = 270000000,
-        EDP_3_24GHZ = 324000000,
-        EDP_4_32GHZ = 432000000,
-        HBR2        = 540000000,
-        EDP_6_75GHZ = 675000000,
-        HBR3        = 810000000
+        RBR             =  162000000,
+        EDP_2_16GHZ     =  216000000,
+        EDP_2_43GHZ     =  243000000,
+        HBR             =  270000000,
+        EDP_3_24GHZ     =  324000000,
+        EDP_4_32GHZ     =  432000000,
+        HBR2            =  540000000,
+        HBR3            =  810000000
     };
 
     struct HDCPState
@@ -385,6 +427,11 @@ namespace DisplayPort
         void pbnRequired(const ModesetInfo & modesetInfo, unsigned & base_pbn, unsigned & slots, unsigned & slots_pbn)
         {
             base_pbn = pbnForMode(modesetInfo);
+            if (bEnableFEC)
+            {
+                // IF FEC is enabled, we need to consider 3% overhead as per DP1.4 spec.
+                base_pbn = (NvU32)(divide_ceil(base_pbn * 100, 97));
+            }
             slots = slotsForPBN(base_pbn);
             slots_pbn = PBNForSlots(slots);
         }

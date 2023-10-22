@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2005-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2005-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -27,10 +27,13 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrl0073/ctrl0073dfp.finn
+// Source file:      ctrl/ctrl0073/ctrl0073dfp.finn
 //
 
 #include "ctrl/ctrl0073/ctrl0073base.h"
+#include "ctrl/ctrl0073/ctrl0073common.h"
+
+#include "nvcfg_sdk.h"
 
 /* NV04_DISPLAY_COMMON dfp-display-specific control commands and parameters */
 
@@ -84,8 +87,7 @@
  *         This specifies whether the displayId is capable of sending
  *         YCBCR444 color format out from the board.
  *       NV0073_CTRL_DFP_FLAGS_DP_LINK_BANDWIDTH
- *         This specifies whether the displayId is capable of doing high
- *         bit-rate (2.7Gbps) or low bit-rate (1.62Gbps) if the DFP is
+ *         This specifies max link rate supported by the displayId, if the DFP is
  *         display port.
  *       NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED
  *         This specifies whether the DFP displayId is allowed to transmit HDMI
@@ -105,6 +107,8 @@
  *         This indicates whether this SOR uses DSI-A, DSI-B or both (ganged mode).
  *       NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE
  *         This indicates whether this DFP supports Dynamic MUX
+ *   UHBRSupportedByDfp
+ *     Bitmask to specify the UHBR link rates supported by this dfp.
  *
  * Possible status values returned are:
  *   NV_OK
@@ -119,76 +123,77 @@ typedef struct NV0073_CTRL_DFP_GET_INFO_PARAMS {
     NvU32 subDeviceInstance;
     NvU32 displayId;
     NvU32 flags;
+    NvU32 UHBRSupportedByDfp;
 } NV0073_CTRL_DFP_GET_INFO_PARAMS;
 
 /* valid display types */
 #define NV0073_CTRL_DFP_FLAGS_SIGNAL                                       2:0
-#define NV0073_CTRL_DFP_FLAGS_SIGNAL_TMDS                    (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_SIGNAL_LVDS                    (0x00000001U)
-#define NV0073_CTRL_DFP_FLAGS_SIGNAL_SDI                     (0x00000002U)
-#define NV0073_CTRL_DFP_FLAGS_SIGNAL_DISPLAYPORT             (0x00000003U)
-#define NV0073_CTRL_DFP_FLAGS_SIGNAL_DSI                     (0x00000004U)
-#define NV0073_CTRL_DFP_FLAGS_SIGNAL_WRBK                    (0x00000005U)
+#define NV0073_CTRL_DFP_FLAGS_SIGNAL_TMDS                       (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_SIGNAL_LVDS                       (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_SIGNAL_SDI                        (0x00000002U)
+#define NV0073_CTRL_DFP_FLAGS_SIGNAL_DISPLAYPORT                (0x00000003U)
+#define NV0073_CTRL_DFP_FLAGS_SIGNAL_DSI                        (0x00000004U)
+#define NV0073_CTRL_DFP_FLAGS_SIGNAL_WRBK                       (0x00000005U)
 #define NV0073_CTRL_DFP_FLAGS_LANE                                         5:3
-#define NV0073_CTRL_DFP_FLAGS_LANE_NONE                      (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_LANE_SINGLE                    (0x00000001U)
-#define NV0073_CTRL_DFP_FLAGS_LANE_DUAL                      (0x00000002U)
-#define NV0073_CTRL_DFP_FLAGS_LANE_QUAD                      (0x00000003U)
-#define NV0073_CTRL_DFP_FLAGS_LANE_OCT                       (0x00000004U)
+#define NV0073_CTRL_DFP_FLAGS_LANE_NONE                         (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_LANE_SINGLE                       (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_LANE_DUAL                         (0x00000002U)
+#define NV0073_CTRL_DFP_FLAGS_LANE_QUAD                         (0x00000003U)
+#define NV0073_CTRL_DFP_FLAGS_LANE_OCT                          (0x00000004U)
 #define NV0073_CTRL_DFP_FLAGS_LIMIT                                        6:6
-#define NV0073_CTRL_DFP_FLAGS_LIMIT_DISABLE                  (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_LIMIT_60HZ_RR                  (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_LIMIT_DISABLE                     (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_LIMIT_60HZ_RR                     (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_SLI_SCALER                                   7:7
-#define NV0073_CTRL_DFP_FLAGS_SLI_SCALER_NORMAL              (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_SLI_SCALER_DISABLE             (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_SLI_SCALER_NORMAL                 (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_SLI_SCALER_DISABLE                (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_HDMI_CAPABLE                                 8:8
-#define NV0073_CTRL_DFP_FLAGS_HDMI_CAPABLE_FALSE             (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_HDMI_CAPABLE_TRUE              (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_HDMI_CAPABLE_FALSE                (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_HDMI_CAPABLE_TRUE                 (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_RANGE_LIMITED_CAPABLE                        9:9
-#define NV0073_CTRL_DFP_FLAGS_RANGE_LIMITED_CAPABLE_FALSE    (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_RANGE_LIMITED_CAPABLE_TRUE     (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_RANGE_LIMITED_CAPABLE_FALSE       (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_RANGE_LIMITED_CAPABLE_TRUE        (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_RANGE_AUTO_CAPABLE                         10:10
-#define NV0073_CTRL_DFP_FLAGS_RANGE_AUTO_CAPABLE_FALSE       (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_RANGE_AUTO_CAPABLE_TRUE        (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_RANGE_AUTO_CAPABLE_FALSE          (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_RANGE_AUTO_CAPABLE_TRUE           (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR422_CAPABLE                    11:11
-#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR422_CAPABLE_FALSE  (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR422_CAPABLE_TRUE   (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR422_CAPABLE_FALSE     (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR422_CAPABLE_TRUE      (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE                    12:12
-#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE_FALSE  (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE_TRUE   (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE_FALSE     (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE_TRUE      (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED                               14:14
-#define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED_FALSE             (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED_TRUE              (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED_FALSE                (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED_TRUE                 (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_EMBEDDED_DISPLAYPORT                       15:15
-#define NV0073_CTRL_DFP_FLAGS_EMBEDDED_DISPLAYPORT_FALSE     (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_EMBEDDED_DISPLAYPORT_TRUE      (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_EMBEDDED_DISPLAYPORT_FALSE        (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_EMBEDDED_DISPLAYPORT_TRUE         (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_DP_LINK_CONSTRAINT                         16:16
-#define NV0073_CTRL_DFP_FLAGS_DP_LINK_CONSTRAINT_NONE        (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_DP_LINK_CONSTRAINT_PREFER_RBR  (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_DP_LINK_CONSTRAINT_NONE           (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_DP_LINK_CONSTRAINT_PREFER_RBR     (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW                                 19:17
-#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_1_62GBPS            (0x00000001U)
-#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_2_70GBPS            (0x00000002U)
-#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_5_40GBPS            (0x00000003U)
-#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_8_10GBPS            (0x00000004U)
+#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_1_62GBPS               (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_2_70GBPS               (0x00000002U)
+#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_5_40GBPS               (0x00000003U)
+#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_8_10GBPS               (0x00000004U)
 #define NV0073_CTRL_DFP_FLAGS_LINK                                       21:20
-#define NV0073_CTRL_DFP_FLAGS_LINK_NONE                      (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_LINK_SINGLE                    (0x00000001U)
-#define NV0073_CTRL_DFP_FLAGS_LINK_DUAL                      (0x00000002U)
+#define NV0073_CTRL_DFP_FLAGS_LINK_NONE                         (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_LINK_SINGLE                       (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_LINK_DUAL                         (0x00000002U)
 #define NV0073_CTRL_DFP_FLAGS_DP_FORCE_RM_EDID                           22:22
-#define NV0073_CTRL_DFP_FLAGS_DP_FORCE_RM_EDID_FALSE         (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_DP_FORCE_RM_EDID_TRUE          (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_DP_FORCE_RM_EDID_FALSE            (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_DP_FORCE_RM_EDID_TRUE             (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID                              24:23
-#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_NONE         (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_A            (0x00000001U)
-#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_B            (0x00000002U)
-#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_GANGED       (0x00000003U)
+#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_NONE            (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_A               (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_B               (0x00000002U)
+#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_GANGED          (0x00000003U)
 #define NV0073_CTRL_DFP_FLAGS_DP_POST_CURSOR2_DISABLED                   25:25
-#define NV0073_CTRL_DFP_FLAGS_DP_POST_CURSOR2_DISABLED_FALSE (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_DP_POST_CURSOR2_DISABLED_TRUE  (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_DP_POST_CURSOR2_DISABLED_FALSE    (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_DP_POST_CURSOR2_DISABLED_TRUE     (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_DP_PHY_REPEATER_COUNT                      29:26
 #define NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE                        30:30
-#define NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE_FALSE      (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE_TRUE       (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE_FALSE         (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE_TRUE          (0x00000001U)
 
 
 
@@ -465,7 +470,7 @@ typedef struct NV0073_CTRL_DFP_SET_AUDIO_ENABLE_PARAMS {
 /*
  * NV0073_CTRL_DFP_ASSIGN_SOR_LINKCONFIG
  *
- * This enum defines default/primary/secondary sor sublinks to be configured.
+ * This variable specifies default/primary/secondary sor sublinks to be configured.
  * These access modes are:
  *
  *  NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_NONE
@@ -475,11 +480,11 @@ typedef struct NV0073_CTRL_DFP_SET_AUDIO_ENABLE_PARAMS {
  *  NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_SECONDARY_SOR_LINK
  *    Secondary sor sublink to be configured
  */
-typedef enum NV0073_CTRL_DFP_ASSIGN_SOR_LINKCONFIG {
-    NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_NONE = 0,
-    NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_PRIMARY_SOR_LINK = 1,
-    NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_SECONDARY_SOR_LINK = 2,
-} NV0073_CTRL_DFP_ASSIGN_SOR_LINKCONFIG;
+typedef NvU32 NV0073_CTRL_DFP_ASSIGN_SOR_LINKCONFIG;
+
+#define NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_NONE               (0x0U)
+#define NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_PRIMARY_SOR_LINK   (0x1U)
+#define NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_SECONDARY_SOR_LINK (0x2U)
 
 /*
  * NV0073_CTRL_DFP_ASSIGN_SOR_INFO
@@ -569,7 +574,7 @@ typedef struct NV0073_CTRL_DFP_ASSIGN_SOR_INFO {
  *           _ACTIVE_SOR_NOT_AUDIO_CAPABLE_YES : RM returns Active SOR which is not Audio capable.
  *           _ACTIVE_SOR_NOT_AUDIO_CAPABLE_NO  : RM is not returning 'Active non-audio capable SOR'.
  *
- *  Possible status values returned are: 
+ *  Possible status values returned are:
  *   NV_OK
  *   NV_ERR_INVALID_ARGUMENT
  *   NV_ERR_NOT_SUPPORTED
@@ -1137,6 +1142,10 @@ typedef struct NV0073_CTRL_CMD_DFP_GET_DISP_MUX_STATUS_PARAMS {
 *     Major version number of DSC decoder on Panel.
 *   dscDecoderVersionMinor
 *     Minor version number of DSC decoder on Panel.
+*   dscUseCustomPPS
+*     Flag to indicate if Panel uses custom PPS values which deviate from standard values.
+*   dscCustomPPSData
+*     32 bytes of custom PPS data required by Panel.
 *   dscEncoderCaps
 *     Capabilities of DSC encoder in SoC.
 *
@@ -1148,41 +1157,36 @@ typedef struct NV0073_CTRL_CMD_DFP_GET_DISP_MUX_STATUS_PARAMS {
 
 #define NV0073_CTRL_CMD_DFP_GET_DSI_MODE_TIMING         (0x731166U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_CMD_DFP_GET_DSI_MODE_TIMING_PARAMS_MESSAGE_ID" */
 
+#define NV0073_CTRL_CMD_DFP_DSI_CUSTOM_PPS_DATA_COUNT   32U
+
 #define NV0073_CTRL_CMD_DFP_GET_DSI_MODE_TIMING_PARAMS_MESSAGE_ID (0x66U)
 
 typedef struct NV0073_CTRL_CMD_DFP_GET_DSI_MODE_TIMING_PARAMS {
-    NvU32 subDeviceInstance;
-    NvU32 displayId;
-    NvU32 hActive;
-    NvU32 vActive;
-    NvU32 hFrontPorch;
-    NvU32 vFrontPorch;
-    NvU32 hBackPorch;
-    NvU32 vBackPorch;
-    NvU32 hSyncWidth;
-    NvU32 vSyncWidth;
-    NvU32 bpp;
-    NvU32 refresh;
-    NvU32 pclkHz;
-    NvU32 numLanes;
-    NvU32 dscEnable;
-    NvU32 dscBpp;
-    NvU32 dscNumSlices;
-    NvU32 dscDualDsc;
-    NvU32 dscSliceHeight;
-    NvU32 dscBlockPrediction;
-    NvU32 dscDecoderVersionMajor;
-    NvU32 dscDecoderVersionMinor;
-
-    struct {
-        NvBool bDscSupported;
-        NvU32  encoderColorFormatMask;
-        NvU32  lineBufferSizeKB;
-        NvU32  rateBufferSizeKB;
-        NvU32  bitsPerPixelPrecision;
-        NvU32  maxNumHztSlices;
-        NvU32  lineBufferBitDepth;
-    } dscEncoderCaps;
+    NvU32                          subDeviceInstance;
+    NvU32                          displayId;
+    NvU32                          hActive;
+    NvU32                          vActive;
+    NvU32                          hFrontPorch;
+    NvU32                          vFrontPorch;
+    NvU32                          hBackPorch;
+    NvU32                          vBackPorch;
+    NvU32                          hSyncWidth;
+    NvU32                          vSyncWidth;
+    NvU32                          bpp;
+    NvU32                          refresh;
+    NvU32                          pclkHz;
+    NvU32                          numLanes;
+    NvU32                          dscEnable;
+    NvU32                          dscBpp;
+    NvU32                          dscNumSlices;
+    NvU32                          dscDualDsc;
+    NvU32                          dscSliceHeight;
+    NvU32                          dscBlockPrediction;
+    NvU32                          dscDecoderVersionMajor;
+    NvU32                          dscDecoderVersionMinor;
+    NvBool                         dscUseCustomPPS;
+    NvU32                          dscCustomPPSData[NV0073_CTRL_CMD_DFP_DSI_CUSTOM_PPS_DATA_COUNT];
+    NV0073_CTRL_CMD_DSC_CAP_PARAMS dscEncoderCaps;
 } NV0073_CTRL_CMD_DFP_GET_DSI_MODE_TIMING_PARAMS;
 
 
@@ -1227,13 +1231,23 @@ typedef struct NV0073_CTRL_CMD_DFP_GET_DSI_MODE_TIMING_PARAMS {
  *   Pixel clock frequency in KHz
  * rrx1k (out)
  *   Refresh rate in units of 0.001Hz
+* x (out)
+*   x offset inside superframe at which this view starts
+ * y (out)
+*   y offset inside superframe at which this view starts
+ * width (out)
+*   Horizontal active width in pixels for this view
+* height (out)
+*   Vertical active height in lines for this view
  *
  * Possible status values returned are:
  *   NV_OK
  *   NV_ERR_INVALID_ARGUMENT
  *   NV_ERR_NOT_SUPPORTED
  */
-#define NV0073_CTRL_CMD_DFP_GET_FIXED_MODE_TIMING (0x731172) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8 | NV0073_CTRL_DFP_GET_FIXED_MODE_TIMING_PARAMS_MESSAGE_ID)" */
+#define NV0073_CTRL_CMD_DFP_GET_FIXED_MODE_TIMING              (0x731172) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8 | NV0073_CTRL_DFP_GET_FIXED_MODE_TIMING_PARAMS_MESSAGE_ID)" */
+
+#define NV0073_CTRL_DFP_FIXED_MODE_TIMING_MAX_SUPERFRAME_VIEWS 4U
 
 #define NV0073_CTRL_DFP_GET_FIXED_MODE_TIMING_PARAMS_MESSAGE_ID (0x72U)
 
@@ -1256,6 +1270,18 @@ typedef struct NV0073_CTRL_DFP_GET_FIXED_MODE_TIMING_PARAMS {
 
     NvU32  pclkKHz;
     NvU32  rrx1k;
+
+    struct {
+        NvU8 numViews;
+        struct {
+            NvU16 x;
+            NvU16 y;
+            NvU16 width;
+            NvU16 height;
+        } view[NV0073_CTRL_DFP_FIXED_MODE_TIMING_MAX_SUPERFRAME_VIEWS];
+    } superframeInfo;
 } NV0073_CTRL_DFP_GET_FIXED_MODE_TIMING_PARAMS;
+
+
 
 /* _ctrl0073dfp_h_ */

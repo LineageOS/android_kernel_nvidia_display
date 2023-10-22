@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -93,7 +93,9 @@ const struct
     {NV_DP_REGKEY_KEEP_OPT_LINK_ALIVE_MST,          &dpRegkeyDatabase.bOptLinkKeptAliveMst,            DP_REG_VAL_BOOL},
     {NV_DP_REGKEY_KEEP_OPT_LINK_ALIVE_SST,          &dpRegkeyDatabase.bOptLinkKeptAliveSst,            DP_REG_VAL_BOOL},
     {NV_DP_REGKEY_FORCE_EDP_ILR,                    &dpRegkeyDatabase.bBypassEDPRevCheck,              DP_REG_VAL_BOOL},
-    {NV_DP_DSC_MST_CAP_BUG_3143315,                 &dpRegkeyDatabase.bDscMstCapBug3143315,            DP_REG_VAL_BOOL}
+    {NV_DP_DSC_MST_CAP_BUG_3143315,                 &dpRegkeyDatabase.bDscMstCapBug3143315,            DP_REG_VAL_BOOL},
+    {NV_DP_REGKEY_POWER_DOWN_PHY,                   &dpRegkeyDatabase.bPowerDownPhyBeforeD3,           DP_REG_VAL_BOOL},
+    {NV_DP_REGKEY_REASSESS_MAX_LINK,                &dpRegkeyDatabase.bReassessMaxLink,                DP_REG_VAL_BOOL}
 };
 
 EvoMainLink::EvoMainLink(EvoInterface * provider, Timer * timer) :
@@ -115,9 +117,6 @@ EvoMainLink::EvoMainLink(EvoInterface * provider, Timer * timer) :
      _isLTPhyRepeaterSupported  = true;
      _rmPhyRepeaterCount        = 0;
      dpMemZero(&_DSC, sizeof(_DSC));
-    queryGPUCapability();
-
-    queryAndUpdateDfpParams();
 
     //
     //  Tell RM to hands off on the DisplayPort hardware
@@ -278,8 +277,7 @@ void EvoMainLink::queryGPUCapability()
         //
         _hasMultistream         = (params.bIsMultistreamSupported == NV_TRUE) && !_isMstDisabledByRegkey;
 
-        _isDP1_2Supported       = (params.bIsDp12Supported == NV_TRUE) ? true : false;
-        _isDP1_4Supported       = (params.bIsDp14Supported == NV_TRUE) ? true : false;
+        _gpuSupportedDpVersions = params.dpVersionsSupported;
 
         _isStreamCloningEnabled = (params.bIsSCEnabled == NV_TRUE) ? true : false;
         _hasIncreasedWatermarkLimits     = (params.bHasIncreasedWatermarkLimits == NV_TRUE) ? true : false;
@@ -1046,7 +1044,6 @@ bool EvoMainLink::train(const LinkConfiguration & link, bool force,
             case EDP_3_24GHZ:
             case EDP_4_32GHZ:
             case HBR2:
-            case EDP_6_75GHZ:
             case HBR3:
                 linkBw = linkrate / DP_LINK_BW_FREQ_MULTI_MBPS;
                 dpCtrlData = FLD_SET_DRF_NUM(0073_CTRL, _DP_DATA, _SET_LINK_BW,
@@ -1161,8 +1158,12 @@ bool EvoMainLink::train(const LinkConfiguration & link, bool force,
                 // 1. CR or EQ phase failed.
                 // 2. The request link bandwidth is NOT RBR
                 //
+                if (!requestRmLC.lowerConfig())
+                {
+                    // If no valid link config could be found, break here.
+                    break;
+                }
                 fallback = true;
-                requestRmLC.lowerConfig();
             }
             else
             {
@@ -1233,6 +1234,12 @@ bool EvoMainLink::train(const LinkConfiguration & link, bool force,
     bool result = (status == NVOS_STATUS_SUCCESS);
     retLink->setLaneRate(requestRmLC.peakRate, result ? requestRmLC.lanes : 0);
     retLink->setLTCounter(ltCounter);
+
+    if (requestRmLC.bEnableFEC && (FLD_TEST_DRF(0073_CTRL_DP, _ERR, _ENABLE_FEC, _ERR, err)))
+    {
+        retLink->bEnableFEC = false;
+        DP_ASSERT(0);
+    }
 
     NV_DPTRACE_INFO(LINK_TRAINING_DONE, status, requestRmLC.peakRate, requestRmLC.lanes);
 
@@ -1333,7 +1340,17 @@ void EvoMainLink::getLinkConfig(unsigned &laneCount, NvU64 & linkRate)
     if (code == NVOS_STATUS_SUCCESS)
     {
         laneCount = params.laneCount;
-        linkRate = (NvU64)27000000 * params.linkBW;    // BUG: Beware, turbo mode need to be taken into account
+
+        if (params.linkBW != 0)
+        {
+            // BUG: Beware, turbo mode need to be taken into account
+            linkRate = ((NvU64)params.linkBW) * DP_LINK_BW_FREQ_MULTI_MBPS;
+        }
+        else
+        {
+            // No link rate available.
+            linkRate = 0;
+        }
     }
     else
     {
@@ -1405,6 +1422,7 @@ bool EvoMainLink::queryAndUpdateDfpParams()
             _maxLinkRateSupportedDfp = HBR3;
             break;
     }
+
 
     _isDynamicMuxCapable = FLD_TEST_DRF(0073, _CTRL_DFP_FLAGS, _DYNAMIC_MUX_CAPABLE, _TRUE, dfpFlags);
 
@@ -1758,8 +1776,8 @@ bool EvoMainLink::dscCrcTransaction(NvBool bEnable, gpuDscCrc *data, NvU16 *head
 //
 bool EvoMainLink::configureLinkRateTable
 (
-    const NvU16 *pLinkRateTable,
-    LinkRates   *pLinkRates
+    const NvU16     *pLinkRateTable,
+    LinkRates       *pLinkRates
 )
 {
     NV0073_CTRL_CMD_DP_CONFIG_INDEXED_LINK_RATES_PARAMS params;
@@ -1796,11 +1814,9 @@ bool EvoMainLink::configureLinkRateTable
                 case linkBW_3_24Gbps:
                 case linkBW_4_32Gbps:
                 case linkBW_5_40Gbps:
-                case linkBW_6_75Gbps:
                 case linkBW_8_10Gbps:
-                    pLinkRates->import(params.linkBwTbl[i]);
+                    pLinkRates->import((NvU8)params.linkBwTbl[i]);
                     break;
-
                 default:
                     DP_LOG(("DP_EVO> %s: Unsupported link rate received",
                            __FUNCTION__));

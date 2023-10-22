@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -34,15 +34,11 @@
 #include <gpu_mgr/gpu_mgr.h>
 #include <objtmr.h>
 
-#include "g_os_private.h"
-
 NV_STATUS osSanityTestIsr(
     OBJGPU *pGpu
 )
 {
-    NvBool serviced = NV_FALSE;
-
-    return (serviced) ? NV_OK : NV_ERR_GENERIC;
+    return NV_ERR_NOT_SUPPORTED;
 }
 
 //

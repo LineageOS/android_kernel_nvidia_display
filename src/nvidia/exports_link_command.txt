@@ -16,6 +16,7 @@
 --undefined=rm_init_adapter
 --undefined=rm_init_private_state
 --undefined=rm_init_rm
+--undefined=rm_vgpu_vfio_set_driver_vm
 --undefined=rm_ioctl
 --undefined=rm_is_supported_device
 --undefined=rm_is_supported_pci_device
@@ -39,7 +40,8 @@
 --undefined=rm_acquire_all_gpus_lock
 --undefined=rm_release_all_gpus_lock
 --undefined=rm_shutdown_rm
---undefined=rm_system_event
+--undefined=rm_power_source_change_event
+--undefined=rm_request_dnotifier_state
 --undefined=rm_write_registry_binary
 --undefined=rm_write_registry_dword
 --undefined=rm_write_registry_string
@@ -66,7 +68,6 @@
 --undefined=nv_get_hypervisor_type
 --undefined=rm_gpu_copy_mmu_faults
 --undefined=rm_gpu_handle_mmu_faults
---undefined=rm_gpu_copy_mmu_faults_unlocked
 --undefined=rm_gpu_need_4k_page_isolation
 --undefined=rm_is_chipset_io_coherent
 --undefined=rm_get_device_remove_flag
@@ -91,6 +92,7 @@
 --undefined=rm_schedule_gpu_wakeup
 --undefined=rm_init_dynamic_power_management
 --undefined=rm_cleanup_dynamic_power_management
+--undefined=rm_enable_dynamic_power_management
 --undefined=rm_ref_dynamic_power
 --undefined=rm_unref_dynamic_power
 --undefined=rm_transition_dynamic_power
@@ -100,4 +102,5 @@
 --undefined=rm_get_gpu_gcx_support
 --undefined=rm_is_iommu_needed_for_sriov
 --undefined=rm_disable_iomap_wc
---undefined=rm_get_clientnvpcf_power_limits
+--undefined=rm_is_altstack_in_use
+--undefined=rm_acpi_nvpcf_notify

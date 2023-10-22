@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -114,13 +114,38 @@ subdeviceConstruct_IMPL
     return status;
 }
 
+//
+// subdeviceUnsetDynamicBoostLimit_IMPL
+//
+// Unset Dynamic Boost limit when nvidia-powerd is terminated
+//
+NV_STATUS
+subdeviceUnsetDynamicBoostLimit_IMPL
+(
+    Subdevice *pSubdevice
+)
+{
+    if (!pSubdevice->bUpdateTGP)
+        return NV_OK;
+
+    OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
+    RM_API *pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
+
+    return pRmApi->Control(pRmApi,
+                           pGpu->hInternalClient,
+                           pGpu->hInternalSubdevice,
+                           NV2080_CTRL_CMD_INTERNAL_PMGR_UNSET_DYNAMIC_BOOST_LIMIT,
+                           NULL,
+                           0);
+}
+
 void
 subdevicePreDestruct_IMPL
 (
     Subdevice *pSubdevice
 )
 {
-    subdeviceResetTGP(pSubdevice);
+    subdeviceUnsetDynamicBoostLimit(pSubdevice);
 }
 
 void
@@ -230,24 +255,39 @@ subdeviceGetByGpu_IMPL
     Subdevice       **ppSubdevice
 )
 {
-    Subdevice          *pSubdevice = NULL;
-    OBJGPU             *pTmpGpu = NULL;
-    RS_ITERATOR         it;
-    RsResourceRef      *pResourceRef;
+    return subdeviceGetByDeviceAndGpu(pClient, NULL, pGpu, ppSubdevice);
+}
+
+NV_STATUS
+subdeviceGetByDeviceAndGpu_IMPL
+(
+    RsClient         *pClient,
+    Device           *pDevice,
+    OBJGPU           *pGpu,
+    Subdevice       **ppSubdevice
+)
+{
+    Subdevice    *pSubdevice = NULL;
+    RS_ITERATOR   it;
+    RS_ITER_TYPE  iterType = RS_ITERATE_DESCENDANTS;
+    RsResourceRef *pDeviceRef = NULL;
 
     *ppSubdevice = NULL;
 
-    it = clientRefIter(pClient, NULL, classId(Subdevice), RS_ITERATE_DESCENDANTS, NV_TRUE);
+    if (pDevice != NULL)
+    {
+        pDeviceRef = RES_GET_REF(pDevice);
+        iterType = RS_ITERATE_CHILDREN;
+    }
+
+    it = clientRefIter(pClient, pDeviceRef, classId(Subdevice),
+                       iterType, NV_TRUE);
+
     while (clientRefIterNext(pClient, &it))
     {
-        pResourceRef = it.pResourceRef;
-        pSubdevice = dynamicCast(pResourceRef->pResource, Subdevice);
-        if (pSubdevice == NULL)
-            continue;
+        pSubdevice = dynamicCast(it.pResourceRef->pResource, Subdevice);
 
-        pTmpGpu = GPU_RES_GET_GPU(pSubdevice);
-
-        if (pTmpGpu == pGpu)
+        if (GPU_RES_GET_GPU(pSubdevice) == pGpu)
         {
             *ppSubdevice = pSubdevice;
             return NV_OK;
@@ -330,124 +370,3 @@ subdeviceReleaseComputeModeReservation_IMPL
     }
 }
 
-// ****************************************************************************
-//                            Deprecated Functions
-// ****************************************************************************
-
-/**
- * WARNING: This function is deprecated! Please use subdeviceGetByGpu and
- * GPU_RES_SET_THREAD_BC_STATE (if needed to set thread UC state for SLI)
- */
-Subdevice *
-CliGetSubDeviceInfoFromGpu
-(
-    NvHandle hClient,
-    OBJGPU  *pGpu
-)
-{
-    RsClient   *pClient;
-    NV_STATUS   status;
-    Subdevice  *pSubdevice;
-
-    status = serverGetClientUnderLock(&g_resServ, hClient, &pClient);
-    if (status != NV_OK)
-        return NULL;
-
-    status = subdeviceGetByGpu(pClient, pGpu, &pSubdevice);
-    if (status != NV_OK)
-        return NULL;
-
-    GPU_RES_SET_THREAD_BC_STATE(pSubdevice);
-
-    return pSubdevice;
-}
-
-/**
- * WARNING: This function is deprecated! Please use subdeviceGetByGpu and
- * RES_GET_HANDLE
- */
-NV_STATUS
-CliGetSubDeviceHandleFromGpu
-(
-    NvHandle    hClient,
-    OBJGPU     *pGpu,
-    NvHandle   *phSubDevice
-)
-{
-    Subdevice *pSubdevice;
-
-    if (phSubDevice == NULL)
-    {
-        return NV_ERR_INVALID_ARGUMENT;
-    }
-
-    if ((pSubdevice = CliGetSubDeviceInfoFromGpu(hClient, pGpu)) == NULL)
-    {
-        return NV_ERR_INVALID_ARGUMENT;
-    }
-
-    *phSubDevice = RES_GET_HANDLE(pSubdevice);
-
-    return NV_OK;
-}
-
-/**
- * WARNING: This function is deprecated and use is *strongly* discouraged
- * (especially for new code!)
- *
- * From the function name (CliSetSubDeviceContext) it appears as a simple
- * accessor but violates expectations by modifying the SLI BC threadstate (calls
- * to GPU_RES_SET_THREAD_BC_STATE). This can be dangerous if not carefully
- * managed by the caller.
- *
- * Instead of using this routine, please use subdeviceGetByHandle then call
- * GPU_RES_GET_GPU, RES_GET_HANDLE, GPU_RES_SET_THREAD_BC_STATE as needed.
- *
- * Note that GPU_RES_GET_GPU supports returning a pGpu for both pDevice,
- * pSubdevice, the base pResource type, and any resource that inherits from
- * GpuResource. That is, instead of using CliSetGpuContext or
- * CliSetSubDeviceContext, please use following pattern to look up the pGpu:
- *
- * OBJGPU *pGpu = GPU_RES_GET_GPU(pResource or pResourceRef->pResource)
- *
- * To set the threadstate, please use:
- *
- * GPU_RES_SET_THREAD_BC_STATE(pResource or pResourceRef->pResource);
- */
-NV_STATUS
-CliSetSubDeviceContext
-(
-    NvHandle  hClient,
-    NvHandle  hSubdevice,
-    NvHandle *phDevice,
-    OBJGPU  **ppGpu
-)
-{
-    Subdevice *pSubdevice;
-    RsClient  *pClient;
-    NV_STATUS  status;
-
-    if (phDevice != NULL)
-    {
-        *phDevice = 0;
-    }
-    *ppGpu = NULL;
-
-    status = serverGetClientUnderLock(&g_resServ, hClient, &pClient);
-    if (status != NV_OK)
-        return status;
-
-    status = subdeviceGetByHandle(pClient, hSubdevice, &pSubdevice);
-    if (status != NV_OK)
-        return status;
-
-    *ppGpu = GPU_RES_GET_GPU(pSubdevice);
-    if (phDevice != NULL)
-    {
-        *phDevice = RES_GET_HANDLE(pSubdevice->pDevice);
-    }
-
-    GPU_RES_SET_THREAD_BC_STATE(pSubdevice);
-
-    return NV_OK;
-}

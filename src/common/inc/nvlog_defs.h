@@ -112,21 +112,12 @@ struct _NVLOG_BUFFER
 #endif // NVOS_IS_UNIX
 
 
-//
 // Due to this file's peculiar location, NvPort may or may not be includable
-// This hack will go away when NvLog is moved into common/shared
-//
-#if NVOS_IS_MACINTOSH
-
-#if !PORT_IS_KERNEL_BUILD
 typedef struct PORT_SPINLOCK PORT_SPINLOCK;
-#else
-#include "nvport/nvport.h"
-#endif
+typedef struct PORT_MUTEX PORT_MUTEX;
+typedef struct PORT_RWLOCK PORT_RWLOCK;
 
-#elif !defined(PORT_IS_KERNEL_BUILD)
-typedef struct PORT_SPINLOCK PORT_SPINLOCK;
-#else
+#if PORT_IS_KERNEL_BUILD
 #include "nvport/nvport.h"
 #endif
 
@@ -143,10 +134,34 @@ typedef struct _NVLOG_LOGGER
     NvU32           nextFree;
     /** Total number of free buffer slots */
     NvU32           totalFree;
-    /** Lock for all buffer oprations */
+    /** Lock for some buffer oprations */
     PORT_SPINLOCK*  mainLock;
+    /** Lock for creating/deleting pBuffers and accessing them from RmCtrls */
+    PORT_MUTEX*  buffersLock;
+    /** Lock for registering/deregistering flush callbacks */
+    PORT_RWLOCK  *flushCbsLock;
 } NVLOG_LOGGER;
 extern NVLOG_LOGGER NvLogLogger;
+
+/**
+ * NvLog uses two locks:
+ * - NVLOG_LOGGER::mainLock is used to protect some accesses to pBuffers, or
+ * an individual pBuffers entry depending on locking flags.
+ * - NVLOG_LOGGER::buffersLock is used to protect creating/deleting pBuffers and accessing them
+ * from certain RmCtrl handlers.
+ *
+ * Historically in most contexts obtaining RMAPI lock would suffice, and mainLock would optionally
+ * be used for certain buffers. Ioctl NV_ESC_RM_LOCKLESS_DIAGNOSTIC cannot touch RMAPI lock and needs
+ * to access NvLog. The latter operation might race if called at an inopportune time: e.g. if the
+ * ioctl is called during RM init when KGSP creates/deletes GSP NvLog buffers. Using buffersLock is
+ * thus necessary to resolve the potential race.
+ *
+ * This leads to an unfortunate sequence where mainLock and buffersLock are nested. The latter lock
+ * cannot be removed as it is used in IRQ paths.
+ *
+ * This should be refactored to use a single RWLock that does conditional acquire in possible IRQ
+ * paths.
+ */
 
 //
 // Buffer flags
@@ -194,6 +209,11 @@ extern NVLOG_LOGGER NvLogLogger;
 #define NVLOG_BUFFER_FLAGS_FORMAT_PRINTF                 0
 #define NVLOG_BUFFER_FLAGS_FORMAT_LIBOS_LOG              1
 #define NVLOG_BUFFER_FLAGS_FORMAT_MEMTRACK               2
+
+// Never deallocate this buffer until RM is unloaded
+#define NVLOG_BUFFER_FLAGS_PRESERVE                     11:11
+#define NVLOG_BUFFER_FLAGS_PRESERVE_NO                  0
+#define NVLOG_BUFFER_FLAGS_PRESERVE_YES                 1
 
 // Buffer GPU index
 #define NVLOG_BUFFER_FLAGS_GPU_INSTANCE              31:24

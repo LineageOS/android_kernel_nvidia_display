@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -27,6 +27,11 @@
 #include "gpu/mem_mgr/virt_mem_allocator_common.h"
 #include "os/nv_memory_type.h"
 #include "core/locks.h"
+#include "ctrl/ctrl2080.h"
+#include "rmapi/rs_utils.h"
+
+// Memory copy block size for if we need to cut up a mapping
+#define MEMORY_COPY_BLOCK_SIZE 1024 * 1024
 
 /* ------------------------ Private functions --------------------------------------- */
 
@@ -37,10 +42,356 @@
 static TRANSFER_TYPE
 memmgrGetMemTransferType
 (
-    MemoryManager *pMemoryManager
+    MemoryManager    *pMemoryManager,
+    TRANSFER_SURFACE *pDst,
+    TRANSFER_SURFACE *pSrc
 )
 {
-    return TRANSFER_TYPE_PROCESSOR;
+    TRANSFER_TYPE transferType        = TRANSFER_TYPE_PROCESSOR;
+
+    //
+    // In case of copy, both dest and src will be passed
+    // In case of memset/memread/memwrite either dest or src will be passed
+    //
+    if ((pDst != NULL) && (pSrc != NULL) &&
+        (memdescGetAddressSpace(pDst->pMemDesc) == ADDR_SYSMEM) &&
+        (memdescGetAddressSpace(pSrc->pMemDesc) == ADDR_SYSMEM))
+    {
+        transferType = TRANSFER_TYPE_PROCESSOR;
+    }
+    else if (((pDst != NULL) &&
+             (memdescGetAddressSpace(pDst->pMemDesc) == ADDR_SYSMEM)) ||
+             ((pSrc != NULL) &&
+             (memdescGetAddressSpace(pSrc->pMemDesc) == ADDR_SYSMEM)))
+    {
+        transferType = TRANSFER_TYPE_PROCESSOR;
+    }
+    return transferType;
+}
+
+static NV_STATUS
+_memmgrAllocAndMapSurface
+(
+    OBJGPU             *pGpu,
+    NvU64               size,
+    MEMORY_DESCRIPTOR **ppMemDesc,
+    void              **ppMap,
+    void              **ppPriv
+)
+{
+    NV_STATUS status;
+    NvU64 flags = 0;
+
+    NV_ASSERT_OR_RETURN(ppMemDesc != NULL, NV_ERR_INVALID_ARGUMENT);
+    NV_ASSERT_OR_RETURN(ppMap != NULL, NV_ERR_INVALID_ARGUMENT);
+    NV_ASSERT_OR_RETURN(ppPriv != NULL, NV_ERR_INVALID_ARGUMENT);
+
+    NV_ASSERT_OK_OR_RETURN(
+        memdescCreate(ppMemDesc, pGpu, size, RM_PAGE_SIZE, NV_TRUE,
+                      ADDR_SYSMEM, NV_MEMORY_UNCACHED, flags));
+
+    NV_ASSERT_OK_OR_GOTO(status, memdescAlloc(*ppMemDesc), failed);
+
+    NV_ASSERT_OK_OR_GOTO(status,
+        memdescMapOld(*ppMemDesc, 0, size, NV_TRUE, NV_PROTECT_READ_WRITE,
+                      ppMap, ppPriv),
+        failed);
+
+    // Clear surface before use
+    portMemSet(*ppMap, 0, size);
+
+    return NV_OK;
+failed:
+    memdescFree(*ppMemDesc);
+    memdescDestroy(*ppMemDesc);
+
+    *ppMemDesc = NULL;
+    *ppMap = NULL;
+    *ppPriv = NULL;
+
+    return status;
+}
+
+static void
+_memmgrUnmapAndFreeSurface
+(
+    MEMORY_DESCRIPTOR *pMemDesc,
+    void              *pMap,
+    void              *pPriv
+)
+{
+    memdescUnmapOld(pMemDesc, NV_TRUE, 0, pMap, pPriv);
+
+    memdescFree(pMemDesc);
+    memdescDestroy(pMemDesc);
+}
+
+/*!
+ * @brief This function is used for writing/reading data to/from a client
+ *        provided buffer from/to some source region in vidmem
+ *
+ * @param[in] pDst    TRANSFER_SURFACE info for destination region
+ * @param[in] pBuf    Client provided buffer
+ * @param[in] size    Size in bytes of the memory transfer
+ * @param[in] bRead   TRUE for read and FALSE for write
+ */
+static NV_STATUS
+_memmgrMemReadOrWriteWithGsp
+(
+    OBJGPU           *pGpu,
+    TRANSFER_SURFACE *pDst,
+    void             *pBuf,
+    NvU64             size,
+    NvBool            bRead
+)
+{
+    NV2080_CTRL_INTERNAL_MEMMGR_MEMORY_TRANSFER_WITH_GSP_PARAMS gspParams;
+    NV_STATUS status;
+    MEMORY_DESCRIPTOR *pStagingBuf = NULL;
+    void *pStagingBufMap = NULL;
+    void *pStagingBufPriv = NULL;
+    RM_API *pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
+
+    // Do not expect GSP to be used for reading/writing from/to sysmem
+    if (memdescGetAddressSpace(pDst->pMemDesc) == ADDR_SYSMEM)
+        return NV_ERR_NOT_SUPPORTED;
+
+    // Allocate and map the staging buffer
+    NV_ASSERT_OK_OR_RETURN(
+        _memmgrAllocAndMapSurface(pGpu, size, &pStagingBuf, &pStagingBufMap,
+                                  &pStagingBufPriv));
+
+    // Copy the data to staging buffer before poking GSP for copying
+    if (!bRead)
+        portMemCopy(pStagingBufMap, size, pBuf, size);
+
+    // Setup control call params
+    portMemSet(&gspParams, 0, sizeof(gspParams));
+
+    gspParams.memop = NV2080_CTRL_MEMMGR_MEMORY_OP_MEMCPY;
+    gspParams.transferSize = size;
+
+    if (bRead)
+    {
+        // Source surface in vidmem
+        gspParams.src.baseAddr = memdescGetPhysAddr(pDst->pMemDesc, AT_GPU, 0);
+        gspParams.src.size = memdescGetSize(pDst->pMemDesc);
+        gspParams.src.offset = pDst->offset;
+        gspParams.src.cpuCacheAttrib = memdescGetCpuCacheAttrib(pDst->pMemDesc);
+        gspParams.src.aperture = memdescGetAddressSpace(pDst->pMemDesc);
+
+        // Destination surface in unprotected sysmem
+        gspParams.dst.baseAddr = memdescGetPhysAddr(pStagingBuf, AT_GPU, 0);
+        gspParams.dst.size = memdescGetSize(pStagingBuf);
+        gspParams.dst.offset = 0;
+        gspParams.dst.cpuCacheAttrib = memdescGetCpuCacheAttrib(pStagingBuf);
+        gspParams.dst.aperture = memdescGetAddressSpace(pStagingBuf);
+    }
+    else
+    {
+        // Source surface in unprotected sysmem
+        gspParams.src.baseAddr = memdescGetPhysAddr(pStagingBuf, AT_GPU, 0);
+        gspParams.src.size = memdescGetSize(pStagingBuf);
+        gspParams.src.offset = 0;
+        gspParams.src.cpuCacheAttrib = memdescGetCpuCacheAttrib(pStagingBuf);
+        gspParams.src.aperture = memdescGetAddressSpace(pStagingBuf);
+
+        // Destination surface in vidmem
+        gspParams.dst.baseAddr = memdescGetPhysAddr(pDst->pMemDesc, AT_GPU, 0);
+        gspParams.dst.size = memdescGetSize(pDst->pMemDesc);
+        gspParams.dst.offset = pDst->offset;
+        gspParams.dst.cpuCacheAttrib = memdescGetCpuCacheAttrib(pDst->pMemDesc);
+        gspParams.dst.aperture = memdescGetAddressSpace(pDst->pMemDesc);
+    }
+
+    // Send the control call
+    NV_ASSERT_OK_OR_GOTO(status,
+        pRmApi->Control(pRmApi,
+                        pGpu->hInternalClient,
+                        pGpu->hInternalSubdevice,
+                        NV2080_CTRL_CMD_INTERNAL_MEMMGR_MEMORY_TRANSFER_WITH_GSP,
+                        &gspParams,
+                        sizeof(gspParams)),
+        failed);
+
+    // Read contents from staging buffer after GSP is done copying
+    if (bRead)
+        portMemCopy(pBuf, size, pStagingBufMap, size);
+
+failed:
+    _memmgrUnmapAndFreeSurface(pStagingBuf, pStagingBufMap, pStagingBufPriv);
+    return status;
+}
+
+/*!
+ * @brief This function is used for copying data b/w two memory regions
+ *        using GSP.
+ *
+ * @param[in] pDst    TRANSFER_SURFACE info for destination region
+ * @param[in] pSrc    TRANSFER_SURFACE info for source region
+ * @param[in] size    Size in bytes of the memory transfer
+ */
+static NV_STATUS
+_memmgrMemcpyWithGsp
+(
+    OBJGPU           *pGpu,
+    TRANSFER_SURFACE *pDst,
+    TRANSFER_SURFACE *pSrc,
+    NvU64             size
+)
+{
+    NV2080_CTRL_INTERNAL_MEMMGR_MEMORY_TRANSFER_WITH_GSP_PARAMS gspParams;
+    NV_STATUS status;
+    MEMORY_DESCRIPTOR *pStagingBuf = NULL;
+    void *pStagingBufMap = NULL;
+    void *pStagingBufPriv = NULL;
+    NvU8 *pMap = NULL;
+    void *pPriv = NULL;
+    RM_API *pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
+
+    //
+    // Do not expect GSP to be used for copying data b/w two surfaces
+    // in sysmem. For SPT, there is no non-CPR vidmem. So, allow vidmem
+    // to vidmem copies in plain text. For copies b/w CPR and non-CPR
+    // vidmem, encryption/decryption needs to happen at the endpoints.
+    //
+    if (memdescGetAddressSpace(pSrc->pMemDesc) == ADDR_SYSMEM &&
+        memdescGetAddressSpace(pDst->pMemDesc) == ADDR_SYSMEM)
+    {
+        return NV_ERR_NOT_SUPPORTED;
+    }
+
+    // Allocate and map the bounce buffer
+    NV_ASSERT_OK_OR_RETURN(
+        _memmgrAllocAndMapSurface(pGpu, size, &pStagingBuf, &pStagingBufMap,
+                                  &pStagingBufPriv));
+
+    // Setup control call params
+    portMemSet(&gspParams, 0, sizeof(gspParams));
+
+    gspParams.memop = NV2080_CTRL_MEMMGR_MEMORY_OP_MEMCPY;
+    gspParams.transferSize = size;
+
+    if (memdescGetAddressSpace(pSrc->pMemDesc) == ADDR_SYSMEM)
+    {
+        NV_ASSERT_OK_OR_GOTO(status,
+            memdescMapOld(pSrc->pMemDesc, 0, size, NV_TRUE,
+                          NV_PROTECT_READ_WRITE, (void**)&pMap, &pPriv),
+            failed);
+
+        // Copy to staging buffer
+        portMemCopy(pStagingBufMap, size, pMap + pSrc->offset, size);
+
+        memdescUnmapOld(pSrc->pMemDesc, NV_TRUE, 0, (void*)pMap, pPriv);
+
+        // Source surface in unprotected sysmem
+        gspParams.src.baseAddr = memdescGetPhysAddr(pStagingBuf, AT_GPU, 0);
+        gspParams.src.size = memdescGetSize(pStagingBuf);
+        gspParams.src.offset = 0;
+        gspParams.src.cpuCacheAttrib = memdescGetCpuCacheAttrib(pStagingBuf);
+        gspParams.src.aperture = memdescGetAddressSpace(pStagingBuf);
+
+        // Destination surface in vidmem
+        gspParams.dst.baseAddr = memdescGetPhysAddr(pDst->pMemDesc, AT_GPU, 0);
+        gspParams.dst.size = memdescGetSize(pDst->pMemDesc);
+        gspParams.dst.offset = pDst->offset;
+        gspParams.dst.cpuCacheAttrib = memdescGetCpuCacheAttrib(pDst->pMemDesc);
+        gspParams.dst.aperture = memdescGetAddressSpace(pDst->pMemDesc);
+    }
+    else
+    {
+        // Source surface in vidmem
+        gspParams.src.baseAddr = memdescGetPhysAddr(pSrc->pMemDesc, AT_GPU, 0);
+        gspParams.src.size = memdescGetSize(pSrc->pMemDesc);
+        gspParams.src.offset = pSrc->offset;
+        gspParams.src.cpuCacheAttrib = memdescGetCpuCacheAttrib(pSrc->pMemDesc);
+        gspParams.src.aperture = memdescGetAddressSpace(pSrc->pMemDesc);
+
+        if (memdescGetAddressSpace(pDst->pMemDesc) == ADDR_FBMEM)
+        {
+            // Destination surface in vidmem
+            gspParams.dst.baseAddr = memdescGetPhysAddr(pDst->pMemDesc, AT_GPU, 0);
+            gspParams.dst.size = memdescGetSize(pDst->pMemDesc);
+            gspParams.dst.offset = pDst->offset;
+            gspParams.dst.cpuCacheAttrib = memdescGetCpuCacheAttrib(pDst->pMemDesc);
+            gspParams.dst.aperture = memdescGetAddressSpace(pDst->pMemDesc);
+        }
+        else
+        {
+            // Destination surface in unprotected sysmem
+            gspParams.dst.baseAddr = memdescGetPhysAddr(pStagingBuf, AT_GPU, 0);
+            gspParams.dst.size = memdescGetSize(pStagingBuf);
+            gspParams.dst.offset = 0;
+            gspParams.dst.cpuCacheAttrib = memdescGetCpuCacheAttrib(pStagingBuf);
+            gspParams.dst.aperture = memdescGetAddressSpace(pStagingBuf);
+        }
+    }
+
+    // Send the control call
+    NV_ASSERT_OK_OR_GOTO(status,
+        pRmApi->Control(pRmApi,
+                        pGpu->hInternalClient,
+                        pGpu->hInternalSubdevice,
+                        NV2080_CTRL_CMD_INTERNAL_MEMMGR_MEMORY_TRANSFER_WITH_GSP,
+                        &gspParams,
+                        sizeof(gspParams)),
+        failed);
+
+    // Copy from staging buffer to destination
+    if (memdescGetAddressSpace(pDst->pMemDesc) == ADDR_SYSMEM)
+    {
+        NV_ASSERT_OK_OR_GOTO(status,
+            memdescMapOld(pDst->pMemDesc, 0, size, NV_TRUE,
+                          NV_PROTECT_READ_WRITE, (void**)&pMap, &pPriv),
+            failed);
+
+        portMemCopy(pMap + pDst->offset, size, pStagingBufMap, size);
+
+        memdescUnmapOld(pDst->pMemDesc, NV_TRUE, 0, (void*)pMap, pPriv);
+    }
+
+failed:
+    _memmgrUnmapAndFreeSurface(pStagingBuf, pStagingBufMap, pStagingBufPriv);
+    return status;
+}
+
+static NV_STATUS
+_memmgrMemsetWithGsp
+(
+    OBJGPU           *pGpu,
+    TRANSFER_SURFACE *pDst,
+    NvU32             value,
+    NvU64             size
+)
+{
+    NV2080_CTRL_INTERNAL_MEMMGR_MEMORY_TRANSFER_WITH_GSP_PARAMS gspParams;
+    RM_API *pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
+
+    // Do not expect to use GSP to memset surfaces in sysmem
+    if (memdescGetAddressSpace(pDst->pMemDesc) == ADDR_SYSMEM)
+        return NV_ERR_NOT_SUPPORTED;
+
+    portMemSet(&gspParams, 0, sizeof(gspParams));
+
+    gspParams.memop = NV2080_CTRL_MEMMGR_MEMORY_OP_MEMSET;
+    gspParams.transferSize = size;
+    gspParams.value = value;
+    gspParams.dst.baseAddr = memdescGetPhysAddr(pDst->pMemDesc, AT_GPU, 0);
+    gspParams.dst.size = memdescGetSize(pDst->pMemDesc);
+    gspParams.dst.offset = pDst->offset;
+    gspParams.dst.cpuCacheAttrib = memdescGetCpuCacheAttrib(pDst->pMemDesc);
+    gspParams.dst.aperture = memdescGetAddressSpace(pDst->pMemDesc);
+
+    // Send the control call
+    NV_ASSERT_OK_OR_RETURN(
+        pRmApi->Control(pRmApi,
+                        pGpu->hInternalClient,
+                        pGpu->hInternalSubdevice,
+                        NV2080_CTRL_CMD_INTERNAL_MEMMGR_MEMORY_TRANSFER_WITH_GSP,
+                        &gspParams,
+                        sizeof(gspParams)));
+
+    return NV_OK;
 }
 
 /*!
@@ -95,7 +446,16 @@ memmgrMemCopyWithTransferType
             memdescUnmapInternal(pGpu, pDstInfo->pMemDesc, flags);
             break;
         case TRANSFER_TYPE_GSP_DMA:
-            NV_PRINTF(LEVEL_INFO, "Add call to GSP DMA task\n");
+            if (IS_GSP_CLIENT(pGpu))
+            {
+                NV_PRINTF(LEVEL_INFO, "Calling GSP DMA task\n");
+                NV_ASSERT_OK_OR_RETURN(
+                    _memmgrMemcpyWithGsp(pGpu, pDstInfo, pSrcInfo, size));
+            }
+            else
+            {
+                NV_ASSERT_OR_RETURN(0, NV_ERR_INVALID_ARGUMENT);
+            }
             break;
         case TRANSFER_TYPE_CE:
             NV_PRINTF(LEVEL_INFO, "Add call to CE\n");
@@ -146,7 +506,16 @@ memmgrMemSetWithTransferType
             memdescUnmapInternal(pGpu, pDstInfo->pMemDesc, flags);
             break;
         case TRANSFER_TYPE_GSP_DMA:
-            NV_PRINTF(LEVEL_INFO, "Add call to GSP DMA task\n");
+            if (IS_GSP_CLIENT(pGpu))
+            {
+                NV_PRINTF(LEVEL_INFO, "Calling GSP DMA task\n");
+                NV_ASSERT_OK_OR_RETURN(
+                    _memmgrMemsetWithGsp(pGpu, pDstInfo, value, size));
+            }
+            else
+            {
+                NV_ASSERT_OR_RETURN(0, NV_ERR_INVALID_ARGUMENT);
+            }
             break;
         case TRANSFER_TYPE_CE:
             NV_PRINTF(LEVEL_INFO, "Add call to CE\n");
@@ -154,6 +523,89 @@ memmgrMemSetWithTransferType
     }
 
     return NV_OK;
+}
+
+/*!
+ * @brief This function is used to map the appropriate memory descriptor,
+ *        copy the memory from the given buffer, and then unmap.
+ *
+ * @param[in] pMemDesc Memory descriptor of buffer to write
+ * @param[in] pBuf     Buffer allocated by caller
+ * @param[in] offset   Offset of buffer to write
+ * @param[in] size     Size in bytes of the buffer
+ * @param[in] flags    Flags
+ */
+static NV_STATUS
+memmgrMemWriteMapAndCopy
+(
+    MemoryManager     *pMemoryManager,
+    MEMORY_DESCRIPTOR *pMemDesc,
+    void              *pBuf,
+    NvU64              offset,
+    NvU64              size,
+    NvU32              flags
+)
+{
+    NvU8   *pDst = NULL;
+    OBJGPU *pGpu = ENG_GET_GPU(pMemoryManager);
+
+    pDst = memdescMapInternal(pGpu, pMemDesc, TRANSFER_FLAGS_NONE);
+    NV_CHECK_OR_RETURN(LEVEL_SILENT, pDst != NULL, NV_ERR_INSUFFICIENT_RESOURCES);
+
+    portMemCopy(pDst + offset, size, pBuf, size);
+    memdescUnmapInternal(pGpu, pMemDesc, flags);
+
+    return NV_OK;
+}
+
+/*!
+ * @brief This function is used for writing data placed in a caller passed buffer
+ *        to a given memory region while only mapping regions as large as the given
+ *        block size.
+ *
+ * @param[in] pMemDesc   Memory descriptor of buffer to write
+ * @param[in] pBuf       Buffer allocated by caller
+ * @param[in] baseOffset Offset of entire buffer to write
+ * @param[in] size       Size in bytes of the buffer
+ * @param[in] flags      Flags
+ * @param[in] blockSize  Maximum size of a mapping to use
+ */
+static NV_STATUS
+memmgrMemWriteInBlocks
+(
+    MemoryManager     *pMemoryManager,
+    MEMORY_DESCRIPTOR *pMemDesc,
+    void              *pBuf,
+    NvU64              baseOffset,
+    NvU64              size,
+    NvU32              flags,
+    NvU32              blockSize
+)
+{
+    NV_STATUS  status    = NV_OK;
+    OBJGPU    *pGpu      = ENG_GET_GPU(pMemoryManager);
+    NvU64      remaining = size;
+    NvU64      offset    = 0;
+
+    while ((remaining > 0) && (status == NV_OK))
+    {
+        MEMORY_DESCRIPTOR *pSubMemDesc = NULL;
+        NvU32              mapSize     = NV_MIN(blockSize, remaining);
+
+        NV_CHECK_OK_OR_RETURN(LEVEL_SILENT, memdescCreateSubMem(&pSubMemDesc, pMemDesc, pGpu, offset + baseOffset, mapSize));
+
+        // Set the offset to 0, as the sub descriptor already starts at the offset
+        status = memmgrMemWriteMapAndCopy(pMemoryManager, pSubMemDesc, (NvU8 *)pBuf + offset,
+                                          0, mapSize, flags);
+
+        memdescFree(pSubMemDesc);
+        memdescDestroy(pSubMemDesc);
+
+        offset += mapSize;
+        remaining -= mapSize;
+    }
+
+    return status;
 }
 
 /*!
@@ -177,9 +629,8 @@ memmgrMemWriteWithTransferType
     NvU32             flags
 )
 {
+    NvU8 *pMapping = memdescGetKernelMapping(pDstInfo->pMemDesc);
     OBJGPU *pGpu = ENG_GET_GPU(pMemoryManager);
-    NvU8   *pDst;
-    NvU8   *pMapping = memdescGetKernelMapping(pDstInfo->pMemDesc);
 
     // Sanitize the input
     NV_ASSERT_OR_RETURN(pDstInfo != NULL, NV_ERR_INVALID_ARGUMENT);
@@ -197,15 +648,25 @@ memmgrMemWriteWithTransferType
     switch (transferType)
     {
         case TRANSFER_TYPE_PROCESSOR:
-            pDst = memdescMapInternal(pGpu, pDstInfo->pMemDesc, TRANSFER_FLAGS_NONE);
-            NV_ASSERT_OR_RETURN(pDst != NULL, NV_ERR_INSUFFICIENT_RESOURCES);
-
-            portMemCopy(pDst + pDstInfo->offset, size, pBuf, size);
-
-            memdescUnmapInternal(pGpu, pDstInfo->pMemDesc, flags);
+            if (memmgrMemWriteMapAndCopy(pMemoryManager, pDstInfo->pMemDesc, pBuf, pDstInfo->offset, size, flags) != NV_OK)
+            {
+                // If we fail to map a block large enough for the entire transfer, split up the mapping.
+                NV_ASSERT_OK_OR_RETURN(memmgrMemWriteInBlocks(pMemoryManager, pDstInfo->pMemDesc, pBuf,
+                                                              pDstInfo->offset, size, flags, MEMORY_COPY_BLOCK_SIZE));
+            }
             break;
         case TRANSFER_TYPE_GSP_DMA:
-            NV_PRINTF(LEVEL_INFO, "Add call to GSP DMA task\n");
+            if (IS_GSP_CLIENT(pGpu))
+            {
+                NV_PRINTF(LEVEL_INFO, "Calling GSP DMA task\n");
+                NV_ASSERT_OK_OR_RETURN(
+                    _memmgrMemReadOrWriteWithGsp(pGpu, pDstInfo, pBuf, size,
+                                                 NV_FALSE /* bRead */));
+            }
+            else
+            {
+                NV_ASSERT_OR_RETURN(0, NV_ERR_INVALID_ARGUMENT);
+            }
             break;
         case TRANSFER_TYPE_CE:
             NV_PRINTF(LEVEL_INFO, "Add call to CE\n");
@@ -266,7 +727,17 @@ memmgrMemReadWithTransferType
             memdescUnmapInternal(pGpu, pSrcInfo->pMemDesc, 0);
             break;
         case TRANSFER_TYPE_GSP_DMA:
-            NV_PRINTF(LEVEL_INFO, "Add call to GSP DMA task\n");
+            if (IS_GSP_CLIENT(pGpu))
+            {
+                NV_PRINTF(LEVEL_INFO, "Calling GSP DMA task\n");
+                NV_ASSERT_OK_OR_RETURN(
+                    _memmgrMemReadOrWriteWithGsp(pGpu, pSrcInfo, pBuf, size,
+                                                 NV_TRUE /* bRead */));
+            }
+            else
+            {
+                NV_ASSERT_OR_RETURN(0, NV_ERR_INVALID_ARGUMENT);
+            }
             break;
         case TRANSFER_TYPE_CE:
             NV_PRINTF(LEVEL_INFO, "Add call to CE\n");
@@ -374,6 +845,31 @@ void memUtilsInitFBAllocInfo
     }
 }
 
+
+MEMORY_DESCRIPTOR *
+memmgrMemUtilsGetMemDescFromHandle_IMPL
+(
+    MemoryManager *pMemoryManager,
+    NvHandle hClient,
+    NvHandle hMemory
+)
+{
+    RsResourceRef *pMemoryRef;
+    Memory        *pMemory;
+
+    if (serverutilGetResourceRef(hClient, hMemory, &pMemoryRef) != NV_OK)
+    {
+        return NULL;
+    }
+
+    pMemory = dynamicCast(pMemoryRef->pResource, Memory);
+    if (pMemory == NULL)
+    {
+        return NULL;
+    }
+    return pMemory->pMemDesc;
+}
+
 /*!
  * @brief This function is used for copying data b/w two memory regions
  *        Both memory regions can be in the same aperture of different apertures
@@ -393,7 +889,8 @@ memmgrMemCopy_IMPL
     NvU32             flags
 )
 {
-    TRANSFER_TYPE transferType = memmgrGetMemTransferType(pMemoryManager);
+    TRANSFER_TYPE transferType = memmgrGetMemTransferType(pMemoryManager,
+                                                          pDstInfo, pSrcInfo);
 
     return memmgrMemCopyWithTransferType(pMemoryManager, pDstInfo, pSrcInfo,
                                          size, transferType, flags);
@@ -417,7 +914,8 @@ memmgrMemSet_IMPL
     NvU32             flags
 )
 {
-    TRANSFER_TYPE transferType = memmgrGetMemTransferType(pMemoryManager);
+    TRANSFER_TYPE transferType = memmgrGetMemTransferType(pMemoryManager,
+                                                          pDstInfo, NULL);
 
     return memmgrMemSetWithTransferType(pMemoryManager, pDstInfo, value,
                                         size, transferType, flags);
@@ -440,7 +938,8 @@ memmgrMemDescMemSet_IMPL
 )
 {
     TRANSFER_SURFACE transferSurface = {.offset = 0, .pMemDesc = pMemDesc};
-    TRANSFER_TYPE    transferType = memmgrGetMemTransferType(pMemoryManager);
+    TRANSFER_TYPE    transferType = memmgrGetMemTransferType(pMemoryManager,
+                                                             &transferSurface, NULL);
 
     return memmgrMemSetWithTransferType(pMemoryManager, &transferSurface, value,
                                         (NvU32)memdescGetSize(pMemDesc),
@@ -466,7 +965,8 @@ memmgrMemWrite_IMPL
     NvU32             flags
 )
 {
-    TRANSFER_TYPE transferType = memmgrGetMemTransferType(pMemoryManager);
+    TRANSFER_TYPE transferType = memmgrGetMemTransferType(pMemoryManager,
+                                                          pDstInfo, NULL);
 
     return memmgrMemWriteWithTransferType(pMemoryManager, pDstInfo, pBuf,
                                           size, transferType, flags);
@@ -491,7 +991,8 @@ memmgrMemRead_IMPL
     NvU32             flags
 )
 {
-    TRANSFER_TYPE transferType = memmgrGetMemTransferType(pMemoryManager);
+    TRANSFER_TYPE transferType = memmgrGetMemTransferType(pMemoryManager,
+                                                          NULL, pSrcInfo);
 
     return memmgrMemReadWithTransferType(pMemoryManager, pSrcInfo, pBuf,
                                          size, transferType, flags);
@@ -513,7 +1014,8 @@ memmgrMemBeginTransfer_IMPL
     NvU32              flags
 )
 {
-    TRANSFER_TYPE      transferType = memmgrGetMemTransferType(pMemoryManager);
+    TRANSFER_TYPE      transferType = memmgrGetMemTransferType(pMemoryManager,
+                                                               pTransferInfo, NULL);
     MEMORY_DESCRIPTOR *pMemDesc     = pTransferInfo->pMemDesc;
     NvU64              offset       = pTransferInfo->offset;
     OBJGPU            *pGpu         = ENG_GET_GPU(pMemoryManager);
@@ -529,8 +1031,28 @@ memmgrMemBeginTransfer_IMPL
     switch (transferType)
     {
         case TRANSFER_TYPE_PROCESSOR:
+            if (flags & TRANSFER_FLAGS_USE_BAR1)
+            {
+                NvP64 pPriv;
+                NvU32 protect = NV_PROTECT_READ_WRITE;
+
+                if (flags & TRANSFER_FLAGS_MAP_PROTECT_READABLE)
+                {
+                    protect = NV_PROTECT_READABLE;
+                }
+                else if (flags & TRANSFER_FLAGS_MAP_PROTECT_WRITEABLE)
+                {
+                    protect = NV_PROTECT_WRITEABLE;
+                }
+
+                NV_ASSERT_OR_RETURN(memdescMap(pMemDesc, offset, memSz, NV_TRUE, protect,
+                    (NvP64*) &pPtr, &pPriv) == NV_OK, NULL);
+                memdescSetKernelMappingPriv(pMemDesc, pPriv);
+                break;
+            }
             NV_ASSERT_OR_RETURN((pPtr = memdescMapInternal(pGpu, pMemDesc, flags)) != NULL, NULL);
             pPtr = &pPtr[offset];
+
             break;
         case TRANSFER_TYPE_GSP_DMA:
         case TRANSFER_TYPE_CE:
@@ -566,16 +1088,18 @@ memmgrMemEndTransfer_IMPL
     NvU32              flags
 )
 {
-    TRANSFER_TYPE      transferType = memmgrGetMemTransferType(pMemoryManager);
+    TRANSFER_TYPE      transferType = memmgrGetMemTransferType(pMemoryManager,
+                                                               pTransferInfo, NULL);
     MEMORY_DESCRIPTOR *pMemDesc     = pTransferInfo->pMemDesc;
     NvU64              offset       = pTransferInfo->offset;
     OBJGPU            *pGpu         = ENG_GET_GPU(pMemoryManager);
     NvU64              memSz        = 0;
-    NvU8              *pMapping     = memdescGetKernelMapping(pMemDesc);
+    NvU8              *pMapping     = NULL;
 
     NV_ASSERT_OR_RETURN_VOID(pMemDesc != NULL);
-    NV_ASSERT_OR_RETURN_VOID((memSz = memdescGetSize(pMemDesc)) >= (shadowBufSize + offset) );
+    pMapping = memdescGetKernelMapping(pMemDesc);
 
+    NV_ASSERT_OR_RETURN_VOID((memSz = memdescGetSize(pMemDesc)) >= (shadowBufSize + offset) );
     memSz = shadowBufSize == 0 ? memSz : shadowBufSize;
 
     memdescSetKernelMapping(pMemDesc, NULL);
@@ -583,6 +1107,16 @@ memmgrMemEndTransfer_IMPL
     switch (transferType)
     {
         case TRANSFER_TYPE_PROCESSOR:
+            if (flags & TRANSFER_FLAGS_USE_BAR1)
+            {
+                NvP64 pPriv = memdescGetKernelMappingPriv(pMemDesc);
+                memdescSetKernelMappingPriv(pMemDesc, NULL);
+                if (pMapping != NULL)
+                {
+                    memdescUnmap(pMemDesc, NV_TRUE, 0, pMapping, pPriv);
+                }
+                return;
+            }
             memdescUnmapInternal(pGpu, pMemDesc, flags);
             return;
         case TRANSFER_TYPE_GSP_DMA:
@@ -747,7 +1281,7 @@ memmgrAllocResources_IMPL
         (addrSpace == ADDR_FBMEM))
     {
         OBJSYS *pSys         = SYS_GET_INSTANCE();
-        NvU32   hostPageSize = pSys->cpuInfo.hostPageSize;
+        NvU64   hostPageSize = pSys->cpuInfo.hostPageSize;
 
         // hostPageSize *should* always be set, but....
         if (hostPageSize == 0)

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2018 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -60,33 +60,33 @@ extern "C" {
  *
  */
 
-#define MAKE_MULTIMAP(multimapTypeName, dataType)                             \
-    typedef struct multimapTypeName##Leaf                                     \
-    {                                                                         \
-        dataType data;                                                        \
-        MultimapNode node;                                                    \
-    } multimapTypeName##Leaf;                                                 \
-    MAKE_INTRUSIVE_MAP(multimapTypeName##Submap, multimapTypeName##Leaf,      \
-                       node.submapNode);                                      \
-    MAKE_MAP(multimapTypeName##Supermap, multimapTypeName##Submap);           \
-    typedef union multimapTypeName##Iter                                      \
-    {                                                                         \
-        dataType *pValue;                                                     \
-        MultimapIterBase iter;                                                \
-    } multimapTypeName##Iter;                                                 \
-    typedef union multimapTypeName                                            \
-    {                                                                         \
-		CONT_TAG_TYPE(MultimapBase, dataType, multimapTypeName##Iter);        \
-		struct { MultimapBase base; } real;                                   \
-        struct                                                                \
-        {                                                                     \
-			/* This field simply aligns map with the one in MultimapBase */   \
-            CONT_VTABLE_FIELD(MultimapBase);                                  \
-            multimapTypeName##Supermap map;                                   \
-        } type;                                                               \
-        CONT_TAG_NON_INTRUSIVE(dataType);                                     \
+#define MAKE_MULTIMAP(multimapTypeName, dataType)                                \
+    typedef struct multimapTypeName##Leaf                                        \
+    {                                                                            \
+        dataType data;                                                           \
+        MultimapNode node;                                                       \
+    } multimapTypeName##Leaf;                                                    \
+    MAKE_INTRUSIVE_MAP(multimapTypeName##Submap, multimapTypeName##Leaf,         \
+                       node.submapNode);                                         \
+    MAKE_MAP(multimapTypeName##Supermap, multimapTypeName##Submap);              \
+    typedef union multimapTypeName##Iter                                         \
+    {                                                                            \
+        dataType *pValue;                                                        \
+        MultimapIterBase iter;                                                   \
+    } multimapTypeName##Iter;                                                    \
+    typedef union multimapTypeName                                               \
+    {                                                                            \
+		CONT_TAG_TYPE(MultimapBase, dataType, multimapTypeName##Iter);                 \
+		struct { MultimapBase base; } real;                                            \
+        struct                                                                   \
+        {                                                                        \
+			/* This field simply aligns map with the one in MultimapBase */               \
+            CONT_VTABLE_FIELD(MultimapBase);                                     \
+            multimapTypeName##Supermap map;                                      \
+        } type;                                                                  \
+        CONT_TAG_NON_INTRUSIVE(dataType);                                        \
         struct {char _[NV_OFFSETOF(multimapTypeName##Leaf, node)];} *nodeOffset; \
-        struct {char _[sizeof(multimapTypeName##Submap)];} *submapSize;       \
+        struct {char _[sizeof(multimapTypeName##Submap)];} *submapSize;          \
     } multimapTypeName;
 
 #define DECLARE_MULTIMAP(multimapTypeName)                                    \
@@ -157,35 +157,35 @@ struct MultimapBase
 
 #define multimapFindSubmap(pMultimap, submapKey)                              \
     CONT_CAST_ELEM(&(pMultimap)->type.map,                                    \
-                   multimapFindSubmap_IMPL(&(pMultimap)->real.base, submapKey))
+                   multimapFindSubmap_IMPL(&(pMultimap)->real.base, submapKey), multimapIsValid_IMPL)
 
 #define multimapFindSubmapLEQ(pMultimap, submapKey)                           \
     CONT_CAST_ELEM(&(pMultimap)->type.map,                                    \
-		multimapFindSubmapLEQ_IMPL(&(pMultimap)->real.base, submapKey))
+		multimapFindSubmapLEQ_IMPL(&(pMultimap)->real.base, submapKey), multimapIsValid_IMPL)
 
 #define multimapFindSubmapGEQ(pMultimap, submapKey)                           \
     CONT_CAST_ELEM(&(pMultimap)->type.map,                                    \
-		multimapFindSubmapGEQ_IMPL(&(pMultimap)->real.base, submapKey))
+		multimapFindSubmapGEQ_IMPL(&(pMultimap)->real.base, submapKey), multimapIsValid_IMPL)
 
 #define multimapCountSubmapItems(pMultimap, pSubmap)                          \
     mapCount(pSubmap)
 
 #define multimapInsertItemNew(pMultimap, submapKey, itemKey)                  \
     CONT_CAST_ELEM(pMultimap,                                                 \
-        multimapInsertItemNew_IMPL(&(pMultimap)->real.base, submapKey, itemKey))
+        multimapInsertItemNew_IMPL(&(pMultimap)->real.base, submapKey, itemKey), multimapIsValid_IMPL)
 
 #define multimapInsertItemValue(pMultimap, submapKey, itemKey, pValue)        \
     CONT_CAST_ELEM(pMultimap,                                                 \
         multimapInsertItemValue_IMPL(&(pMultimap)->real.base,                 \
-                                     submapKey, itemKey, pValue))
+                                     submapKey, itemKey, pValue), multimapIsValid_IMPL)
 
 #define multimapInsertSubmap(pMultimap, submapKey)                            \
     CONT_CAST_ELEM(&(pMultimap)->type.map,                                    \
-		multimapInsertSubmap_IMPL(&(pMultimap)->real.base, submapKey))
+		multimapInsertSubmap_IMPL(&(pMultimap)->real.base, submapKey), multimapIsValid_IMPL)
 
 #define multimapFindItem(pMultimap, submapKey, itemKey)                       \
     CONT_CAST_ELEM(pMultimap,                                                 \
-        multimapFindItem_IMPL(&(pMultimap)->real.base, submapKey, itemKey))
+        multimapFindItem_IMPL(&(pMultimap)->real.base, submapKey, itemKey), multimapIsValid_IMPL)
 
 #define multimapRemoveItem(pMultimap, pValue)                                 \
     multimapRemoveItem_IMPL(&(pMultimap)->real.base, pValue)
@@ -198,25 +198,25 @@ struct MultimapBase
 
 #define multimapNextItem(pMultimap, pValue)                                   \
     CONT_CAST_ELEM(pMultimap,                                                 \
-                   multimapNextItem_IMPL(&(pMultimap)->real.base, pValue))
+                   multimapNextItem_IMPL(&(pMultimap)->real.base, pValue), multimapIsValid_IMPL)
 
 #define multimapPrevItem(pMultimap, pValue)                                   \
     CONT_CAST_ELEM(pMultimap,                                                 \
-                   multimapPrevItem_IMPL(&(pMultimap)->real.base, pValue))
+                   multimapPrevItem_IMPL(&(pMultimap)->real.base, pValue), multimapIsValid_IMPL)
 
 #define multimapFirstItem(pMultimap)                                          \
-    CONT_CAST_ELEM(pMultimap, multimapFirstItem_IMPL(&(pMultimap)->real.base))
+    CONT_CAST_ELEM(pMultimap, multimapFirstItem_IMPL(&(pMultimap)->real.base), multimapIsValid_IMPL)
 
 #define multimapLastItem(pMultimap)                                          \
-    CONT_CAST_ELEM(pMultimap, multimapLastItem_IMPL(&(pMultimap)->real.base))
+    CONT_CAST_ELEM(pMultimap, multimapLastItem_IMPL(&(pMultimap)->real.base), multimapIsValid_IMPL)
 
 #define multimapItemIterAll(pMultimap)                                        \
     multimapItemIterRange(pMultimap,                                          \
         multimapFirstItem(pMultimap), multimapLastItem(pMultimap))
 
-#define multimapItemIterRange(pMultimap, pFirst, pLast)                       \
+#define multimapItemIterRange(pMultimap, pFirst, pLast)                    \
 	CONT_ITER_RANGE(pMultimap, multimapItemIterRange_IMPL,                    \
-        CONT_CHECK_ARG(pMultimap, pFirst), CONT_CHECK_ARG(pMultimap, pLast))
+        CONT_CHECK_ARG(pMultimap, pFirst), CONT_CHECK_ARG(pMultimap, pLast), multimapIsValid_IMPL)
 
 #define multimapSubmapIterItems(pMultimap, pSubmap)                           \
     multimapItemIterRange(pMultimap,                                          \
@@ -254,8 +254,10 @@ void *multimapFindSubmapGEQ_IMPL(MultimapBase *pBase, NvU64 submapKey);
 
 void *multimapInsertItemNew_IMPL(MultimapBase *pBase, NvU64 submapKey,
 				 NvU64 itemKey);
-void *multimapInsertItemValue_IMPL(MultimapBase *pBase, NvU64 submapKey,
-				   NvU64 itemKey, void *pValue);
+void *multimapInsertItemValue_IMPL(MultimapBase *pBase,
+                                   NvU64         submapKey,
+                                   NvU64         itemKey,
+                                   const void   *pValue);
 
 void *multimapFindItem_IMPL(MultimapBase *pBase, NvU64 submapKey,
 			    NvU64 itemKey);
@@ -288,6 +290,9 @@ multimapNodeToValue(MultimapBase *pBase, MultimapNode *pNode)
 
     return (NvU8*)pNode - pBase->multimapNodeOffset;
 }
+
+NvBool multimapIsValid_IMPL(void *pMap);
+
 
 #ifdef __cplusplus
 }

@@ -62,15 +62,6 @@ static NV_STATUS _clientConstructResourceRef(RsClient *pClient, RsServer *pServe
                                              NvHandle hResource, NvU32 classId, RsResourceRef **ppResourceRef);
 
 /**
- * Release all CPU address mappings for a resource
- *
- * @param[in] pClient Client that owns the resource
- * @param[in] pCallContext Caller information (which includes the resource reference whose mappings will be freed)
- * @param[in] pLockInfo Information about which locks are already held, for recursive calls
- */
-static NV_STATUS _clientUnmapResourceRefMappings(RsClient *pClient, CALL_CONTEXT *pCallContext, RS_LOCK_INFO *pLockInfo);
-
-/**
  * Release all CPU address mappings that reference this resource
  *
  * @param[in] pClient Client that owns the resource
@@ -111,7 +102,7 @@ clientConstruct_IMPL
     status = clientSetHandleGenerator(pClient, 0, 0);
     if (status != NV_OK)
         return status;
-    
+
     pClient->bActive = NV_TRUE;
 
     status = clientSetRestrictedRange(pClient, 0, 0);
@@ -290,10 +281,10 @@ clientShareResourceTargetClient_IMPL
     return NV_OK;
 }
 
-NV_STATUS 
+NV_STATUS
 clientSetRestrictedRange_IMPL
 (
-    RsClient *pClient, 
+    RsClient *pClient,
     NvHandle handleRangeStart,
     NvU32 handleRangeSize
 )
@@ -467,6 +458,27 @@ clientValidate_IMPL
     return NV_OK;
 }
 
+RS_PRIV_LEVEL
+clientGetCachedPrivilege_IMPL
+(
+    RsClient *pClient
+)
+{
+    // Non-functional, base class stubs
+    return RS_PRIV_LEVEL_USER;
+}
+
+NvBool
+clientIsAdmin_IMPL
+(
+    RsClient *pClient,
+    RS_PRIV_LEVEL privLevel
+)
+{
+    // Non-functional, base class stubs
+    return NV_FALSE;
+}
+
 NV_STATUS
 clientAllocResource_IMPL
 (
@@ -523,7 +535,7 @@ clientCopyResource_IMPL
         (pServer->bRsAccessEnabled || (pParams->pSrcClient->hClient != pClient->hClient)))
     {
         RS_ACCESS_MASK rightsRequired;
-        
+
         portMemSet(&rightsRequired, 0, sizeof(rightsRequired));
         RS_ACCESS_MASK_ADD(&rightsRequired, RS_ACCESS_DUP_OBJECT);
 
@@ -568,6 +580,50 @@ clientCopyResource_IMPL
     params.allocFlags = pParams->flags;
 
     return _clientAllocResourceHelper(pClient, pServer, &params, &pParams->hResourceDst);
+}
+
+static
+void
+_refCleanupDependencies
+(
+    RsResourceRef *pResourceRef
+)
+{
+    RsResourceRef **ppIndepRef;
+    while (NULL != (ppIndepRef = multimapFirstItem(&pResourceRef->depBackRefMap)))
+    {
+        refRemoveDependant(*ppIndepRef, pResourceRef);
+    }
+}
+
+static
+void
+_refCleanupDependants
+(
+    RsResourceRef *pResourceRef
+)
+{
+    RsResourceRef **ppDepRef;
+    while (NULL != (ppDepRef = multimapFirstItem(&pResourceRef->depRefMap)))
+    {
+        refRemoveDependant(pResourceRef, *ppDepRef);
+    }
+}
+
+static
+void
+_refRemoveAllDependencies
+(
+    RsResourceRef *pResourceRef
+)
+{
+    _refCleanupDependencies(pResourceRef);
+
+    if (pResourceRef->pDependantSession != NULL)
+        sessionRemoveDependency(pResourceRef->pDependantSession, pResourceRef);
+
+    if (pResourceRef->pSession != NULL)
+        sessionRemoveDependant(pResourceRef->pSession, pResourceRef);
 }
 
 static
@@ -672,11 +728,7 @@ fail:
         pOldContext = NULL;
 
         // First undo dependency tracking since it might access the resource
-        if (pResourceRef->pDependantSession != NULL)
-            sessionRemoveDependency(pResourceRef->pDependantSession, pResourceRef);
-
-        if (pResourceRef->pSession != NULL)
-            sessionRemoveDependant(pResourceRef->pSession, pResourceRef);
+        _refRemoveAllDependencies(pResourceRef);
 
         portMemSet(&params, 0, sizeof(params));
         portMemSet(&callContext, 0, sizeof(callContext));
@@ -704,38 +756,6 @@ fail:
     }
 
     return status;
-}
-
-static
-NV_STATUS
-_refCleanupDependencies
-(
-    RsResourceRef *pResourceRef
-)
-{
-    RsResourceRef **ppIndepRef;
-    while (NULL != (ppIndepRef = multimapFirstItem(&pResourceRef->depBackRefMap)))
-    {
-        refRemoveDependant(*ppIndepRef, pResourceRef);
-    }
-
-    return NV_OK;
-}
-
-static
-NV_STATUS
-_refCleanupDependants
-(
-    RsResourceRef *pResourceRef
-)
-{
-    RsResourceRef **ppDepRef;
-    while (NULL != (ppDepRef = multimapFirstItem(&pResourceRef->depRefMap)))
-    {
-        refRemoveDependant(pResourceRef, *ppDepRef);
-    }
-
-    return NV_OK;
 }
 
 NV_STATUS
@@ -784,7 +804,7 @@ clientFreeResource_IMPL
     resPreDestruct(pResource);
 
     // Remove all CPU mappings
-    _clientUnmapResourceRefMappings(pClient, &callContext, pParams->pLockInfo);
+    clientUnmapResourceRefMappings(pClient, &callContext, pParams->pLockInfo);
     _clientUnmapBackRefMappings(pClient, &callContext, pParams->pLockInfo);
 
     // Remove all inter-mappings
@@ -793,13 +813,7 @@ clientFreeResource_IMPL
 
     // Remove this resource as a dependency from other resources
     pResourceRef->bInvalidated = NV_TRUE;
-    _refCleanupDependencies(pResourceRef);
-
-    if (pResourceRef->pDependantSession != NULL)
-        sessionRemoveDependency(pResourceRef->pDependantSession, pResourceRef);
-
-    if (pResourceRef->pSession != NULL)
-        sessionRemoveDependant(pResourceRef->pSession, pResourceRef);
+    _refRemoveAllDependencies(pResourceRef);
 
     status = serverFreeResourceRpcUnderLock(pServer, pParams);
     NV_ASSERT(status == NV_OK);
@@ -864,8 +878,8 @@ clientUnmapMemory_IMPL
 
     if (status != NV_OK)
     {
-        NV_PRINTF(LEVEL_ERROR, "hClient %x: Failed to unmap cpu mapping: hResource: %x error: 0x%x\n", 
-                pClient->hClient, 
+        NV_PRINTF(LEVEL_ERROR, "hClient %x: Failed to unmap cpu mapping: hResource: %x error: 0x%x\n",
+                pClient->hClient,
                 pResourceRef->hResource,
                 status);
 
@@ -927,7 +941,7 @@ clientGenResourceHandle_IMPL
     }
 
     hFirst = hResource;
-    do 
+    do
     {
         hResource = pClient->handleRangeStart + ((pClient->handleGenIdx++) % pClient->handleRangeSize);
         status = clientValidateNewResourceHandle(pClient, hResource, NV_FALSE);
@@ -1059,7 +1073,7 @@ clientDestructResourceRef_IMPL
 }
 
 NV_STATUS
-_clientUnmapResourceRefMappings
+clientUnmapResourceRefMappings
 (
     RsClient *pClient,
     CALL_CONTEXT *pCallContext,
@@ -1079,12 +1093,13 @@ _clientUnmapResourceRefMappings
         portMemSet(&lockInfo, 0, sizeof(lockInfo));
 
         params.hClient = pClient->hClient;
-        params.hDevice = (pCpuMapping->pContextRef == NULL) 
-            ? pClient->hClient 
+        params.hDevice = (pCpuMapping->pContextRef == NULL)
+            ? pClient->hClient
             : pCpuMapping->pContextRef->hResource;
         params.hMemory = pResourceRef->hResource;
         params.pLinearAddress = pCpuMapping->pLinearAddress;
-        params.processId = pCpuMapping->processId; 
+        params.processId = pCpuMapping->processId;
+        params.bTeardown = NV_TRUE;
         params.flags = pCpuMapping->flags;
         params.pSecInfo = &pCallContext->secInfo;
         params.pLockInfo = &lockInfo;
@@ -1147,6 +1162,7 @@ _clientUnmapBackRefMappings
         params.hMemory = pBackRef->hResource;
         params.pLinearAddress = pCpuMapping->pLinearAddress;
         params.processId = pCpuMapping->processId;
+        params.bTeardown = NV_TRUE;
         params.flags = pCpuMapping->flags;
         params.pSecInfo = &pCallContext->secInfo;
         params.pLockInfo = &lockInfo;
@@ -1231,7 +1247,7 @@ _clientUnmapInterMappings
     pMapping = listHead(&pMapperRef->interMappings);
     while (pMapping != NULL)
     {
-        status = _unmapInterMapping(pCallContext->pServer, pClient, pMapperRef, 
+        status = _unmapInterMapping(pCallContext->pServer, pClient, pMapperRef,
                                     pMapping, pLockInfo, &pCallContext->secInfo);
         if (status != NV_OK)
         {
@@ -1270,7 +1286,7 @@ _clientUnmapInterBackRefMappings
         RsResourceRef *pMapperRef = pBackRefItem->pMapperRef;
         RsInterMapping *pMapping = pBackRefItem->pMapping;
 
-        status = _unmapInterMapping(pCallContext->pServer, pClient, pMapperRef, 
+        status = _unmapInterMapping(pCallContext->pServer, pClient, pMapperRef,
                                     pMapping, pLockInfo, &pCallContext->secInfo);
         if (status != NV_OK)
         {
@@ -1339,7 +1355,7 @@ clientValidateNewResourceHandle_IMPL
 (
     RsClient *pClient,
     NvHandle  hResource,
-    NvBool    bRestrict 
+    NvBool    bRestrict
 )
 {
     //
@@ -1642,7 +1658,7 @@ clientRefIterNext
         pResourceRef = bUseIdx ? *pIt->idxIt.pValue : pIt->mapIt.pValue;
 
         if (bUseIdx ||
-            ((pResourceRef == pIt->pScopeRef) || 
+            ((pResourceRef == pIt->pScopeRef) ||
              (refHasAncestor(pResourceRef, pIt->pScopeRef))))
         {
             NvBool bMatch = NV_TRUE;

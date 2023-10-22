@@ -27,9 +27,10 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrl2080/ctrl2080bus.finn
+// Source file:      ctrl/ctrl2080/ctrl2080bus.finn
 //
 
+#include "nvcfg_sdk.h"
 #include "ctrl/ctrl2080/ctrl2080base.h"
 
 /* NV20_SUBDEVICE_XX bus control commands and parameters */
@@ -243,10 +244,7 @@ typedef struct NV2080_CTRL_BUS_GET_PCI_INFO_PARAMS {
  *
  */
 
-typedef struct NV2080_CTRL_BUS_INFO {
-    NvU32 index;
-    NvU32 data;
-} NV2080_CTRL_BUS_INFO;
+typedef NVXXXX_CTRL_XXX_INFO NV2080_CTRL_BUS_INFO;
 
 /* valid bus info index values */
 
@@ -362,6 +360,7 @@ typedef struct NV2080_CTRL_BUS_INFO {
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_MAX_SPEED_8000MBPS               (0x00000003)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_MAX_SPEED_16000MBPS              (0x00000004)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_MAX_SPEED_32000MBPS              (0x00000005)
+#define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_MAX_SPEED_64000MBPS              (0x00000006)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_MAX_WIDTH               9:4
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_ASPM                    11:10
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_ASPM_NONE                        (0x00000000)
@@ -373,18 +372,21 @@ typedef struct NV2080_CTRL_BUS_INFO {
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_GEN_GEN3                         (0x00000002)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_GEN_GEN4                         (0x00000003)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_GEN_GEN5                         (0x00000004)
+#define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_GEN_GEN6                         (0x00000005)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_CURR_LEVEL              19:16
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_CURR_LEVEL_GEN1                  (0x00000000)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_CURR_LEVEL_GEN2                  (0x00000001)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_CURR_LEVEL_GEN3                  (0x00000002)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_CURR_LEVEL_GEN4                  (0x00000003)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_CURR_LEVEL_GEN5                  (0x00000004)
+#define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_CURR_LEVEL_GEN6                  (0x00000005)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_GPU_GEN                 23:20
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_GPU_GEN_GEN1                     (0x00000000)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_GPU_GEN_GEN2                     (0x00000001)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_GPU_GEN_GEN3                     (0x00000002)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_GPU_GEN_GEN4                     (0x00000003)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_GPU_GEN_GEN5                     (0x00000004)
+#define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_GPU_GEN_GEN6                     (0x00000005)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_SPEED_CHANGES           24:24
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_SPEED_CHANGES_ENABLED            (0x00000000)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CAP_SPEED_CHANGES_DISABLED           (0x00000001)
@@ -401,6 +403,7 @@ typedef struct NV2080_CTRL_BUS_INFO {
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CTRL_STATUS_LINK_SPEED_8000MBPS      (0x00000003)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CTRL_STATUS_LINK_SPEED_16000MBPS     (0x00000004)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CTRL_STATUS_LINK_SPEED_32000MBPS     (0x00000005)
+#define NV2080_CTRL_BUS_INFO_PCIE_LINK_CTRL_STATUS_LINK_SPEED_64000MBPS     (0x00000006)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CTRL_STATUS_LINK_WIDTH           25:20
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CTRL_STATUS_LINK_WIDTH_UNDEFINED     (0x00000000)
 #define NV2080_CTRL_BUS_INFO_PCIE_LINK_CTRL_STATUS_LINK_WIDTH_X1            (0x00000001)
@@ -707,6 +710,7 @@ typedef struct NV2080_CTRL_BUS_SET_PCIE_SPEED_PARAMS {
 #define NV2080_CTRL_BUS_SET_PCIE_SPEED_8000MBPS          (0x00000003)
 #define NV2080_CTRL_BUS_SET_PCIE_SPEED_16000MBPS         (0x00000004)
 #define NV2080_CTRL_BUS_SET_PCIE_SPEED_32000MBPS         (0x00000005)
+#define NV2080_CTRL_BUS_SET_PCIE_SPEED_64000MBPS         (0x00000006)
 
 /*
  * NV2080_CTRL_CMD_BUS_SET_HWBC_UPSTREAM_PCIE_SPEED
@@ -1390,10 +1394,14 @@ typedef struct NV2080_CTRL_CMD_BUS_GET_PCIE_SUPPORTED_GPU_ATOMICS_PARAMS {
  *       NV_OK and bIsLinkUp is NV_TRUE.
  *   nrLinks[OUT]
  *       Total number of C2C links that are up.
+ *   maxNrLinks[OUT]
+ *       Maximum number of C2C links that are supported.
  *   linkMask[OUT]
  *       Bitmask of the C2C links present and up.
  *   perLinkBwMBps[OUT]
  *       Theoretical per link bandwidth in MBps.
+ *   perLinkLaneWidth[OUT]
+ *       Lane width per link.
  *   remoteType[OUT]
  *       Type of the device connected to the remote end of the C2C link.
  *       Valid values are :
@@ -1420,8 +1428,10 @@ typedef struct NV2080_CTRL_CMD_BUS_GET_PCIE_SUPPORTED_GPU_ATOMICS_PARAMS {
 typedef struct NV2080_CTRL_CMD_BUS_GET_C2C_INFO_PARAMS {
     NvBool bIsLinkUp;
     NvU32  nrLinks;
+    NvU32  maxNrLinks;
     NvU32  linkMask;
     NvU32  perLinkBwMBps;
+    NvU32  perLinkLaneWidth;
     NvU32  remoteType;
 } NV2080_CTRL_CMD_BUS_GET_C2C_INFO_PARAMS;
 
@@ -1452,42 +1462,93 @@ typedef struct NV2080_CTRL_BUS_SYSMEM_ACCESS_PARAMS {
     NvBool bDisable;
 } NV2080_CTRL_BUS_SYSMEM_ACCESS_PARAMS;
 
+
+
 /*
- * NV2080_CTRL_CMD_BUS_GET_C2C_ERR_INFO
+ * NV2080_CTRL_CMD_BUS_SET_P2P_MAPPING
  *
- * This command returns the C2C error info for a C2C links.
+ * This command sets P2P mapping.
  *
- * errCnts[OUT]
- *  Array of structure that contains the error counts for
- *  number of times one of C2C fatal error interrupt has happened.
- *  The array size should be NV2080_CTRL_BUS_GET_C2C_ERR_INFO_MAX_NUM_C2C_INSTANCES
- *  * NV2080_CTRL_BUS_GET_C2C_ERR_INFO_MAX_C2C_LINKS_PER_INSTANCE.
- *
- *  nrCrcErrIntr[OUT]
- *   Number of times CRC error interrupt triggered.
- *  nrReplayErrIntr[OUT]
- *   Number of times REPLAY error interrupt triggered.
- *  nrReplayB2bErrIntr[OUT]
- *   Number of times REPLAY_B2B error interrupt triggered.
+ * connectionType[IN]
+ *   Connection type, one of NV2080_CTRL_CMD_BUS_SET_P2P_MAPPINGS_CONNECTION
+ * peerId[IN]
+ *   peerId of remote GPU from local GPU on which call is made.
+ * bSpaAccessOnly[IN]
+ *   SPA access only. SPA addressing mode is supported when we support ATS.
+ * bUseUuid [in]
+ *   Option only available for Guest RPCs and is not avaliable for external clients.
+ *   Set to NV_TRUE to use remoteGpuUuid in lieu of remoteGpuId to identify target GPU.
+ * remoteGpuId[IN]
+ *   GPU ID of remote GPU.
+ * remoteGpuUuid [in]
+ *   Alternative to gpuId; used to identify target GPU for which caps are being queried.
+ *   Option only available for Guest RPCs.
+ *   If bUseUuid == NV_TRUE, gpuUuid is used in lieu of gpuId to identify target GPU.
+ *   If bUseUuid == NV_FALSE, gpuUuid is ignored and gpuId is used by default.
  *
  * Possible status values returned are:
  *  NV_OK
- *  NV_ERR_INVALID_STATE
+ *  NV_ERR_INVALID_ARGUMENT
  *  NV_ERR_NOT_SUPPORTED
  */
 
-#define NV2080_CTRL_CMD_BUS_GET_C2C_ERR_INFO                        (0x2080182d) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_BUS_INTERFACE_ID << 8) | NV2080_CTRL_BUS_GET_C2C_ERR_INFO_PARAMS_MESSAGE_ID" */
+#define NV2080_CTRL_CMD_BUS_SET_P2P_MAPPING                           (0x2080182e) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_BUS_INTERFACE_ID << 8) | NV2080_CTRL_BUS_SET_P2P_MAPPING_PARAMS_MESSAGE_ID" */
 
-#define NV2080_CTRL_BUS_GET_C2C_ERR_INFO_MAX_NUM_C2C_INSTANCES      2
-#define NV2080_CTRL_BUS_GET_C2C_ERR_INFO_MAX_C2C_LINKS_PER_INSTANCE 5
+#define NV2080_CTRL_CMD_BUS_SET_P2P_MAPPING_CONNECTION_TYPE_INVALID   0
+#define NV2080_CTRL_CMD_BUS_SET_P2P_MAPPING_CONNECTION_TYPE_NVLINK    1
+#define NV2080_CTRL_CMD_BUS_SET_P2P_MAPPING_CONNECTION_TYPE_PCIE      2
+#define NV2080_CTRL_CMD_BUS_SET_P2P_MAPPING_CONNECTION_TYPE_PCIE_BAR1 3
+#define NV2080_CTRL_CMD_BUS_SET_P2P_MAPPING_CONNECTION_TYPE_C2C       4
 
-#define NV2080_CTRL_BUS_GET_C2C_ERR_INFO_PARAMS_MESSAGE_ID (0x2DU)
+#define NV2080_SET_P2P_MAPPING_UUID_LEN                               16U
 
-typedef struct NV2080_CTRL_BUS_GET_C2C_ERR_INFO_PARAMS {
-    struct {
-        NvU32 nrCrcErrIntr;
-        NvU32 nrReplayErrIntr;
-        NvU32 nrReplayB2bErrIntr;
-    } errCnts[NV2080_CTRL_BUS_GET_C2C_ERR_INFO_MAX_NUM_C2C_INSTANCES * NV2080_CTRL_BUS_GET_C2C_ERR_INFO_MAX_C2C_LINKS_PER_INSTANCE];
-} NV2080_CTRL_BUS_GET_C2C_ERR_INFO_PARAMS;
+#define NV2080_CTRL_BUS_SET_P2P_MAPPING_PARAMS_MESSAGE_ID (0x2EU)
+
+typedef struct NV2080_CTRL_BUS_SET_P2P_MAPPING_PARAMS {
+    NvU32  connectionType;
+    NvU32  peerId;
+    NvBool bEgmPeer;
+    NvBool bSpaAccessOnly;
+    NvBool bUseUuid;
+    NvU32  remoteGpuId;
+    NvU8   remoteGpuUuid[NV2080_SET_P2P_MAPPING_UUID_LEN];
+} NV2080_CTRL_BUS_SET_P2P_MAPPING_PARAMS;
+
+/*
+ * NV2080_CTRL_CMD_BUS_UNSET_P2P_MAPPING
+ *
+ * This command unsets P2P mapping.
+ *
+ * connectionType[IN]
+ *   Connection type, one of NV2080_CTRL_CMD_BUS_SET_P2P_MAPPINGS_CONNECTION
+ * peerId[IN]
+ *   peerId of remote GPU from local GPU on which call is mad.
+ * bUseUuid [in]
+ *   Option only available for Guest RPCs and is not avaliable for external clients.
+ *   Set to NV_TRUE to use remoteGpuUuid in lieu of remoteGpuId to identify target GPU.
+ * remoteGpuId[IN]
+ *   GPU ID of remote GPU.
+ * remoteGpuUuid [in]
+ *   Alternative to gpuId; used to identify target GPU for which caps are being queried.
+ *   Option only available for Guest RPCs.
+ *   If bUseUuid == NV_TRUE, gpuUuid is used in lieu of gpuId to identify target GPU.
+ *   If bUseUuid == NV_FALSE, gpuUuid is ignored and gpuId is used by default.
+ *
+ * Possible status values returned are:
+ *  NV_OK
+ *  NV_ERR_INVALID_ARGUMENT
+ *  NV_ERR_NOT_SUPPORTED
+ */
+
+#define NV2080_CTRL_CMD_BUS_UNSET_P2P_MAPPING (0x2080182f) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_BUS_INTERFACE_ID << 8) | NV2080_CTRL_BUS_UNSET_P2P_MAPPING_PARAMS_MESSAGE_ID" */
+
+#define NV2080_CTRL_BUS_UNSET_P2P_MAPPING_PARAMS_MESSAGE_ID (0x2FU)
+
+typedef struct NV2080_CTRL_BUS_UNSET_P2P_MAPPING_PARAMS {
+    NvU32  connectionType;
+    NvU32  peerId;
+    NvBool bUseUuid;
+    NvU32  remoteGpuId;
+    NvU8   remoteGpuUuid[NV2080_SET_P2P_MAPPING_UUID_LEN];
+} NV2080_CTRL_BUS_UNSET_P2P_MAPPING_PARAMS;
 

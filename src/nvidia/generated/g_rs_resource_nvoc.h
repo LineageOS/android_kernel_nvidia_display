@@ -109,6 +109,7 @@ struct RS_RES_ALLOC_PARAMS_INTERNAL
     API_SECURITY_INFO      *pSecInfo;
 
     void                   *pAllocParams;     ///< [in] Copied-in allocation parameters
+    NvU32                   paramsSize;       ///< [in] Copied-in allocation parameters size
 
     // ... Dupe alloc
     struct RsClient               *pSrcClient;       ///< The client that is sharing the resource
@@ -159,6 +160,7 @@ struct RS_RES_FREE_PARAMS_INTERNAL
 
     // Internal use only
     NvBool             bHiPriOnly;      ///< [in] Only free if this is a high priority resources
+    NvBool             bDisableOnly;    ///< [in] Disable the target instead of freeing it (only applies to clients)
     RS_LOCK_INFO      *pLockInfo;       ///< [inout] Locking flags and state
     NvU32              freeFlags;       ///< [in] Flags for the free operation
     NvU32              freeState;       ///< [inout] Free state
@@ -244,10 +246,13 @@ struct RsResource {
     struct Object *__nvoc_pbase_Object;
     struct RsResource *__nvoc_pbase_RsResource;
     NvBool (*__resCanCopy__)(struct RsResource *);
+    NV_STATUS (*__resIsDuplicate__)(struct RsResource *, NvHandle, NvBool *);
     void (*__resPreDestruct__)(struct RsResource *);
     NV_STATUS (*__resControlLookup__)(struct RsResource *, struct RS_RES_CONTROL_PARAMS_INTERNAL *, const struct NVOC_EXPORTED_METHOD_DEF **);
     NV_STATUS (*__resControl__)(struct RsResource *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NV_STATUS (*__resControlFilter__)(struct RsResource *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
+    NV_STATUS (*__resControlSerialization_Prologue__)(struct RsResource *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
+    void (*__resControlSerialization_Epilogue__)(struct RsResource *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NV_STATUS (*__resControl_Prologue__)(struct RsResource *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     void (*__resControl_Epilogue__)(struct RsResource *, struct CALL_CONTEXT *, struct RS_RES_CONTROL_PARAMS_INTERNAL *);
     NV_STATUS (*__resMap__)(struct RsResource *, struct CALL_CONTEXT *, RS_CPU_MAP_PARAMS *, RsCpuMapping *);
@@ -292,10 +297,13 @@ NV_STATUS __nvoc_objCreate_RsResource(RsResource**, Dynamic*, NvU32, struct CALL
     __nvoc_objCreate_RsResource((ppNewObj), staticCast((pParent), Dynamic), (createFlags), arg_pCallContext, arg_pParams)
 
 #define resCanCopy(pResource) resCanCopy_DISPATCH(pResource)
+#define resIsDuplicate(pResource, hMemory, pDuplicate) resIsDuplicate_DISPATCH(pResource, hMemory, pDuplicate)
 #define resPreDestruct(pResource) resPreDestruct_DISPATCH(pResource)
 #define resControlLookup(pResource, pParams, ppEntry) resControlLookup_DISPATCH(pResource, pParams, ppEntry)
 #define resControl(pResource, pCallContext, pParams) resControl_DISPATCH(pResource, pCallContext, pParams)
 #define resControlFilter(pResource, pCallContext, pParams) resControlFilter_DISPATCH(pResource, pCallContext, pParams)
+#define resControlSerialization_Prologue(pResource, pCallContext, pParams) resControlSerialization_Prologue_DISPATCH(pResource, pCallContext, pParams)
+#define resControlSerialization_Epilogue(pResource, pCallContext, pParams) resControlSerialization_Epilogue_DISPATCH(pResource, pCallContext, pParams)
 #define resControl_Prologue(pResource, pCallContext, pParams) resControl_Prologue_DISPATCH(pResource, pCallContext, pParams)
 #define resControl_Epilogue(pResource, pCallContext, pParams) resControl_Epilogue_DISPATCH(pResource, pCallContext, pParams)
 #define resMap(pResource, pCallContext, pParams, pCpuMapping) resMap_DISPATCH(pResource, pCallContext, pParams, pCpuMapping)
@@ -310,6 +318,12 @@ NvBool resCanCopy_IMPL(struct RsResource *pResource);
 
 static inline NvBool resCanCopy_DISPATCH(struct RsResource *pResource) {
     return pResource->__resCanCopy__(pResource);
+}
+
+NV_STATUS resIsDuplicate_IMPL(struct RsResource *pResource, NvHandle hMemory, NvBool *pDuplicate);
+
+static inline NV_STATUS resIsDuplicate_DISPATCH(struct RsResource *pResource, NvHandle hMemory, NvBool *pDuplicate) {
+    return pResource->__resIsDuplicate__(pResource, hMemory, pDuplicate);
 }
 
 void resPreDestruct_IMPL(struct RsResource *pResource);
@@ -334,6 +348,18 @@ NV_STATUS resControlFilter_IMPL(struct RsResource *pResource, struct CALL_CONTEX
 
 static inline NV_STATUS resControlFilter_DISPATCH(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
     return pResource->__resControlFilter__(pResource, pCallContext, pParams);
+}
+
+NV_STATUS resControlSerialization_Prologue_IMPL(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);
+
+static inline NV_STATUS resControlSerialization_Prologue_DISPATCH(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return pResource->__resControlSerialization_Prologue__(pResource, pCallContext, pParams);
+}
+
+void resControlSerialization_Epilogue_IMPL(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);
+
+static inline void resControlSerialization_Epilogue_DISPATCH(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    pResource->__resControlSerialization_Epilogue__(pResource, pCallContext, pParams);
 }
 
 NV_STATUS resControl_Prologue_IMPL(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);
@@ -397,10 +423,13 @@ static inline void resAddAdditionalDependants_DISPATCH(struct RsClient *pClient,
 }
 
 NV_STATUS resConstruct_IMPL(struct RsResource *arg_pResource, struct CALL_CONTEXT *arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL *arg_pParams);
+
 #define __nvoc_resConstruct(arg_pResource, arg_pCallContext, arg_pParams) resConstruct_IMPL(arg_pResource, arg_pCallContext, arg_pParams)
 void resDestruct_IMPL(struct RsResource *pResource);
+
 #define __nvoc_resDestruct(pResource) resDestruct_IMPL(pResource)
 NV_STATUS resSetFreeParams_IMPL(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_FREE_PARAMS_INTERNAL *pParams);
+
 #ifdef __nvoc_rs_resource_h_disabled
 static inline NV_STATUS resSetFreeParams(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_FREE_PARAMS_INTERNAL *pParams) {
     NV_ASSERT_FAILED_PRECOMP("RsResource was disabled!");
@@ -411,6 +440,7 @@ static inline NV_STATUS resSetFreeParams(struct RsResource *pResource, struct CA
 #endif //__nvoc_rs_resource_h_disabled
 
 NV_STATUS resGetFreeParams_IMPL(struct RsResource *pResource, struct CALL_CONTEXT **ppCallContext, struct RS_RES_FREE_PARAMS_INTERNAL **ppParams);
+
 #ifdef __nvoc_rs_resource_h_disabled
 static inline NV_STATUS resGetFreeParams(struct RsResource *pResource, struct CALL_CONTEXT **ppCallContext, struct RS_RES_FREE_PARAMS_INTERNAL **ppParams) {
     NV_ASSERT_FAILED_PRECOMP("RsResource was disabled!");
@@ -491,6 +521,7 @@ struct RS_CPU_UNMAP_PARAMS
     NvP64                   pLinearAddress; ///< [in] Address of mapped memory
     NvU32                   flags;          ///< [in] Resource-specific flags
     NvU32                   processId;
+    NvBool                  bTeardown;      ///< [in] Unmap operation is due to client teardown
 
     /// [in] hContext Handle of resource that provides a context for the mapping (e.g., subdevice for channel map)
     NvHandle                hContext;
@@ -808,7 +839,7 @@ NV_STATUS refAddDependant(RsResourceRef *pResourceRef, RsResourceRef *pDependant
 /**
  * Remove the dependency between this resource reference and a dependent resource reference.
  */
-NV_STATUS refRemoveDependant(RsResourceRef *pResourceRef, RsResourceRef *pDependantRef);
+void refRemoveDependant(RsResourceRef *pResourceRef, RsResourceRef *pDependantRef);
 
 /**
  * Find, Add, or Remove an inter-mapping between two resources to the Mapper's list of inter-mappings

@@ -99,7 +99,7 @@ static void nv_init_dynamic_power_management
                    NV_PCI_DOMAIN_NUMBER(pci_dev),
                    NV_PCI_BUS_NUMBER(pci_dev),
                    NV_PCI_SLOT_NUMBER(pci_dev));
-    if (ret > 0 || ret < sizeof(filename))
+    if (ret > 0 && ret < sizeof(filename))
     {
         struct file *file = filp_open(filename, O_RDONLY, 0);
         if (!IS_ERR(file))
@@ -156,74 +156,118 @@ static void nv_init_dynamic_power_management
     rm_init_dynamic_power_management(sp, nv, pr3_acpi_method_present);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+static int nv_resize_pcie_bars(struct pci_dev *pci_dev) {
+#if defined(NV_PCI_REBAR_GET_POSSIBLE_SIZES_PRESENT)
+    u16 cmd;
+    int r, old_size, requested_size;
+    unsigned long sizes;
+    int ret = 0;
+#if NV_IS_EXPORT_SYMBOL_PRESENT_pci_find_host_bridge
+    struct pci_host_bridge *host;
+#endif
+
+    if (NVreg_EnableResizableBar == 0)
+    {
+        nv_printf(NV_DBG_INFO, "NVRM: resizable BAR disabled by regkey, skipping\n");
+        return 0;
+    }
+
+    // Check if BAR1 has PCIe rebar capabilities
+    sizes = pci_rebar_get_possible_sizes(pci_dev, NV_GPU_BAR1);
+    if (sizes == 0) {
+        /* ReBAR not available. Nothing to do. */
+        return 0;
+    }
+
+    /* Try to resize the BAR to the largest supported size */
+    requested_size = fls(sizes) - 1;
+
+    /* Save the current size, just in case things go wrong */
+    old_size = pci_rebar_bytes_to_size(pci_resource_len(pci_dev, NV_GPU_BAR1));
+
+    if (old_size == requested_size) {
+        nv_printf(NV_DBG_INFO, "NVRM: %04x:%02x:%02x.%x: BAR1 already at requested size.\n",
+            NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
+            NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
+        return 0;
+    }
+#if NV_IS_EXPORT_SYMBOL_PRESENT_pci_find_host_bridge
+    /* If the kernel will refuse us, don't even try to resize,
+       but give an informative error */
+    host = pci_find_host_bridge(pci_dev->bus);
+    if (host->preserve_config) {
+        nv_printf(NV_DBG_INFO, "NVRM: Not resizing BAR because the firmware forbids moving windows.\n");
+        return 0;
+    }
+#endif
+    nv_printf(NV_DBG_INFO, "NVRM: %04x:%02x:%02x.%x: Attempting to resize BAR1.\n",
+        NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
+        NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
+
+    /* Disable memory decoding - required by the kernel APIs */
+    pci_read_config_word(pci_dev, PCI_COMMAND, &cmd);
+    pci_write_config_word(pci_dev, PCI_COMMAND, cmd & ~PCI_COMMAND_MEMORY);
+
+    /* Release BAR1 */
+    pci_release_resource(pci_dev, NV_GPU_BAR1);
+
+    /* Release BAR3 - we don't want to resize it, it's in the same bridge, so we'll want to move it */
+    pci_release_resource(pci_dev, NV_GPU_BAR3);
+
+resize:
+    /* Attempt to resize BAR1 to the largest supported size */
+    r = pci_resize_resource(pci_dev, NV_GPU_BAR1, requested_size);
+
+    if (r) {
+        if (r == -ENOSPC)
+        {
+            /* step through smaller sizes down to original size */
+            if (requested_size > old_size)
+            {
+                clear_bit(fls(sizes) - 1, &sizes);
+                requested_size = fls(sizes) - 1;
+                goto resize;
+            }
+            else
+            {
+                nv_printf(NV_DBG_ERRORS, "NVRM: No address space to allocate resized BAR1.\n");
+            }
+        }
+        else if (r == -EOPNOTSUPP)
+        {
+            nv_printf(NV_DBG_WARNINGS, "NVRM: BAR resize resource not supported.\n");
+        }
+        else
+        {
+            nv_printf(NV_DBG_WARNINGS, "NVRM: BAR resizing failed with error `%d`.\n", r);
+        }
+    }
+
+    /* Re-attempt assignment of PCIe resources */
+    pci_assign_unassigned_bus_resources(pci_dev->bus);
+
+    if ((pci_resource_flags(pci_dev, NV_GPU_BAR1) & IORESOURCE_UNSET) ||
+        (pci_resource_flags(pci_dev, NV_GPU_BAR3) & IORESOURCE_UNSET)) {
+        if (requested_size != old_size) {
+            /* Try to get the BAR back with the original size */
+            requested_size = old_size;
+            goto resize;
+        }
+        /* Something went horribly wrong and the kernel didn't manage to re-allocate BAR1.
+           This is unlikely (because we had space before), but can happen. */
+        nv_printf(NV_DBG_ERRORS, "NVRM: FATAL: Failed to re-allocate BAR1.\n");
+        ret = -ENODEV;
+    }
+
+    /* Re-enable memory decoding */
+    pci_write_config_word(pci_dev, PCI_COMMAND, cmd);
+
+    return ret;
+#else
+    nv_printf(NV_DBG_INFO, "NVRM: Resizable BAR is not supported on this kernel version.\n");
+    return 0;
+#endif /* NV_PCI_REBAR_GET_POSSIBLE_SIZES_PRESENT */
+}
 
 /* find nvidia devices and set initial state */
 static int
@@ -241,6 +285,8 @@ nv_pci_probe
     NvBool prev_nv_ats_supported = nv_ats_supported;
     NV_STATUS status;
     NvBool last_bar_64bit = NV_FALSE;
+    NvU8 regs_bar_index = nv_bar_index_to_os_bar_index(pci_dev,
+                                                       NV_GPU_BAR_INDEX_REGS);
 
     nv_printf(NV_DBG_SETUP, "NVRM: probing 0x%x 0x%x, class 0x%x\n",
         pci_dev->vendor, pci_dev->device, pci_dev->class);
@@ -249,7 +295,6 @@ nv_pci_probe
     {
         return -1;
     }
-
 
 #ifdef NV_PCI_SRIOV_SUPPORT
     if (pci_dev->is_virtfn)
@@ -295,7 +340,6 @@ nv_pci_probe
 #endif /* NV_VGPU_KVM_BUILD */
     }
 #endif /* NV_PCI_SRIOV_SUPPORT */
-
 
     if (!rm_is_supported_pci_device(
                 (pci_dev->class >> 16) & 0xFF,
@@ -418,30 +462,35 @@ next_bar:
             (NvU64)NV_PCI_RESOURCE_START(pci_dev, i),
             NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
             NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
+
         goto failed;
     }
 
-    if (!request_mem_region(NV_PCI_RESOURCE_START(pci_dev, NV_GPU_BAR_INDEX_REGS),
-                            NV_PCI_RESOURCE_SIZE(pci_dev, NV_GPU_BAR_INDEX_REGS),
+    if (!request_mem_region(NV_PCI_RESOURCE_START(pci_dev, regs_bar_index),
+                            NV_PCI_RESOURCE_SIZE(pci_dev, regs_bar_index),
                             nv_device_name))
     {
         nv_printf(NV_DBG_ERRORS,
             "NVRM: request_mem_region failed for %dM @ 0x%llx. This can\n"
             "NVRM: occur when a driver such as rivatv is loaded and claims\n"
             "NVRM: ownership of the device's registers.\n",
-            (NV_PCI_RESOURCE_SIZE(pci_dev, NV_GPU_BAR_INDEX_REGS) >> 20),
-            (NvU64)NV_PCI_RESOURCE_START(pci_dev, NV_GPU_BAR_INDEX_REGS));
+            (NV_PCI_RESOURCE_SIZE(pci_dev, regs_bar_index) >> 20),
+            (NvU64)NV_PCI_RESOURCE_START(pci_dev, regs_bar_index));
         goto failed;
     }
 
-    NV_KMALLOC(nvl, sizeof(nv_linux_state_t));
+    if (nv_resize_pcie_bars(pci_dev)) {
+        nv_printf(NV_DBG_ERRORS,
+            "NVRM: Fatal Error while attempting to resize PCIe BARs.\n");
+        goto failed;
+    }
+
+    NV_KZALLOC(nvl, sizeof(nv_linux_state_t));
     if (nvl == NULL)
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: failed to allocate memory\n");
         goto err_not_supported;
     }
-
-    os_mem_set(nvl, 0, sizeof(nv_linux_state_t));
 
     nv  = NV_STATE_PTR(nvl);
 
@@ -498,20 +547,11 @@ next_bar:
 
     nv_init_ibmnpu_info(nv);
 
-
-
-
-
 #if defined(NVCPU_PPC64LE)
     // Use HW NUMA support as a proxy for ATS support. This is true in the only
     // PPC64LE platform where ATS is currently supported (IBM P9).
     nv_ats_supported &= nv_platform_supports_numa(nvl);
 #else
-
-
-
-
-
 #endif
     if (nv_ats_supported)
     {
@@ -578,9 +618,7 @@ next_bar:
     if (nvidia_frontend_add_device((void *)&nv_fops, nvl) != 0)
         goto err_remove_device;
 
-#if defined(NV_PM_VT_SWITCH_REQUIRED_PRESENT)
     pm_vt_switch_required(nvl->dev, NV_TRUE);
-#endif
 
     nv_init_dynamic_power_management(sp, pci_dev);
 
@@ -608,6 +646,13 @@ next_bar:
     dev_pm_set_driver_flags(nvl->dev, DPM_FLAG_NEVER_SKIP);
 #endif
 
+    /*
+     * Dynamic power management should be enabled as the last step.
+     * Kernel runtime power management framework can put the device
+     * into the suspended state. Hardware register access should not be done
+     * after enabling dynamic power management.
+     */
+    rm_enable_dynamic_power_management(sp, nv);
     nv_kmem_cache_free_stack(sp);
 
     return 0;
@@ -617,9 +662,7 @@ err_vgpu_kvm:
 #endif
     nv_procfs_remove_gpu(nvl);
     rm_cleanup_dynamic_power_management(sp, nv);
-#if defined(NV_PM_VT_SWITCH_REQUIRED_PRESENT)
     pm_vt_switch_unregister(nvl->dev);
-#endif
 err_remove_device:
     LOCK_NV_LINUX_DEVICES();
     nv_linux_remove_device_locked(nvl);
@@ -634,8 +677,8 @@ err_not_supported:
     {
         NV_KFREE(nvl, sizeof(nv_linux_state_t));
     }
-    release_mem_region(NV_PCI_RESOURCE_START(pci_dev, NV_GPU_BAR_INDEX_REGS),
-                       NV_PCI_RESOURCE_SIZE(pci_dev, NV_GPU_BAR_INDEX_REGS));
+    release_mem_region(NV_PCI_RESOURCE_START(pci_dev, regs_bar_index),
+                       NV_PCI_RESOURCE_SIZE(pci_dev, regs_bar_index));
     NV_PCI_DISABLE_DEVICE(pci_dev);
     pci_set_drvdata(pci_dev, NULL);
 failed:
@@ -649,11 +692,12 @@ nv_pci_remove(struct pci_dev *pci_dev)
     nv_linux_state_t *nvl = NULL;
     nv_state_t *nv;
     nvidia_stack_t *sp = NULL;
+    NvU8 regs_bar_index = nv_bar_index_to_os_bar_index(pci_dev,
+                                                       NV_GPU_BAR_INDEX_REGS);
 
     nv_printf(NV_DBG_SETUP, "NVRM: removing GPU %04x:%02x:%02x.%x\n",
               NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
               NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
-
 
 #ifdef NV_PCI_SRIOV_SUPPORT
     if (pci_dev->is_virtfn)
@@ -665,7 +709,6 @@ nv_pci_remove(struct pci_dev *pci_dev)
         return;
     }
 #endif /* NV_PCI_SRIOV_SUPPORT */
-
 
     if (nv_kmem_cache_alloc_stack(&sp) != 0)
     {
@@ -690,8 +733,9 @@ nv_pci_remove(struct pci_dev *pci_dev)
     if ((NV_ATOMIC_READ(nvl->usage_count) != 0) && !(nv->is_external_gpu))
     {
         nv_printf(NV_DBG_ERRORS,
-                  "NVRM: Attempting to remove minor device %u with non-zero usage count!\n",
-                  nvl->minor_num);
+                  "NVRM: Attempting to remove device %04x:%02x:%02x.%x with non-zero usage count!\n",
+                  NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
+                  NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
 
         /*
          * We can't return from this function without corrupting state, so we wait for
@@ -716,8 +760,9 @@ nv_pci_remove(struct pci_dev *pci_dev)
             {
                 /* The device was not found, which should not happen */
                 nv_printf(NV_DBG_ERRORS,
-                          "NVRM: Failed removal of minor device %u!\n",
-                          nvl->minor_num);
+                          "NVRM: Failed removal of device %04x:%02x:%02x.%x!\n",
+                          NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
+                          NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));  
                 WARN_ON(1);
                 goto done;
             }
@@ -726,8 +771,9 @@ nv_pci_remove(struct pci_dev *pci_dev)
         }
 
         nv_printf(NV_DBG_ERRORS,
-                  "NVRM: Continuing with GPU removal for minor device %u\n",
-                  nvl->minor_num);
+                  "NVRM: Continuing with GPU removal for device %04x:%02x:%02x.%x\n",
+                  NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
+                  NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
     }
 
     rm_check_for_gpu_surprise_removal(sp, nv);
@@ -743,9 +789,7 @@ nv_pci_remove(struct pci_dev *pci_dev)
 
     UNLOCK_NV_LINUX_DEVICES();
 
-#if defined(NV_PM_VT_SWITCH_REQUIRED_PRESENT)
     pm_vt_switch_unregister(&pci_dev->dev);
-#endif
 
 #if defined(NV_VGPU_KVM_BUILD)
     /* Arg 2 == NV_TRUE means that the PCI device should be removed */
@@ -789,8 +833,8 @@ nv_pci_remove(struct pci_dev *pci_dev)
 
     rm_i2c_remove_adapters(sp, nv);
     rm_free_private_state(sp, nv);
-    release_mem_region(NV_PCI_RESOURCE_START(pci_dev, NV_GPU_BAR_INDEX_REGS),
-                       NV_PCI_RESOURCE_SIZE(pci_dev, NV_GPU_BAR_INDEX_REGS));
+    release_mem_region(NV_PCI_RESOURCE_START(pci_dev, regs_bar_index),
+                       NV_PCI_RESOURCE_SIZE(pci_dev, regs_bar_index));
 
     num_nv_devices--;
 
@@ -821,6 +865,11 @@ nv_pci_shutdown(struct pci_dev *pci_dev)
     {
         nvl->is_forced_shutdown = NV_FALSE;
         return;
+    }
+
+    if (nvl != NULL)
+    {
+        nvl->nv_state.is_shutdown = NV_TRUE;
     }
 
     /* pci_clear_master is not defined for !CONFIG_PCI */
@@ -1072,6 +1121,10 @@ struct pci_driver nv_pci_driver = {
     .probe     = nv_pci_probe,
     .remove    = nv_pci_remove,
     .shutdown  = nv_pci_shutdown,
+#if defined(NV_USE_VFIO_PCI_CORE) && \
+  defined(NV_PCI_DRIVER_HAS_DRIVER_MANAGED_DMA)
+    .driver_managed_dma = NV_TRUE,
+#endif
 #if defined(CONFIG_PM)
     .driver.pm = &nv_pm_ops,
 #endif

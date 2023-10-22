@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -35,6 +35,12 @@
 *       Defines DISPLAYPORT V1.2                                            *
 *                                                                           *
 \***************************************************************************/
+
+//
+// 4 Legacy Link Rates: RBR, HBR, HBR2, HBR3
+// 4 ILRs: 2.16G, 2.43G, 3.24G, 4.32G
+//
+#define NV_SUPPORTED_DP1X_LINK_RATES__SIZE        8
 
 // Displayport interoperability with HDMI dongle i2c addr
 #define DP2HDMI_DONGLE_I2C_ADDR                         0x80
@@ -97,6 +103,7 @@ typedef enum
 
 typedef enum
 {
+    // enum value unit = 270M
     linkBW_1_62Gbps                = 0x06,
     linkBW_2_16Gbps                = 0x08,
     linkBW_2_43Gbps                = 0x09,
@@ -104,7 +111,6 @@ typedef enum
     linkBW_3_24Gbps                = 0x0C,
     linkBW_4_32Gbps                = 0x10,
     linkBW_5_40Gbps                = 0x14,
-    linkBW_6_75Gbps                = 0x19,
     linkBW_8_10Gbps                = 0x1E,
     linkBW_Supported
 } DP_LINK_BANDWIDTH;
@@ -119,10 +125,8 @@ typedef enum
     linkSpeedId_2_43Gbps                = 0x05,
     linkSpeedId_3_24Gbps                = 0x06,
     linkSpeedId_4_32Gbps                = 0x07,
-    linkSpeedId_6_75Gbps                = 0x08,
     linkSpeedId_Supported
 } DP_LINK_SPEED_INDEX;
-
 
 typedef enum
 {
@@ -240,6 +244,7 @@ typedef enum
 typedef struct DscCaps
 {
     NvBool bDSCSupported;
+    NvBool bDSCDecompressionSupported;
     NvBool bDSCPassThroughSupported;
     unsigned versionMajor, versionMinor;
     unsigned rcBufferBlockSize;
@@ -264,6 +269,10 @@ typedef struct DscCaps
     unsigned dscPeakThroughputMode1;
     unsigned dscMaxSliceWidth;
 
+    unsigned branchDSCOverallThroughputMode0;
+    unsigned branchDSCOverallThroughputMode1;
+    unsigned branchDSCMaximumLineBufferWidth;
+
     BITS_PER_PIXEL_INCREMENT dscBitsPerPixelIncrement;
 } DscCaps;
 
@@ -285,7 +294,8 @@ typedef struct
 {
     NvBool  bSourceControlModeSupported;
     NvBool  bConcurrentLTSupported;
-    NvU8    maxTmdsClkRate;
+    NvBool  bConv444To420Supported;
+    NvU32   maxTmdsClkRate;
     NvU8    maxBpc;
     NvU8    maxHdmiLinkBandwidthGbps;
 } PCONCaps;
@@ -454,10 +464,24 @@ typedef struct PanelReplayConfig
     NvBool   enablePanelReplay;
 } panelReplayConfig;
 
+// PR state
+typedef enum
+{
+    PanelReplay_Inactive            = 0,
+    PanelReplay_CaptureAndDisplay   = 1,
+    PanelReplay_DisplayFromRfb      = 2,
+    PanelReplay_Undefined           = 7
+} PanelReplayState;
+
+typedef struct
+{
+    PanelReplayState prState;
+} PanelReplayStatus;
+
 // Multiplier constant to get link frequency in KHZ
 // Maximum link rate of Main Link lanes = Value x 270M.
 // To get it to KHz unit, we need to multiply 270K.
-#define DP_LINK_BW_FREQUENCY_MULTIPLIER_KHZ (270*1000)
+#define DP_LINK_BW_FREQUENCY_MULTIPLIER_KHZ             (270*1000)
 
 // Multiplier constant to get link rate table's in KHZ
 #define DP_LINK_RATE_TABLE_MULTIPLIER_KHZ 200
@@ -533,11 +557,11 @@ typedef struct PanelReplayConfig
 #define IS_INTERMEDIATE_LINKBW(val) (((NvU32)(val)==linkBW_2_16Gbps) || \
                                      ((NvU32)(val)==linkBW_2_43Gbps) || \
                                      ((NvU32)(val)==linkBW_3_24Gbps) || \
-                                     ((NvU32)(val)==linkBW_4_32Gbps) || \
-                                     ((NvU32)(val)==linkBW_6_75Gbps))
+                                     ((NvU32)(val)==linkBW_4_32Gbps))
 
-#define IS_VALID_LINKBW(val) (IS_STANDARD_LINKBW(val) || \
+#define IS_VALID_LINKBW(val) (IS_STANDARD_LINKBW(val)     || \
                               IS_INTERMEDIATE_LINKBW(val))
+
 //
 // Phy Repeater count read from DPCD offset F0002h is an
 // 8 bit value where each bit represents the total count

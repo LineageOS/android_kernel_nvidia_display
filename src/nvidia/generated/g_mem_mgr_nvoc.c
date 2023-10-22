@@ -66,10 +66,6 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_MemoryManager =
     /*pExportInfo=*/        &__nvoc_export_info_MemoryManager
 };
 
-static NV_STATUS __nvoc_thunk_OBJENGSTATE_memmgrReconcileTunableState(POBJGPU pGpu, struct MemoryManager *pEngstate, void *pTunableState) {
-    return engstateReconcileTunableState(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_MemoryManager_OBJENGSTATE.offset), pTunableState);
-}
-
 static NV_STATUS __nvoc_thunk_OBJENGSTATE_memmgrStateLoad(POBJGPU pGpu, struct MemoryManager *pEngstate, NvU32 arg0) {
     return engstateStateLoad(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_MemoryManager_OBJENGSTATE.offset), arg0);
 }
@@ -114,28 +110,8 @@ static NV_STATUS __nvoc_thunk_OBJENGSTATE_memmgrStatePreInitUnlocked(POBJGPU pGp
     return engstateStatePreInitUnlocked(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_MemoryManager_OBJENGSTATE.offset));
 }
 
-static NV_STATUS __nvoc_thunk_OBJENGSTATE_memmgrGetTunableState(POBJGPU pGpu, struct MemoryManager *pEngstate, void *pTunableState) {
-    return engstateGetTunableState(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_MemoryManager_OBJENGSTATE.offset), pTunableState);
-}
-
-static NV_STATUS __nvoc_thunk_OBJENGSTATE_memmgrCompareTunableState(POBJGPU pGpu, struct MemoryManager *pEngstate, void *pTunables1, void *pTunables2) {
-    return engstateCompareTunableState(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_MemoryManager_OBJENGSTATE.offset), pTunables1, pTunables2);
-}
-
-static void __nvoc_thunk_OBJENGSTATE_memmgrFreeTunableState(POBJGPU pGpu, struct MemoryManager *pEngstate, void *pTunableState) {
-    engstateFreeTunableState(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_MemoryManager_OBJENGSTATE.offset), pTunableState);
-}
-
 static NV_STATUS __nvoc_thunk_OBJENGSTATE_memmgrStatePostLoad(POBJGPU pGpu, struct MemoryManager *pEngstate, NvU32 arg0) {
     return engstateStatePostLoad(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_MemoryManager_OBJENGSTATE.offset), arg0);
-}
-
-static NV_STATUS __nvoc_thunk_OBJENGSTATE_memmgrAllocTunableState(POBJGPU pGpu, struct MemoryManager *pEngstate, void **ppTunableState) {
-    return engstateAllocTunableState(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_MemoryManager_OBJENGSTATE.offset), ppTunableState);
-}
-
-static NV_STATUS __nvoc_thunk_OBJENGSTATE_memmgrSetTunableState(POBJGPU pGpu, struct MemoryManager *pEngstate, void *pTunableState) {
-    return engstateSetTunableState(pGpu, (struct OBJENGSTATE *)(((unsigned char *)pEngstate) + __nvoc_rtti_MemoryManager_OBJENGSTATE.offset), pTunableState);
 }
 
 static NV_STATUS __nvoc_thunk_OBJENGSTATE_memmgrConstructEngine(POBJGPU pGpu, struct MemoryManager *pEngstate, ENGDESCRIPTOR arg0) {
@@ -171,85 +147,49 @@ void __nvoc_init_dataField_MemoryManager(MemoryManager *pThis, RmHalspecOwner *p
     PORT_UNREFERENCED_VARIABLE(rmVariantHal_HalVarIdx);
 
     // Hal field -- bFbRegionsSupported
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->bFbRegionsSupported = ((NvBool)(0 != 0));
     }
 
     // Hal field -- bPmaEnabled
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->bPmaEnabled = ((NvBool)(0 != 0));
     }
 
     // Hal field -- bClientPageTablesPmaManaged
-    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x00010000UL) )) /* ChipHal: T234D */ 
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
     {
         pThis->bClientPageTablesPmaManaged = ((NvBool)(0 == 0));
     }
-    // default
-    else
-    {
-        pThis->bClientPageTablesPmaManaged = ((NvBool)(0 != 0));
-    }
 
     // Hal field -- bScanoutSysmem
-    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x00010000UL) )) /* ChipHal: T234D */ 
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
     {
         pThis->bScanoutSysmem = ((NvBool)(0 == 0));
     }
-    // default
-    else
-    {
-        pThis->bScanoutSysmem = ((NvBool)(0 != 0));
-    }
 
     // Hal field -- bDisallowSplitLowerMemory
-    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x00010000UL) )) /* ChipHal: T234D */ 
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
     {
         pThis->bDisallowSplitLowerMemory = ((NvBool)(0 == 0));
     }
-    // default
-    else
-    {
-        pThis->bDisallowSplitLowerMemory = ((NvBool)(0 != 0));
-    }
 
     // Hal field -- bSmallPageCompression
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->bSmallPageCompression = ((NvBool)(0 != 0));
     }
 
     // Hal field -- bSysmemCompressionSupportDef
-    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x00010000UL) )) /* ChipHal: T234D */ 
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
     {
         pThis->bSysmemCompressionSupportDef = ((NvBool)(0 == 0));
     }
-    // default
-    else
-    {
-        pThis->bSysmemCompressionSupportDef = ((NvBool)(0 != 0));
-    }
 
     // Hal field -- bBug2301372IncreaseRmReserveMemoryWar
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->bBug2301372IncreaseRmReserveMemoryWar = ((NvBool)(0 != 0));
     }
@@ -257,44 +197,47 @@ void __nvoc_init_dataField_MemoryManager(MemoryManager *pThis, RmHalspecOwner *p
     pThis->bEnableDynamicPageOfflining = ((NvBool)(0 != 0));
 
     // Hal field -- bVgpuPmaSupport
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->bVgpuPmaSupport = ((NvBool)(0 != 0));
     }
 
+    pThis->bEnableDynamicGranularityPageArrays = ((NvBool)(0 != 0));
+
     // Hal field -- bAllowNoncontiguousAllocation
-    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x00010000UL) )) /* ChipHal: T234D */ 
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
     {
         pThis->bAllowNoncontiguousAllocation = ((NvBool)(0 == 0));
     }
-    // default
-    else
-    {
-        pThis->bAllowNoncontiguousAllocation = ((NvBool)(0 != 0));
-    }
 
     // Hal field -- bScrubOnFreeEnabled
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->bScrubOnFreeEnabled = ((NvBool)(0 != 0));
     }
 
     // Hal field -- bFastScrubberEnabled
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->bFastScrubberEnabled = ((NvBool)(0 != 0));
+    }
+
+    // Hal field -- bMonitoredFenceSupported
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
+    {
+        pThis->bMonitoredFenceSupported = ((NvBool)(0 != 0));
+    }
+
+    // Hal field -- b64BitSemaphoresSupported
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
+    {
+        pThis->b64BitSemaphoresSupported = ((NvBool)(0 != 0));
+    }
+
+    // Hal field -- bGenericKindSupport
+    // default
+    {
+        pThis->bGenericKindSupport = ((NvBool)(0 != 0));
     }
 }
 
@@ -324,8 +267,6 @@ static void __nvoc_init_funcTable_MemoryManager_1(MemoryManager *pThis, RmHalspe
     PORT_UNREFERENCED_VARIABLE(rmVariantHal);
     PORT_UNREFERENCED_VARIABLE(rmVariantHal_HalVarIdx);
 
-    pThis->__memmgrReconcileTunableState__ = &__nvoc_thunk_OBJENGSTATE_memmgrReconcileTunableState;
-
     pThis->__memmgrStateLoad__ = &__nvoc_thunk_OBJENGSTATE_memmgrStateLoad;
 
     pThis->__memmgrStateUnload__ = &__nvoc_thunk_OBJENGSTATE_memmgrStateUnload;
@@ -348,17 +289,7 @@ static void __nvoc_init_funcTable_MemoryManager_1(MemoryManager *pThis, RmHalspe
 
     pThis->__memmgrStatePreInitUnlocked__ = &__nvoc_thunk_OBJENGSTATE_memmgrStatePreInitUnlocked;
 
-    pThis->__memmgrGetTunableState__ = &__nvoc_thunk_OBJENGSTATE_memmgrGetTunableState;
-
-    pThis->__memmgrCompareTunableState__ = &__nvoc_thunk_OBJENGSTATE_memmgrCompareTunableState;
-
-    pThis->__memmgrFreeTunableState__ = &__nvoc_thunk_OBJENGSTATE_memmgrFreeTunableState;
-
     pThis->__memmgrStatePostLoad__ = &__nvoc_thunk_OBJENGSTATE_memmgrStatePostLoad;
-
-    pThis->__memmgrAllocTunableState__ = &__nvoc_thunk_OBJENGSTATE_memmgrAllocTunableState;
-
-    pThis->__memmgrSetTunableState__ = &__nvoc_thunk_OBJENGSTATE_memmgrSetTunableState;
 
     pThis->__memmgrConstructEngine__ = &__nvoc_thunk_OBJENGSTATE_memmgrConstructEngine;
 
@@ -384,12 +315,15 @@ NV_STATUS __nvoc_objCreate_MemoryManager(MemoryManager **ppThis, Dynamic *pParen
     MemoryManager *pThis;
     RmHalspecOwner *pRmhalspecowner;
 
-    pThis = portMemAllocNonPaged(sizeof(MemoryManager));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(MemoryManager), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
     portMemSet(pThis, 0, sizeof(MemoryManager));
 
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_MemoryManager);
+
+    pThis->__nvoc_base_OBJENGSTATE.__nvoc_base_Object.createFlags = createFlags;
 
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
@@ -410,11 +344,17 @@ NV_STATUS __nvoc_objCreate_MemoryManager(MemoryManager **ppThis, Dynamic *pParen
     if (status != NV_OK) goto __nvoc_objCreate_MemoryManager_cleanup;
 
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_MemoryManager_cleanup:
     // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(MemoryManager));
+    else
+        portMemFree(pThis);
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 

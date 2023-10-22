@@ -34,6 +34,18 @@
 struct NVOC_EXPORTED_METHOD_DEF;
 typedef RS_RES_CONTROL_PARAMS_INTERNAL RmCtrlParams;
 
+// RMCTRL_API_COPPY_FLAGS is used to specify control api copy behavior.
+#define RMCTRL_API_COPY_FLAGS_NONE                              0x00000000
+
+// skip memory copy in api copy in and zero the buffer
+#define RMCTRL_API_COPY_FLAGS_SKIP_COPYIN_ZERO_BUFFER           NVBIT(0)
+
+// set control cache on api copy out
+#define RMCTRL_API_COPY_FLAGS_SET_CONTROL_CACHE                 NVBIT(1)
+
+// skip copy out even for controls with RMCTRL_FLAGS_COPYOUT_ON_ERROR
+#define RMCTRL_API_COPY_FLAGS_FORCE_SKIP_COPYOUT_ON_ERROR       NVBIT(2)
+
 //
 // RmCtrlExecuteCookie
 //
@@ -48,6 +60,9 @@ struct RS_CONTROL_COOKIE
 
     // Rmctrl Flags
     NvU32        ctrlFlags;
+
+    // API Copy Flags
+    NvU32        apiCopyFlags;
 
     // Required Access Rights for this command
     const RS_ACCESS_MASK rightsRequired;
@@ -84,20 +99,20 @@ typedef struct
 #define RMCTRL_CLEAR_CAP(tbl,cap,field)           ((tbl[((1?cap##field)>=cap##_TBL_SIZE) ? 0/0 : (1?cap##field)]) &= ~(0?cap##field))
 
 // macros to AND/OR caps between two tables
-#define RMCTRL_AND_CAP(finaltbl,tmptbl,tmp,cap,field)     \
+#define RMCTRL_AND_CAP(finaltbl,tmptbl,tmp,cap,field)                                                                                                               \
     tmp = ((finaltbl[((1?cap##field)>=cap##_TBL_SIZE) ? 0/0 : (1?cap##field)] & tmptbl[((1?cap##field)>=cap##_TBL_SIZE) ? 0/0 : (1?cap##field)]) & (0?cap##field)); \
-    finaltbl[((1?cap##field)>=cap##_TBL_SIZE) ? 0/0 : (1?cap##field)] &= ~(0?cap##field); \
+    finaltbl[((1?cap##field)>=cap##_TBL_SIZE) ? 0/0 : (1?cap##field)] &= ~(0?cap##field);                                                                           \
     finaltbl[((1?cap##field)>=cap##_TBL_SIZE) ? 0/0 : (1?cap##field)] |= tmp;
 
-#define RMCTRL_OR_CAP(finaltbl,tmptbl,tmp,cap,field)      \
+#define RMCTRL_OR_CAP(finaltbl,tmptbl,tmp,cap,field)                                                                                                                \
     tmp = ((finaltbl[((1?cap##field)>=cap##_TBL_SIZE) ? 0/0 : (1?cap##field)] | tmptbl[((1?cap##field)>=cap##_TBL_SIZE) ? 0/0 : (1?cap##field)]) & (0?cap##field)); \
-    finaltbl[((1?cap##field)>=cap##_TBL_SIZE) ? 0/0 : (1?cap##field)] &= ~(0?cap##field); \
+    finaltbl[((1?cap##field)>=cap##_TBL_SIZE) ? 0/0 : (1?cap##field)] &= ~(0?cap##field);                                                                           \
     finaltbl[((1?cap##field)>=cap##_TBL_SIZE) ? 0/0 : (1?cap##field)] |= tmp;
 
 // Whether the command ID is a NULL command?
 //    We allow NVXXXX_CTRL_CMD_NULL (0x00000000) as well as the
 //    per-class NULL cmd ( _CATEGORY==0x00 and _INDEX==0x00 )
-#define RMCTRL_IS_NULL_CMD(cmd)             ((cmd == NVXXXX_CTRL_CMD_NULL) || \
+#define RMCTRL_IS_NULL_CMD(cmd)             ((cmd == NVXXXX_CTRL_CMD_NULL) ||                            \
                                              (FLD_TEST_DRF_NUM(XXXX, _CTRL_CMD, _CATEGORY, 0x00, cmd) && \
                                               FLD_TEST_DRF_NUM(XXXX, _CTRL_CMD, _INDEX,    0x00, cmd)))
 
@@ -126,11 +141,8 @@ NV_STATUS embeddedParamCopyOut(RMAPI_PARAM_COPY  *pParamCopy, RmCtrlParams *pRmC
 #define _RMCTRL_PREP_ACCESS_ARG(x)     | NVBIT(NV_CONCATENATE(RS_ACCESS_, x))
 #define ACCESS_RIGHTS(...)             (0 NV_FOREACH_ARG_NOCOMMA(_RMCTRL_PREP_ACCESS_ARG, __VA_ARGS__))
 
-#define NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(ctrlFlags)           \
-    (                                                              \
-        (ctrlFlags & RMCTRL_FLAGS_ROUTE_TO_PHYSICAL) &&            \
-        !RMCFG_FEATURE_PHYSICAL_RM                        \
-    )
+#define NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(ctrlFlags) \
+    (ctrlFlags & RMCTRL_FLAGS_ROUTE_TO_PHYSICAL)
 
 //
 // 'FLAGS' Attribute
@@ -248,6 +260,44 @@ NV_STATUS embeddedParamCopyOut(RMAPI_PARAM_COPY  *pParamCopy, RmCtrlParams *pRmC
 // ??
 #define RMCTRL_FLAGS_ALLOW_WITHOUT_SYSMEM_ACCESS              0x000010000
 
+//
+// This flag specifies that the control can be run by an admin privileged
+// client running in a full SRIOV, vGPU-GSP-ENABLED hypervisor environment.
+// Overrides regular privilege level flags.
+//
+#define RMCTRL_FLAGS_CPU_PLUGIN_FOR_VGPU_GSP                  0x000020000
+
+//
+// This flag specifies that the control can be run by an admin privileged
+// client running in a full SRIOV, vGPU-GSP-DISABLED hypervisor environment.
+// Overrides regular privilege level flags.
+//
+#define RMCTRL_FLAGS_CPU_PLUGIN_FOR_SRIOV                     0x000040000
+
+//
+// This flag specifies that the control can be run by an admin privileged
+// client running in a non-SRIOV or SRIOV-Heavy hypervisor environment.
+// Overrides regular privilege level flags.
+//
+#define RMCTRL_FLAGS_CPU_PLUGIN_FOR_LEGACY                    0x000080000
+
+//
+// This flag specifies that the control can be run by an unprivileged
+// client running in GSP-RM when SRIOV and vGPU-GSP are ENABLED.
+// Overrides regular privilege level flags.
+//
+#define RMCTRL_FLAGS_GSP_PLUGIN_FOR_VGPU_GSP                  0x000100000
+
+//
+// This flag specifies that the control output depends on the input
+// parameters but can be cached on receiving end. Since the control
+// result depends on the input and the input varifies with controls,
+// the cache should be handled in a per-control bases.
+//
+#define RMCTRL_FLAGS_CACHEABLE_BY_INPUT                       0x000200000
+
+// The combination of cacheable flags
+#define RMCTRL_FLAGS_CACHEABLE_ANY (RMCTRL_FLAGS_CACHEABLE | RMCTRL_FLAGS_CACHEABLE_BY_INPUT)
 
 //
 //  'ACCESS_RIGHTS' Attribute

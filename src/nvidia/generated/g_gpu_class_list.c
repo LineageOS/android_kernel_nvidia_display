@@ -33,7 +33,7 @@ gpuGetClassDescriptorList_T234D(POBJGPU pGpu, NvU32 *pNumClassDescriptors)
 {
     static const CLASSDESCRIPTOR halT234DClassDescriptorList[] = {
         { GF100_HDACODEC, ENG_HDACODEC },
-        { NV01_MEMORY_SYNCPOINT, ENG_DMA },
+        { NV01_MEMORY_SYNCPOINT, ENG_KERNEL_DISPLAY },
         { NV04_DISPLAY_COMMON, ENG_KERNEL_DISPLAY },
         { NVC372_DISPLAY_SW, ENG_KERNEL_DISPLAY },
         { NVC670_DISPLAY, ENG_KERNEL_DISPLAY },

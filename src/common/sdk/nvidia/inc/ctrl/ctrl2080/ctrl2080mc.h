@@ -27,10 +27,11 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrl2080/ctrl2080mc.finn
+// Source file:      ctrl/ctrl2080/ctrl2080mc.finn
 //
 
 #include "ctrl/ctrl2080/ctrl2080base.h"
+#include "nvcfg_sdk.h"
 
 /* NV20_SUBDEVICE_XX mc control commands and parameters */
 
@@ -78,9 +79,9 @@ typedef struct NV2080_CTRL_MC_GET_ARCH_INFO_PARAMS {
 #define NV2080_CTRL_MC_ARCH_INFO_ARCHITECTURE_GA100         (0x00000170)
 
 
-
 /* valid ARCHITECTURE_T23X implementation values */
-#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_T232        (0x00000002)
+
+
 #define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_T234        (0x00000004)
 #define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_T234D       (0x00000005)
 

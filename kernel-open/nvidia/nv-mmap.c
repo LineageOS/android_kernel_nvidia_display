@@ -132,6 +132,11 @@ nvidia_vma_access(
     pageIndex = ((addr - vma->vm_start) >> PAGE_SHIFT);
     pageOffset = (addr & ~PAGE_MASK);
 
+    if (length < 0)
+    {
+        return -EINVAL;
+    }
+
     if (!mmap_context->valid)
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: VM: invalid mmap context\n");
@@ -210,8 +215,12 @@ static vm_fault_t nvidia_fault(
 
     NvU64 page;
     NvU64 num_pages = NV_VMA_SIZE(vma) >> PAGE_SHIFT;
-    NvU64 pfn_start =
-        (nvlfp->mmap_context.mmap_start >> PAGE_SHIFT) + vma->vm_pgoff;
+    NvU64 pfn_start = (nvlfp->mmap_context.mmap_start >> PAGE_SHIFT);
+
+    if (vma->vm_pgoff != 0)
+    {
+        return VM_FAULT_SIGBUS;
+    }
 
     // Mapping revocation is only supported for GPU mappings.
     if (NV_IS_CTL_DEVICE(nv))
@@ -341,9 +350,15 @@ int nv_encode_caching(
             return 1;
 #endif
         case NV_MEMORY_CACHED:
-            if (NV_ALLOW_CACHING(memory_type))
-                break;
-            // Intentional fallthrough.
+            if (!NV_ALLOW_CACHING(memory_type))
+            {
+                nv_printf(NV_DBG_ERRORS,
+                    "NVRM: VM: memory type %d does not allow caching!\n",
+                    memory_type);
+                return 1;
+            }
+            break;
+
         default:
             nv_printf(NV_DBG_ERRORS,
                 "NVRM: VM: cache type %d not supported for memory type %d!\n",
@@ -431,7 +446,7 @@ static int nvidia_mmap_numa(
     const nv_alloc_mapping_context_t *mmap_context)
 {
     NvU64 start, addr;
-    unsigned int pages;
+    NvU64 pages;
     NvU64 i;
 
     pages = NV_VMA_SIZE(vma) >> PAGE_SHIFT;
@@ -443,7 +458,7 @@ static int nvidia_mmap_numa(
     }
 
     // Needed for the linux kernel for mapping compound pages
-    vma->vm_flags |= VM_MIXEDMAP;
+    nv_vm_flags_set(vma, VM_MIXEDMAP);
 
     for (i = 0, addr = mmap_context->page_array[0]; i < pages;
          addr = mmap_context->page_array[++i], start += PAGE_SIZE)
@@ -484,6 +499,11 @@ int nvidia_mmap_helper(
         return -EINVAL;
     }
 
+    if (vma->vm_pgoff != 0)
+    {
+        return -EINVAL;
+    }
+
     NV_PRINT_VMA(NV_DBG_MEMINFO, vma);
 
     status = nv_check_gpu_state(nv);
@@ -509,6 +529,12 @@ int nvidia_mmap_helper(
         NvU64 mmap_length = mmap_context->mmap_size;
         NvU64 access_start = mmap_context->access_start;
         NvU64 access_len = mmap_context->access_size;
+
+        // validate the size
+        if (NV_VMA_SIZE(vma) != mmap_length)
+        {
+            return -ENXIO;
+        }
 
         if (IS_REG_OFFSET(nv, access_start, access_len))
         {
@@ -577,7 +603,7 @@ int nvidia_mmap_helper(
         }
         up(&nvl->mmap_lock);
 
-        vma->vm_flags |= VM_IO | VM_PFNMAP | VM_DONTEXPAND;
+        nv_vm_flags_set(vma, VM_IO | VM_PFNMAP | VM_DONTEXPAND);
     }
     else
     {
@@ -644,15 +670,15 @@ int nvidia_mmap_helper(
 
         NV_PRINT_AT(NV_DBG_MEMINFO, at);
 
-        vma->vm_flags |= (VM_IO | VM_LOCKED | VM_RESERVED);
-        vma->vm_flags |= (VM_DONTEXPAND | VM_DONTDUMP);
+        nv_vm_flags_set(vma, VM_IO | VM_LOCKED | VM_RESERVED);
+        nv_vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP);
     }
 
     if ((prot & NV_PROTECT_WRITEABLE) == 0)
     {
         vma->vm_page_prot = NV_PGPROT_READ_ONLY(vma->vm_page_prot);
-        vma->vm_flags &= ~VM_WRITE;
-        vma->vm_flags &= ~VM_MAYWRITE;
+        nv_vm_flags_clear(vma, VM_WRITE);
+        nv_vm_flags_clear(vma, VM_MAYWRITE);
     }
 
     vma->vm_ops = &nv_vm_ops;
@@ -680,13 +706,16 @@ int nvidia_mmap(
         return -EINVAL;
     }
 
-    down(&nvlfp->fops_sp_lock[NV_FOPS_STACK_INDEX_MMAP]);
-
-    sp = nvlfp->fops_sp[NV_FOPS_STACK_INDEX_MMAP];
+    status = nv_kmem_cache_alloc_stack(&sp);
+    if (status != 0)
+    {
+        nv_printf(NV_DBG_ERRORS, "NVRM: Unable to allocate altstack for mmap\n");
+        return status;
+    }
 
     status = nvidia_mmap_helper(nv, nvlfp, sp, vma, NULL);
 
-    up(&nvlfp->fops_sp_lock[NV_FOPS_STACK_INDEX_MMAP]);
+    nv_kmem_cache_free_stack(sp);
 
     return status;
 }

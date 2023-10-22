@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -23,12 +23,17 @@
 
 #define RM_STRICT_CONFIG_EMIT_DISP_ENGINE_DEFINITIONS     0
 
-#include "gpu/disp/kern_disp.h"
-#include "gpu/disp/disp_objs.h"
 #include "class/cl5070.h"
-#include "mem_mgr/mem.h"
+#include "gpu/device/device.h"
+#include "gpu/disp/disp_objs.h"
+#include "gpu/disp/kern_disp.h"
 #include "gpu/gpu.h"
+#include "gpu/subdevice/subdevice.h"
 #include "gpu_mgr/gpu_mgr.h"
+#include "mem_mgr/mem.h"
+#include "rmapi/client_resource.h"
+#include "rmapi/rmapi.h"
+#include "rmapi/rs_utils.h"
 
 NV_STATUS
 dispobjCtrlCmdEventSetTrigger_IMPL
@@ -95,4 +100,14 @@ dispobjCtrlCmdEventSetMemoryNotifies_IMPL
     pDisplayApi->pNotifierMemory = pMemory;
 
     return NV_OK;
+}
+
+NV_STATUS
+dispobjCtrlCmdGetRgConnectedLockpinStateless_IMPL
+(
+    DispObject *pDispObject,
+    NV5070_CTRL_GET_RG_CONNECTED_LOCKPIN_STATELESS_PARAMS *pParams
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
 }

@@ -53,9 +53,6 @@ initOSSpecificFunctionPointers(OBJOS *pOS)
 static void
 initMiscOSFunctionPointers(OBJOS *pOS)
 {
-    pOS->osQueueWorkItem           = osQueueWorkItem;
-    pOS->osQueueWorkItemWithFlags  = osQueueWorkItemWithFlags;
-    pOS->osQueueSystemWorkItem     = osQueueSystemWorkItem;
 }
 
 static void
@@ -65,15 +62,6 @@ initUnixOSFunctionPointers(OBJOS *pOS)
     pOS->osNv_rdcr4                  = nv_rdcr4;
     pOS->osNv_cpuid                  = nv_cpuid;
 #endif
-
-    pOS->osCallACPI_DSM              = osCallACPI_DSM;
-    pOS->osCallACPI_DDC              = osCallACPI_DDC;
-    pOS->osCallACPI_NVHG_ROM         = osCallACPI_NVHG_ROM;
-    pOS->osCallACPI_DOD              = osCallACPI_DOD;
-    pOS->osCallACPI_MXDM             = osCallACPI_MXDM;
-    pOS->osCallACPI_MXDS             = osCallACPI_MXDS;
-
-    pOS->osDbgBreakpointEnabled      = osDbgBreakpointEnabled;
 }
 
 static void

@@ -7,7 +7,7 @@ extern "C" {
 #endif
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -43,94 +43,6 @@ extern "C" {
 #include "core/core.h"
 #include "objrpc.h"
 #include "os/dce_rm_client_ipc.h"
-#include "class/cl0000.h"
-#include "class/cl0080.h"
-#include "class/cl2080.h"
-#include "class/cl0073.h"
-#include "class/cl0005.h"
-#include "class/clc372sw.h"
-#include "ctrl/ctrl0073/ctrl0073dp.h"
-
-typedef struct
-{
-    NvHandle hClient;
-    NvHandle hParent;
-    NvHandle hObject;
-    NvU32 hClass;
-    NV0000_ALLOC_PARAMETERS rootAllocParams;
-    NvBool valid;
-} ROOT;
-
-typedef struct
-{
-    NvHandle hClient;
-    NvHandle hParent;
-    NvHandle hObject;
-    NvU32 hClass;
-    NV0080_ALLOC_PARAMETERS deviceAllocParams;
-    NvBool valid;
-} DEVICE;
-
-typedef struct
-{
-    NvHandle hClient;
-    NvHandle hParent;
-    NvHandle hObject;
-    NvU32 hClass;
-    NV2080_ALLOC_PARAMETERS subdeviceAllocParams;
-    NvBool valid;
-} SUBDEVICE;
-
-typedef struct
-{
-    NvHandle hClient;
-    NvHandle hParent;
-    NvHandle hObject;
-    NvU32 hClass;
-    NVOS21_PARAMETERS displayCommonAllocParams;
-    NvBool valid;
-} DISPLAY_COMMON;
-
-typedef struct
-{
-    NvHandle hClient;
-    NvHandle hParent;
-    NvHandle hObject;
-    NvU32 hClass;
-    NVOS21_PARAMETERS displaySWAllocParams;
-    NvBool valid;
-} DISPLAY_SW;
-
-typedef struct
-{
-    NvHandle hClient;
-    NvHandle hParent;
-    NvHandle hObject;
-    NvU32 hClass;
-    NV0005_ALLOC_PARAMETERS displaySWEventAllocParams;
-    NvBool valid;
-} DISPLAY_SW_EVENT;
-
-typedef struct
-{
-    NvHandle hClient;
-    NvHandle hObject;
-    NV2080_CTRL_EVENT_SET_NOTIFICATION_PARAMS setEventParams;
-    NvBool valid;
-} DISPLAY_HPD_CTRL;
-
-typedef struct
-{
-    NvHandle hClient;
-    NvHandle hObject;
-    NV0073_CTRL_CMD_DP_SET_MANUAL_DISPLAYPORT_PARAMS setManualParams;
-    NvBool valid;
-} DISPLAY_DP_SET_MANUAL;
-
-/*!
- * Max no of RM clients
- */
-#define MAX_RM_CLIENTS 5
 
 /*!
  * Temporary alias of DceClient to OBJDCECLIENTRM
@@ -156,7 +68,6 @@ struct OBJDCECLIENTRM {
     void (*__dceclientStateDestroy__)(struct OBJGPU *, struct OBJDCECLIENTRM *);
     NV_STATUS (*__dceclientStateLoad__)(struct OBJGPU *, struct OBJDCECLIENTRM *, NvU32);
     NV_STATUS (*__dceclientStateUnload__)(struct OBJGPU *, struct OBJDCECLIENTRM *, NvU32);
-    NV_STATUS (*__dceclientReconcileTunableState__)(POBJGPU, struct OBJDCECLIENTRM *, void *);
     NV_STATUS (*__dceclientStateInitLocked__)(POBJGPU, struct OBJDCECLIENTRM *);
     NV_STATUS (*__dceclientStatePreLoad__)(POBJGPU, struct OBJDCECLIENTRM *, NvU32);
     NV_STATUS (*__dceclientStatePostUnload__)(POBJGPU, struct OBJDCECLIENTRM *, NvU32);
@@ -165,12 +76,7 @@ struct OBJDCECLIENTRM {
     void (*__dceclientInitMissing__)(POBJGPU, struct OBJDCECLIENTRM *);
     NV_STATUS (*__dceclientStatePreInitLocked__)(POBJGPU, struct OBJDCECLIENTRM *);
     NV_STATUS (*__dceclientStatePreInitUnlocked__)(POBJGPU, struct OBJDCECLIENTRM *);
-    NV_STATUS (*__dceclientGetTunableState__)(POBJGPU, struct OBJDCECLIENTRM *, void *);
-    NV_STATUS (*__dceclientCompareTunableState__)(POBJGPU, struct OBJDCECLIENTRM *, void *, void *);
-    void (*__dceclientFreeTunableState__)(POBJGPU, struct OBJDCECLIENTRM *, void *);
     NV_STATUS (*__dceclientStatePostLoad__)(POBJGPU, struct OBJDCECLIENTRM *, NvU32);
-    NV_STATUS (*__dceclientAllocTunableState__)(POBJGPU, struct OBJDCECLIENTRM *, void **);
-    NV_STATUS (*__dceclientSetTunableState__)(POBJGPU, struct OBJDCECLIENTRM *, void *);
     NvBool (*__dceclientIsPresent__)(POBJGPU, struct OBJDCECLIENTRM *);
     struct OBJRPC *pRpc;
     NvU32 clientId[2];
@@ -210,7 +116,6 @@ NV_STATUS __nvoc_objCreate_OBJDCECLIENTRM(OBJDCECLIENTRM**, Dynamic*, NvU32);
 #define dceclientStateDestroy(arg0, arg1) dceclientStateDestroy_DISPATCH(arg0, arg1)
 #define dceclientStateLoad(arg0, arg1, arg2) dceclientStateLoad_DISPATCH(arg0, arg1, arg2)
 #define dceclientStateUnload(arg0, arg1, arg2) dceclientStateUnload_DISPATCH(arg0, arg1, arg2)
-#define dceclientReconcileTunableState(pGpu, pEngstate, pTunableState) dceclientReconcileTunableState_DISPATCH(pGpu, pEngstate, pTunableState)
 #define dceclientStateInitLocked(pGpu, pEngstate) dceclientStateInitLocked_DISPATCH(pGpu, pEngstate)
 #define dceclientStatePreLoad(pGpu, pEngstate, arg0) dceclientStatePreLoad_DISPATCH(pGpu, pEngstate, arg0)
 #define dceclientStatePostUnload(pGpu, pEngstate, arg0) dceclientStatePostUnload_DISPATCH(pGpu, pEngstate, arg0)
@@ -219,12 +124,7 @@ NV_STATUS __nvoc_objCreate_OBJDCECLIENTRM(OBJDCECLIENTRM**, Dynamic*, NvU32);
 #define dceclientInitMissing(pGpu, pEngstate) dceclientInitMissing_DISPATCH(pGpu, pEngstate)
 #define dceclientStatePreInitLocked(pGpu, pEngstate) dceclientStatePreInitLocked_DISPATCH(pGpu, pEngstate)
 #define dceclientStatePreInitUnlocked(pGpu, pEngstate) dceclientStatePreInitUnlocked_DISPATCH(pGpu, pEngstate)
-#define dceclientGetTunableState(pGpu, pEngstate, pTunableState) dceclientGetTunableState_DISPATCH(pGpu, pEngstate, pTunableState)
-#define dceclientCompareTunableState(pGpu, pEngstate, pTunables1, pTunables2) dceclientCompareTunableState_DISPATCH(pGpu, pEngstate, pTunables1, pTunables2)
-#define dceclientFreeTunableState(pGpu, pEngstate, pTunableState) dceclientFreeTunableState_DISPATCH(pGpu, pEngstate, pTunableState)
 #define dceclientStatePostLoad(pGpu, pEngstate, arg0) dceclientStatePostLoad_DISPATCH(pGpu, pEngstate, arg0)
-#define dceclientAllocTunableState(pGpu, pEngstate, ppTunableState) dceclientAllocTunableState_DISPATCH(pGpu, pEngstate, ppTunableState)
-#define dceclientSetTunableState(pGpu, pEngstate, pTunableState) dceclientSetTunableState_DISPATCH(pGpu, pEngstate, pTunableState)
 #define dceclientIsPresent(pGpu, pEngstate) dceclientIsPresent_DISPATCH(pGpu, pEngstate)
 NV_STATUS dceclientConstructEngine_IMPL(struct OBJGPU *arg0, struct OBJDCECLIENTRM *arg1, ENGDESCRIPTOR arg2);
 
@@ -248,10 +148,6 @@ NV_STATUS dceclientStateUnload_IMPL(struct OBJGPU *arg0, struct OBJDCECLIENTRM *
 
 static inline NV_STATUS dceclientStateUnload_DISPATCH(struct OBJGPU *arg0, struct OBJDCECLIENTRM *arg1, NvU32 arg2) {
     return arg1->__dceclientStateUnload__(arg0, arg1, arg2);
-}
-
-static inline NV_STATUS dceclientReconcileTunableState_DISPATCH(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, void *pTunableState) {
-    return pEngstate->__dceclientReconcileTunableState__(pGpu, pEngstate, pTunableState);
 }
 
 static inline NV_STATUS dceclientStateInitLocked_DISPATCH(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate) {
@@ -286,35 +182,19 @@ static inline NV_STATUS dceclientStatePreInitUnlocked_DISPATCH(POBJGPU pGpu, str
     return pEngstate->__dceclientStatePreInitUnlocked__(pGpu, pEngstate);
 }
 
-static inline NV_STATUS dceclientGetTunableState_DISPATCH(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, void *pTunableState) {
-    return pEngstate->__dceclientGetTunableState__(pGpu, pEngstate, pTunableState);
-}
-
-static inline NV_STATUS dceclientCompareTunableState_DISPATCH(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, void *pTunables1, void *pTunables2) {
-    return pEngstate->__dceclientCompareTunableState__(pGpu, pEngstate, pTunables1, pTunables2);
-}
-
-static inline void dceclientFreeTunableState_DISPATCH(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, void *pTunableState) {
-    pEngstate->__dceclientFreeTunableState__(pGpu, pEngstate, pTunableState);
-}
-
 static inline NV_STATUS dceclientStatePostLoad_DISPATCH(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, NvU32 arg0) {
     return pEngstate->__dceclientStatePostLoad__(pGpu, pEngstate, arg0);
-}
-
-static inline NV_STATUS dceclientAllocTunableState_DISPATCH(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, void **ppTunableState) {
-    return pEngstate->__dceclientAllocTunableState__(pGpu, pEngstate, ppTunableState);
-}
-
-static inline NV_STATUS dceclientSetTunableState_DISPATCH(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate, void *pTunableState) {
-    return pEngstate->__dceclientSetTunableState__(pGpu, pEngstate, pTunableState);
 }
 
 static inline NvBool dceclientIsPresent_DISPATCH(POBJGPU pGpu, struct OBJDCECLIENTRM *pEngstate) {
     return pEngstate->__dceclientIsPresent__(pGpu, pEngstate);
 }
 
+void dceclientDestruct_IMPL(struct OBJDCECLIENTRM *arg0);
+
+#define __nvoc_dceclientDestruct(arg0) dceclientDestruct_IMPL(arg0)
 NV_STATUS dceclientInitRpcInfra_IMPL(struct OBJGPU *arg0, struct OBJDCECLIENTRM *arg1);
+
 #ifdef __nvoc_dce_client_h_disabled
 static inline NV_STATUS dceclientInitRpcInfra(struct OBJGPU *arg0, struct OBJDCECLIENTRM *arg1) {
     NV_ASSERT_FAILED_PRECOMP("OBJDCECLIENTRM was disabled!");
@@ -325,6 +205,7 @@ static inline NV_STATUS dceclientInitRpcInfra(struct OBJGPU *arg0, struct OBJDCE
 #endif //__nvoc_dce_client_h_disabled
 
 void dceclientDeinitRpcInfra_IMPL(struct OBJDCECLIENTRM *arg0);
+
 #ifdef __nvoc_dce_client_h_disabled
 static inline void dceclientDeinitRpcInfra(struct OBJDCECLIENTRM *arg0) {
     NV_ASSERT_FAILED_PRECOMP("OBJDCECLIENTRM was disabled!");
@@ -334,6 +215,7 @@ static inline void dceclientDeinitRpcInfra(struct OBJDCECLIENTRM *arg0) {
 #endif //__nvoc_dce_client_h_disabled
 
 NV_STATUS dceclientDceRmInit_IMPL(struct OBJGPU *arg0, struct OBJDCECLIENTRM *arg1, NvBool arg2);
+
 #ifdef __nvoc_dce_client_h_disabled
 static inline NV_STATUS dceclientDceRmInit(struct OBJGPU *arg0, struct OBJDCECLIENTRM *arg1, NvBool arg2) {
     NV_ASSERT_FAILED_PRECOMP("OBJDCECLIENTRM was disabled!");
@@ -344,6 +226,7 @@ static inline NV_STATUS dceclientDceRmInit(struct OBJGPU *arg0, struct OBJDCECLI
 #endif //__nvoc_dce_client_h_disabled
 
 NV_STATUS dceclientSendRpc_IMPL(struct OBJDCECLIENTRM *arg0, void *arg1, NvU32 arg2);
+
 #ifdef __nvoc_dce_client_h_disabled
 static inline NV_STATUS dceclientSendRpc(struct OBJDCECLIENTRM *arg0, void *arg1, NvU32 arg2) {
     NV_ASSERT_FAILED_PRECOMP("OBJDCECLIENTRM was disabled!");
@@ -363,12 +246,15 @@ NV_STATUS rpcRmApiControl_dce(RM_API *pRmApi,
 NV_STATUS rpcRmApiAlloc_dce(RM_API *pRmApi,
                             NvHandle hClient, NvHandle hParent,
                             NvHandle hObject, NvU32 hClass,
-                            void *pAllocParams);
+                            void *pAllocParams, NvU32 allocParamsSize);
 NV_STATUS rpcRmApiDupObject_dce(RM_API *pRmApi, NvHandle hClient,
                                 NvHandle hParent, NvHandle *phObject, NvHandle hClientSrc,
                                 NvHandle hObjectSrc, NvU32 flags);
 NV_STATUS rpcRmApiFree_dce(RM_API *pRmApi, NvHandle hClient, NvHandle hObject);
 NV_STATUS rpcDceRmInit_dce(RM_API *pRmApi, NvBool bInit);
+NV_STATUS rpcUnloadingGuestDriver_dce(struct OBJGPU *pGpu, OBJRPC *pRpc,
+                                      NvBool bInPMTransition, NvBool bGc6Entering,
+                                      NvU32 newPMLevel);
 #endif
 
 #ifdef __cplusplus

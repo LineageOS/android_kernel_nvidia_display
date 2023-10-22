@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -44,7 +44,7 @@
 #undef RPC_MESSAGE_STRUCTURES
 #undef RPC_MESSAGE_GENERIC_UNION
 
-void rpcRmApiSetup(OBJGPU *pGpu)
+static void rpcRmApiSetup(OBJGPU *pGpu)
 {
     //
     // Physical RMAPI is already initialized for monolithic, and this function
@@ -57,7 +57,7 @@ void rpcRmApiSetup(OBJGPU *pGpu)
     {
         // none for now
     }
-    else if (IS_GSP_CLIENT(pGpu) && IsT234D(pGpu))
+    else if (IS_GSP_CLIENT(pGpu) && IsT234DorBetter(pGpu))
     {
         pRmApi->Control         = rpcRmApiControl_dce;
         pRmApi->AllocWithHandle = rpcRmApiAlloc_dce;
@@ -78,6 +78,8 @@ OBJRPC *initRpcObject(OBJGPU *pGpu)
                   gpuGetInstance(pGpu));
         return NULL;
     }
+    pRpc->timeoutCount = 0;
+    pRpc->bQuietPrints = NV_FALSE;
 
     rpcRmApiSetup(pGpu);
 

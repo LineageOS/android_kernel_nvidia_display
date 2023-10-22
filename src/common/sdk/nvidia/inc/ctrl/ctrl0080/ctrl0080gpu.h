@@ -27,7 +27,7 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrl0080/ctrl0080gpu.finn
+// Source file:      ctrl/ctrl0080/ctrl0080gpu.finn
 //
 
 #include "ctrl/ctrl0080/ctrl0080base.h"
@@ -465,7 +465,10 @@ typedef struct NV0080_CTRL_GPU_GET_VGX_CAPS_PARAMS {
  *   bClientRmAllocatedCtxBuffer
  *     Flag for whether engine ctx buffer is managed by client RM.
  *
- * Possible status values returned are:
+ *   bNonPowerOf2ChannelCountSupported
+ *     Flag for whether non power of 2 VF channels are supported.
+ *
+* Possible status values returned are:
  *   NV_OK
  *   NV_ERR_NOT_SUPPORTED
  */
@@ -490,11 +493,12 @@ typedef struct NV0080_CTRL_GPU_GET_SRIOV_CAPS_PARAMS {
     NvBool bSriovHeavyEnabled;
     NvBool bEmulateVFBar0TlbInvalidationRegister;
     NvBool bClientRmAllocatedCtxBuffer;
+    NvBool bNonPowerOf2ChannelCountSupported;
 } NV0080_CTRL_GPU_GET_SRIOV_CAPS_PARAMS;
 
 
 // Update this macro if new HW exceeds GPU Classlist MAX_SIZE
-#define NV0080_CTRL_GPU_CLASSLIST_MAX_SIZE   116
+#define NV0080_CTRL_GPU_CLASSLIST_MAX_SIZE   160
 
 #define NV0080_CTRL_CMD_GPU_GET_CLASSLIST_V2 (0x800292) /* finn: Evaluated from "(FINN_NV01_DEVICE_0_GPU_INTERFACE_ID << 8) | NV0080_CTRL_GPU_GET_CLASSLIST_V2_PARAMS_MESSAGE_ID" */
 

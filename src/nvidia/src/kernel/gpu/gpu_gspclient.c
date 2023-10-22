@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -74,28 +74,37 @@ gpuConstructDeviceInfoTable_FWCLIENT
     RM_API *pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
 
     NV2080_CTRL_INTERNAL_GET_DEVICE_INFO_TABLE_PARAMS *pParams;
-    const NvU32 cmd = NV2080_CTRL_CMD_INTERNAL_GET_DEVICE_INFO_TABLE;
 
     if (pGpu->pDeviceInfoTable) // already initialized
         return NV_OK;
 
-    pParams = portMemAllocNonPaged(sizeof(*pParams));
+    pParams = portMemAllocNonPaged(sizeof *pParams);
     NV_ASSERT_OR_RETURN(pParams != NULL, NV_ERR_NO_MEMORY);
 
-    status = pRmApi->Control(pRmApi, pGpu->hInternalClient, pGpu->hInternalSubdevice,
-                             cmd, pParams, sizeof(*pParams));
+    status = pRmApi->Control(pRmApi,
+                             pGpu->hInternalClient,
+                             pGpu->hInternalSubdevice,
+                             NV2080_CTRL_CMD_INTERNAL_GET_DEVICE_INFO_TABLE,
+                             pParams,
+                             sizeof *pParams);
     if (status != NV_OK)
         goto done;
 
     if (pParams->numEntries == 0)
         goto done;
 
-    pGpu->pDeviceInfoTable = portMemAllocNonPaged(pParams->numEntries * sizeof(DEVICE_INFO2_TABLE));
-    NV_ASSERT_TRUE_OR_GOTO(status, pGpu->pDeviceInfoTable != NULL, NV_ERR_NO_MEMORY, done);
+    pGpu->pDeviceInfoTable = portMemAllocNonPaged(
+        pParams->numEntries * (sizeof *pGpu->pDeviceInfoTable));
+    NV_ASSERT_TRUE_OR_GOTO(status,
+                           pGpu->pDeviceInfoTable != NULL,
+                           NV_ERR_NO_MEMORY,
+                           done);
 
     pGpu->numDeviceInfoEntries = pParams->numEntries;
-    portMemCopy(pGpu->pDeviceInfoTable,   pGpu->numDeviceInfoEntries * sizeof(DEVICE_INFO2_TABLE),
-                pParams->deviceInfoTable, pParams->numEntries        * sizeof(DEVICE_INFO2_TABLE));
+    portMemCopy(pGpu->pDeviceInfoTable,
+                pGpu->numDeviceInfoEntries * (sizeof *pGpu->pDeviceInfoTable),
+                pParams->deviceInfoTable,
+                pParams->numEntries * (sizeof pParams->deviceInfoTable[0]));
 
 done:
     portMemFree(pParams);

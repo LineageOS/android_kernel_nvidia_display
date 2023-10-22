@@ -9,6 +9,13 @@ include ../../utils.mk
 
 include srcs.mk
 
+##############################################################################
+# Helper functions to determine the compiler type
+##############################################################################
+GET_COMPILER_TYPE = \
+  $(shell $(VERSION_MK_DIR)/nv-compiler.sh type $(1))
+##############################################################################
+
 # The source files for nv-modeset-kernel.o are all SRCS and SRCS_CXX defined in
 # srcs.mk, and the NVIDIA ID string
 ALL_SRCS = $(SRCS) $(SRCS_CXX)
@@ -16,9 +23,12 @@ ALL_SRCS += $(NVIDSTRING)
 
 SRC_COMMON = ../common
 
+CONDITIONAL_CFLAGS :=
+
 CFLAGS += -include $(SRC_COMMON)/sdk/nvidia/inc/cpuopsys.h
 
 CFLAGS += -I $(SRC_COMMON)/sdk/nvidia/inc
+CFLAGS += -I $(SRC_COMMON)/sdk/nvidia/inc/hw
 CFLAGS += -I $(SRC_COMMON)/shared/inc
 CFLAGS += -I $(SRC_COMMON)/inc
 CFLAGS += -I $(SRC_COMMON)/softfloat/nvidia
@@ -85,6 +95,7 @@ endif
 ifeq ($(TARGET_ARCH),aarch64)
   CFLAGS += -mgeneral-regs-only
   CFLAGS += -march=armv8-a
+  CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -mno-outline-atomics)
 endif
 
 CFLAGS += -fno-pic
@@ -96,10 +107,40 @@ CFLAGS += -fdata-sections
 CFLAGS += -ffreestanding
 CFLAGS += -fno-stack-protector
 
-CONDITIONAL_CFLAGS := $(call TEST_CC_ARG, -fcf-protection=none)
 CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -Wformat-overflow=2)
 CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -Wformat-truncation=1)
+
 ifeq ($(TARGET_ARCH),x86_64)
+  COMPILER_TYPE := $(call GET_COMPILER_TYPE, $(CC))
+  ENDBR_SUPPORTED := $(call AS_HAS_INSTR, endbr64)
+
+  FCF_SUPPORTED =
+
+  #
+  # GCC flags -fcf-protection=branch and -mindirect-branch=extern-thunk can
+  # be used together after GCC version 9.4.0. See 
+  # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=93654 for details.
+  # Check if GCC version is appropriate.
+  #
+  ifeq ($(COMPILER_TYPE),gcc)
+    FCF_SUPPORTED := \
+      $(shell $(VERSION_MK_DIR)/nv-compiler.sh version_is_at_least $(CC) 90400)
+  endif
+
+  #
+  # Clang version 14.0.0 is required for -fcf-protection=branch to work
+  # correctly. See commit
+  # https://github.com/llvm/llvm-project/commit/dfcf69770bc522b9e411c66454934a37c1f35332
+  #
+  ifeq ($(COMPILER_TYPE),clang)
+    FCF_SUPPORTED := \
+      $(shell $(VERSION_MK_DIR)/nv-compiler.sh version_is_at_least $(CC) 140000)
+  endif
+
+  ifeq ($(FCF_SUPPORTED)-$(ENDBR_SUPPORTED),1-1)
+    CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -fcf-protection=branch)
+  endif
+  CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -fno-jump-tables)
   CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -mindirect-branch=thunk-extern)
   CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -mindirect-branch-register)
 endif
@@ -134,11 +175,12 @@ $(foreach src, $(ALL_SRCS), $(eval $(call DEFINE_OBJECT_RULE,TARGET,$(src))))
 
 NV_MODESET_KERNEL_O = $(OUTPUTDIR)/nv-modeset-kernel.o
 
-.PNONY: all clean
+.PHONY: all
 all: $(NV_MODESET_KERNEL_O)
 
 $(NV_MODESET_KERNEL_O): $(OBJS)
 	$(call quiet_cmd,LD) -r -o $(NV_MODESET_KERNEL_O) $(OBJS)
 
+.PHONY: clean
 clean:
 	$(RM) -rf $(OUTPUTDIR)

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2008-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2008-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -47,6 +47,15 @@ typedef struct rpc_dup_object_v03_00
 
 typedef rpc_dup_object_v03_00 rpc_dup_object_v;
 
+typedef struct rpc_unloading_guest_driver_v1F_07
+{
+    NvBool     bInPMTransition;
+    NvBool     bGc6Entering;
+    NvU32      newLevel;
+} rpc_unloading_guest_driver_v1F_07;
+
+typedef rpc_unloading_guest_driver_v1F_07 rpc_unloading_guest_driver_v;
+
 typedef struct rpc_gsp_rm_alloc_v03_00
 {
     NvHandle   hClient;
@@ -55,6 +64,8 @@ typedef struct rpc_gsp_rm_alloc_v03_00
     NvU32      hClass;
     NvU32      status;
     NvU32      paramsSize;
+    NvU32      flags;
+    NvU8       reserved[4];
     NvU8       params[];
 } rpc_gsp_rm_alloc_v03_00;
 
@@ -67,8 +78,7 @@ typedef struct rpc_gsp_rm_control_v03_00
     NvU32      cmd;
     NvU32      status;
     NvU32      paramsSize;
-    NvBool     serialized;
-    NvU8       reserved[3];
+    NvU32      flags;
     NvU8       params[];
 } rpc_gsp_rm_control_v03_00;
 
@@ -80,6 +90,7 @@ typedef struct rpc_post_event_v17_00
     NvHandle   hEvent;
     NvU32      notifyIndex;
     NvU32      data;
+    NvU16      info16;
     NvU32      status;
     NvU32      eventDataSize;
     NvBool     bNotifyList;
@@ -131,6 +142,20 @@ vmiopd_mdesc_t *rpcdebugFree_v03_00(void)
 vmiopd_mdesc_t *rpcdebugDupObject_v03_00(void)
 {
     return &vmiopd_mdesc_t_rpc_dup_object_v03_00;
+}
+#endif
+
+#ifndef SKIP_PRINT_rpc_unloading_guest_driver_v03_00
+vmiopd_mdesc_t *rpcdebugUnloadingGuestDriver_v03_00(void)
+{
+    return &vmiopd_mdesc_t_rpc_unloading_guest_driver_v03_00;
+}
+#endif
+
+#ifndef SKIP_PRINT_rpc_unloading_guest_driver_v1F_07
+vmiopd_mdesc_t *rpcdebugUnloadingGuestDriver_v1F_07(void)
+{
+    return &vmiopd_mdesc_t_rpc_unloading_guest_driver_v1F_07;
 }
 #endif
 
@@ -186,6 +211,8 @@ typedef union rpc_generic_union {
     rpc_free_v free_v;
     rpc_dup_object_v03_00 dup_object_v03_00;
     rpc_dup_object_v dup_object_v;
+    rpc_unloading_guest_driver_v1F_07 unloading_guest_driver_v1F_07;
+    rpc_unloading_guest_driver_v unloading_guest_driver_v;
     rpc_gsp_rm_alloc_v03_00 gsp_rm_alloc_v03_00;
     rpc_gsp_rm_alloc_v gsp_rm_alloc_v;
     rpc_gsp_rm_control_v03_00 gsp_rm_control_v03_00;

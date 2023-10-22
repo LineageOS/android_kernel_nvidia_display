@@ -35,8 +35,10 @@ NV_STATUS NV_API_CALL nv_vgpu_get_type_ids(
     nvidia_stack_t *sp,
     nv_state_t *pNv,
     NvU32 *numVgpuTypes,
-    NvU32 **vgpuTypeIds,
-    NvBool isVirtfn
+    NvU32 *vgpuTypeIds,
+    NvBool isVirtfn,
+    NvU8 devfn,
+    NvBool getCreatableTypes
 )
 {
     return NV_ERR_NOT_SUPPORTED;
@@ -139,7 +141,8 @@ NV_STATUS NV_API_CALL nv_vgpu_get_bar_info(
     const NvU8 *pMdevUuid,
     NvU64 *size,
     NvU32 regionIndex,
-    void *pVgpuVfioRef
+    void *pVgpuVfioRef,
+    NvBool *isBar64bit
 )
 {
     return NV_ERR_NOT_SUPPORTED;
@@ -148,3 +151,32 @@ NV_STATUS NV_API_CALL nv_vgpu_get_bar_info(
 void initVGXSpecificRegistry(OBJGPU *pGpu)
 {}
 
+NV_STATUS osVgpuVfioWake(void *pArg1)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS osVgpuRegisterMdev(OS_GPU_INFO *pArg1)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS osIsVgpuVfioPresent(void)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS osIsVfioPciCorePresent(void)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NvBool hypervisorIsVgxHyper_IMPL(void)
+{
+    return NV_FALSE;
+}
+
+NvBool hypervisorIsAC_IMPL(void)
+{
+    return NV_FALSE;
+}

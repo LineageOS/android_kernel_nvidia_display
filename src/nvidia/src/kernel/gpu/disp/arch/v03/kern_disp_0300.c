@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -277,3 +277,40 @@ kdispSelectClass_v03_00_KERNEL
 
     return NV_OK;
 }
+
+/*!
+ * @brief Read line count and frame count from RG_DPCA.
+ *
+ * @param[in]  pGpu           OBJGPU pointer
+ * @param[in]  pKernelDisplay KernelDisplay pointer
+ * @param[in]  head           head index
+ * @param[out] pLineCount     line count
+ * @param[out] pFrameCount    frame count
+ *
+ * @return NV_STATUS
+ */
+NV_STATUS
+kdispReadRgLineCountAndFrameCount_v03_00_KERNEL
+(
+    OBJGPU        *pGpu,
+    KernelDisplay *pKernelDisplay,
+    NvU32          head,
+    NvU32         *pLineCount,
+    NvU32         *pFrameCount
+)
+{
+    NvU32 data32;
+
+    if (head >= kdispGetNumHeads(pKernelDisplay))
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+
+    data32 = GPU_REG_RD32(pGpu,NV_PDISP_RG_DPCA(head));
+
+    *pLineCount = DRF_VAL(_PDISP, _RG_DPCA, _LINE_CNT, data32);
+    *pFrameCount = DRF_VAL(_PDISP, _RG_DPCA, _FRM_CNT, data32);
+
+    return NV_OK;
+}
+

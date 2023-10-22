@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -63,6 +63,7 @@ void rmapiShutdown(void);
                                                                         // already held then return error
 #define RMAPI_LOCK_FLAGS_READ                             NVBIT(1)        // Acquire API lock for READ
 #define RMAPI_LOCK_FLAGS_WRITE                            (0x00000000)  // Acquire API lock for WRITE - Default
+#define RMAPI_LOCK_FLAGS_LOW_PRIORITY                     NVBIT(2)      // Deprioritize lock acquire
 
 /**
  * Acquire the RM API Lock
@@ -89,6 +90,11 @@ void rmapiLockRelease(void);
  */
 NvBool rmapiLockIsOwner(void);
 
+/**
+ * Check if current thread owns the RW API lock
+ */
+NvBool rmapiLockIsWriteOwner(void);
+
 
 /**
  * Type of RM API client interface
@@ -113,9 +119,15 @@ RM_API *rmapiGetInterface(RMAPI_TYPE rmapiType);
 // Flags for RM_API::Alloc
 #define RMAPI_ALLOC_FLAGS_NONE                    0
 #define RMAPI_ALLOC_FLAGS_SKIP_RPC                NVBIT(0)
+#define RMAPI_ALLOC_FLAGS_SERIALIZED              NVBIT(1)
 
 // Flags for RM_API::Free
 #define RMAPI_FREE_FLAGS_NONE                     0
+
+// Flags for RM_API RPC's
+#define RMAPI_RPC_FLAGS_NONE                      0
+#define RMAPI_RPC_FLAGS_COPYOUT_ON_ERROR          NVBIT(0)
+#define RMAPI_RPC_FLAGS_SERIALIZED                NVBIT(1)
 
 /**
  * Interface for performing operations through the RM API exposed to client
@@ -128,16 +140,16 @@ struct _RM_API
 {
     // Allocate a resource with default security attributes and local pointers (no NvP64)
     NV_STATUS (*Alloc)(struct _RM_API *pRmApi, NvHandle hClient, NvHandle hParent,
-                       NvHandle *phObject, NvU32 hClass, void *pAllocParams);
+                       NvHandle *phObject, NvU32 hClass, void *pAllocParams, NvU32 paramsSize);
 
     // Allocate a resource with default security attributes and local pointers (no NvP64)
     // and client assigned handle
     NV_STATUS (*AllocWithHandle)(struct _RM_API *pRmApi, NvHandle hClient, NvHandle hParent,
-                                 NvHandle hObject, NvU32 hClass, void *pAllocParams);
+                                 NvHandle hObject, NvU32 hClass, void *pAllocParams, NvU32 paramsSize);
 
     // Allocate a resource
     NV_STATUS (*AllocWithSecInfo)(struct _RM_API *pRmApi, NvHandle hClient, NvHandle hParent,
-                                  NvHandle *phObject, NvU32 hClass, NvP64 pAllocParams,
+                                  NvHandle *phObject, NvU32 hClass, NvP64 pAllocParams, NvU32 paramsSize,
                                   NvU32 flags, NvP64 pRightsRequested, API_SECURITY_INFO *pSecInfo);
 
     // Free a resource with default security attributes
@@ -147,11 +159,11 @@ struct _RM_API
     NV_STATUS (*FreeWithSecInfo)(struct _RM_API *pRmApi, NvHandle hClient, NvHandle hObject,
                                  NvU32 flags, API_SECURITY_INFO *pSecInfo);
 
-    // Free a list of clients with default security attributes
-    NV_STATUS (*FreeClientList)(struct _RM_API *pRmApi, NvHandle *phClientList, NvU32 numClients);
+    // Disables all clients in the list, with default security attributes
+    NV_STATUS (*DisableClients)(struct _RM_API *pRmApi, NvHandle *phClientList, NvU32 numClients);
 
-    // Free a list of clients
-    NV_STATUS (*FreeClientListWithSecInfo)(struct _RM_API *pRmApi, NvHandle *phClientList,
+    // Disables all clients in the list
+    NV_STATUS (*DisableClientsWithSecInfo)(struct _RM_API *pRmApi, NvHandle *phClientList,
                                         NvU32 numClients, API_SECURITY_INFO *pSecInfo);
 
     // Invoke a control with default security attributes and local pointers (no NvP64)
@@ -262,17 +274,21 @@ NV_STATUS RmConfigSetEx   (NvHandle, NvHandle, NvU32, NvP64, NvU32, NvBool);
 
 /**
  * Control cache API.
- * Every function except rmapiControlCacheInit and rmapiControlCacheFree is thread safe.
  */
-void rmapiControlCacheInit(void);
-NvBool rmapiControlIsCacheable(NvU32 flags, NvBool isGSPClient);
-NvBool rmapiCmdIsCacheable(NvU32 cmd, NvBool isGSPClient);
-const void* rmapiControlCacheGet(NvHandle hClient, NvHandle hObject, NvU32 cmd);
+NV_STATUS rmapiControlCacheInit(void);
+NvBool rmapiControlIsCacheable(NvU32 flags, NvU32 accessRight, NvBool bAllowInternal);
+NvBool rmapiCmdIsCacheable(NvU32 cmd, NvBool bAllowInternal);
+NV_STATUS rmapiControlCacheGet(NvHandle hClient, NvHandle hObject, NvU32 cmd,
+                               void* params, NvU32 paramsSize);
 NV_STATUS rmapiControlCacheSet(NvHandle hClient, NvHandle hObject, NvU32 cmd,
-    const void* params, NvU32 paramsSize);
+                               void* params, NvU32 paramsSize);
+NV_STATUS rmapiControlCacheSetGpuInstForObject(NvHandle hClient, NvHandle hObject, NvU32 gpuInst);
+void rmapiControlCacheFreeAllCacheForGpu(NvU32 gpuInst);
+void rmapiControlCacheSetMode(NvU32 mode);
+NvU32 rmapiControlCacheGetMode(void);
 void rmapiControlCacheFree(void);
-void rmapiControlCacheFreeClient(NvHandle hClient);
-void rmapiControlCacheFreeObject(NvHandle hClient, NvHandle hObject);
+void rmapiControlCacheFreeClientEntry(NvHandle hClient);
+void rmapiControlCacheFreeObjectEntry(NvHandle hClient, NvHandle hObject);
 
 typedef struct _RM_API_CONTEXT {
     NvU32 gpuMask;
@@ -298,19 +314,20 @@ rmapiEpilogue
     RM_API_CONTEXT    *pContext
 );
 
-void 
+NV_STATUS
 rmapiInitLockInfo
 (
-    RM_API            *pRmApi,
-    NvHandle           hClient,
-    RS_LOCK_INFO      *pLockInfo
+    RM_API       *pRmApi,
+    NvHandle      hClient,
+    NvHandle      hSecondClient,
+    RS_LOCK_INFO *pLockInfo
 );
 
 //
 // RM locking modules: 24-bit group bitmask, 8-bit subgroup id
 //
 // Lock acquires are tagged with a RM_LOCK_MODULE_* in order to partition
-// the acquires into groups, which allows read-only locks to be 
+// the acquires into groups, which allows read-only locks to be
 // enabled / disabled on a per-group basis (via apiLockMask and gpuLockMask
 // in OBJSYS.)
 //
@@ -363,7 +380,7 @@ rmapiInitLockInfo
 #define RM_LOCK_MODULES_TMR                 RM_LOCK_MODULE_VAL(0x000800, 0x04)
 
 #define RM_LOCK_MODULES_I2C                 RM_LOCK_MODULE_VAL(0x001000, 0x00)
-#define RM_LOCK_MODULES_GPS                 RM_LOCK_MODULE_VAL(0x001000, 0x01)
+#define RM_LOCK_MODULES_PFM_REQ_HNDLR       RM_LOCK_MODULE_VAL(0x001000, 0x01)
 #define RM_LOCK_MODULES_SEC2                RM_LOCK_MODULE_VAL(0x001000, 0x02)
 #define RM_LOCK_MODULES_THERM               RM_LOCK_MODULE_VAL(0x001000, 0x03)
 #define RM_LOCK_MODULES_INFOROM             RM_LOCK_MODULE_VAL(0x001000, 0x04)

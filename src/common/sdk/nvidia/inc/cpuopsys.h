@@ -239,6 +239,9 @@
 #endif
 
 /* For verification-only features not intended to be included in normal drivers */
+#if defined(ENABLE_VERIF_FEATURES)
+#define NV_VERIF_FEATURES
+#endif
 
 /*
  * New, safer family of #define's -- these ones use 0 vs. 1 rather than

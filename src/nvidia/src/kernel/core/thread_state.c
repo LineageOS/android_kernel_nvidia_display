@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -154,6 +154,7 @@ NV_STATUS threadStateGlobalAlloc(void)
 
     // Init the thread sequencer id counter to 0.
     threadStateDatabase.threadSeqCntr = 0;
+    threadStateDatabase.gspIsrThreadSeqCntr = 0;
 
     threadStateDatabase.spinlock = portSyncSpinlockCreate(portMemAllocatorGetGlobalNonPaged());
     if (threadStateDatabase.spinlock == NULL)
@@ -249,7 +250,7 @@ static void _threadStateSetNextCpuYieldTime(THREAD_STATE_NODE *pThreadNode)
         (TIMEOUT_DEFAULT_OS_RESCHEDULE_INTERVAL_SECS) * 1000000 * 1000;
 }
 
-void threadStateYieldCpuIfNecessary(OBJGPU *pGpu)
+void threadStateYieldCpuIfNecessary(OBJGPU *pGpu, NvBool bQuiet)
 {
     NV_STATUS rmStatus;
     THREAD_STATE_NODE *pThreadNode = NULL;
@@ -263,7 +264,7 @@ void threadStateYieldCpuIfNecessary(OBJGPU *pGpu)
         {
             if (NV_OK == osSchedule())
             {
-                NV_PRINTF(LEVEL_WARNING, "Yielding\n");
+                NV_PRINTF_COND(bQuiet, LEVEL_INFO, LEVEL_WARNING, "Yielding\n");
             }
 
             _threadStateSetNextCpuYieldTime(pThreadNode);
@@ -1197,12 +1198,12 @@ NV_STATUS threadStateEnqueueCallbackOnFree
 {
     THREAD_STATE_FREE_CALLBACK *pCbListNode;
 
-    if (!(pThreadNode->flags & THREAD_STATE_FLAGS_STATE_FREE_CB_ENABLED))
-        return NV_ERR_INVALID_OPERATION;
-
     if ((pThreadNode == NULL) || (pCallback == NULL) ||
         (pCallback->pCb == NULL))
         return NV_ERR_INVALID_ARGUMENT;
+
+    if (!(pThreadNode->flags & THREAD_STATE_FLAGS_STATE_FREE_CB_ENABLED))
+        return NV_ERR_INVALID_OPERATION;
 
     // Add from tail to maintain FIFO semantics.
     pCbListNode = listAppendNew(&pThreadNode->cbList);

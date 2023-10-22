@@ -37,7 +37,6 @@ typedef struct IGRP_IP_VERSIONS_TABLE_INFO IGRP_IP_VERSIONS_TABLE_INFO;
 
 // generic form of Head_iGrp_ipVersions_getInfo typedef
 
-typedef NV_STATUS  IGrp_ipVersions_getInfo(IGRP_IP_VERSIONS_TABLE_INFO *);
 typedef void      IGrp_ipVersions_install(IGRP_IP_VERSIONS_TABLE_INFO *);
 typedef NV_STATUS  IGrp_ipVersions_wrapup(IGRP_IP_VERSIONS_TABLE_INFO *);
 
@@ -117,6 +116,7 @@ typedef enum
     HAL_IMPL_GA107,
     HAL_IMPL_GA10B,
     HAL_IMPL_GA102F,
+    HAL_IMPL_GH202,
     HAL_IMPL_T001_FERMI_NOT_EXIST,
     HAL_IMPL_T124,
     HAL_IMPL_T132,
@@ -125,6 +125,8 @@ typedef enum
     HAL_IMPL_T194,
     HAL_IMPL_T002_TURING_NOT_EXIST,
     HAL_IMPL_T234,
+    HAL_IMPL_T003_ADA_NOT_EXIST,
+    HAL_IMPL_T004_HOPPER_NOT_EXIST,
     HAL_IMPL_T234D,
     HAL_IMPL_AMODEL,
 

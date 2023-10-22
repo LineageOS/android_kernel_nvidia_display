@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -132,6 +132,10 @@ typedef struct THREAD_STATE_DB
      * sequencer id via @ref threadStateInitXYZ().
      */
     NvU32   threadSeqCntr;
+    /*!
+     * Thread state sequencer id counter for only GSP task_interrupt.
+     */
+    NvU32   gspIsrThreadSeqCntr;
     PORT_SPINLOCK *spinlock;
     ThreadStateNodeMap  dbRoot;
     ThreadStateNodeMap  dbRootPreempted;
@@ -149,7 +153,7 @@ typedef struct THREAD_STATE_DB
 
 //
 // The normal power transition requirement for Windows is 4 seconds.
-// Use longer time to let OS fire timeout and ask recovery. 
+// Use longer time to let OS fire timeout and ask recovery.
 //
 #define TIMEOUT_WDDM_POWER_TRANSITION_INTERVAL_MS       9800
 
@@ -207,7 +211,7 @@ NV_STATUS   threadStateInitTimeout(OBJGPU *pGpu, NvU32 timeoutUs, NvU32 flags);
 NV_STATUS   threadStateCheckTimeout(OBJGPU *pGpu, NvU64 *pElapsedTimeUs);
 NV_STATUS   threadStateResetTimeout(OBJGPU *pGpu);
 void        threadStateLogTimeout(OBJGPU *pGpu, NvU64 funcAddr, NvU32 lineNum);
-void        threadStateYieldCpuIfNecessary(OBJGPU *pGpu);
+void        threadStateYieldCpuIfNecessary(OBJGPU *pGpu, NvBool bQuiet);
 void        threadStateSetTimeoutOverride(THREAD_STATE_NODE *, NvU64);
 
 NV_STATUS   threadStateEnqueueCallbackOnFree(THREAD_STATE_NODE *pThreadNode,

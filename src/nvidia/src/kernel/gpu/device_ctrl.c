@@ -34,6 +34,7 @@
 #include "core/locks.h"
 #include "gpu/gpu.h"
 #include "gpu_mgr/gpu_mgr.h"
+#include "virtualization/hypervisor/hypervisor.h"
 
 
 
@@ -53,7 +54,7 @@ deviceCtrlCmdGpuGetClasslist_IMPL
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pDevice);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     return gpuGetClassList(pGpu, &pClassListParams->numClasses,
                            NvP64_VALUE(pClassListParams->classList), ENG_INVALID);
@@ -75,7 +76,7 @@ deviceCtrlCmdGpuGetClasslistV2_IMPL
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pDevice);
 
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
 
     pClassListParams->numClasses = NV0080_CTRL_GPU_CLASSLIST_MAX_SIZE;
 
@@ -209,6 +210,29 @@ deviceCtrlCmdGpuGetVirtualizationMode_IMPL
         pParams->virtualizationMode =
             NV0080_CTRL_GPU_VIRTUALIZATION_MODE_NMOS;
     }
+    else if (hypervisorIsVgxHyper() && (gpuIsSriovEnabled(pGpu)
+    ))
+    {
+        if (pGpu->getProperty(pGpu, PDB_PROP_GPU_IS_VIRTUALIZATION_MODE_HOST_VGPU))
+        {
+            pParams->virtualizationMode =
+                NV0080_CTRL_GPU_VIRTUALIZATION_MODE_HOST_VGPU;
+        }
+        else if (pGpu->getProperty(pGpu, PDB_PROP_GPU_IS_VIRTUALIZATION_MODE_HOST_VSGA))
+        {
+            pParams->virtualizationMode =
+                NV0080_CTRL_GPU_VIRTUALIZATION_MODE_HOST_VSGA;
+        }
+        else
+        {
+            NV_PRINTF(LEVEL_ERROR,
+                      "invalid virtualization Mode: %x. Returning NONE!\n",
+                      pParams->virtualizationMode);
+
+            pParams->virtualizationMode =
+                NV0080_CTRL_GPU_VIRTUALIZATION_MODE_NONE;
+        }
+    }
     else
     {
         pParams->virtualizationMode =
@@ -265,7 +289,7 @@ deviceCtrlCmdGpuSetVgpuVfBar1Size_IMPL
 )
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pDevice);
-    LOCK_ASSERT_AND_RETURN(rmApiLockIsOwner() && rmGpuLockIsOwner());
+    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
 
     return gpuSetVFBarSizes_HAL(pGpu, pParams);
 }

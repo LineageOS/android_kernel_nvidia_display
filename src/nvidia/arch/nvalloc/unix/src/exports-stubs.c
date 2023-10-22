@@ -22,6 +22,7 @@
  */
 
 #include <nv.h>
+#include "os/os.h"
 #include <rmconfig.h>
 #include <gpu/subdevice/subdevice.h>
 #include <ctrl/ctrl0080/ctrl0080unix.h>
@@ -44,6 +45,13 @@ void NV_API_CALL rm_init_dynamic_power_management(
 }
 
 void NV_API_CALL rm_cleanup_dynamic_power_management(
+    nvidia_stack_t *sp,
+    nv_state_t     *nv
+)
+{
+}
+
+void NV_API_CALL rm_enable_dynamic_power_management(
     nvidia_stack_t *sp,
     nv_state_t     *nv
 )
@@ -191,14 +199,34 @@ os_unref_dynamic_power
 {
 }
 
-NV_STATUS  NV_API_CALL rm_get_clientnvpcf_power_limits(
-    nvidia_stack_t *sp,
-    nv_state_t     *nv,
-    NvU32          *limitRated,
-    NvU32          *limitCurr
+void
+osClientGcoffDisallowRefcount
+(
+    OS_GPU_INFO  *pArg1,
+    NvBool        arg2
 )
 {
-    return NV_ERR_NOT_SUPPORTED;
+}
+
+NvU32 osGetDynamicPowerSupportMask(void)
+{
+    return 0;
+}
+
+void osUnrefGpuAccessNeeded
+(
+    OS_GPU_INFO *pOsGpuInfo
+)
+{
+    return;
+}
+
+NV_STATUS osRefGpuAccessNeeded
+(
+    OS_GPU_INFO *pOsGpuInfo
+)
+{
+    return NV_OK;
 }
 
 NV_STATUS
@@ -249,6 +277,7 @@ void NV_API_CALL rm_isr_bh_unlocked(
 {
 }
 
+// Functions are in unix_intr.c -- that file is not compiled on DCE_CLIENT_RM enabled builds
 NV_STATUS NV_API_CALL rm_gpu_copy_mmu_faults(
     nvidia_stack_t *sp,
     nv_state_t *nv,
@@ -259,15 +288,6 @@ NV_STATUS NV_API_CALL rm_gpu_copy_mmu_faults(
 }
 
 NV_STATUS NV_API_CALL rm_gpu_handle_mmu_faults(
-    nvidia_stack_t *sp,
-    nv_state_t *nv,
-    NvU32 *faultsCopied
-)
-{
-    return NV_OK;
-}
-
-NV_STATUS NV_API_CALL rm_gpu_copy_mmu_faults_unlocked(
     nvidia_stack_t *sp,
     nv_state_t *nv,
     NvU32 *faultsCopied

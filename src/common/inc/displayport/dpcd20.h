@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -20,18 +20,18 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
+#ifndef _DISPLAYPORT20_H_
+#define _DISPLAYPORT20_H_
+#include "nvcfg_sdk.h"
 
-#define NV_DPCD20_DSC_SUPPORT                                                   (0x00000060) /* R-XUR */
+// DSC Pass Through related DPCD. New bits in DPCD 0x0060h defined in DPCD2.0.
 #define NV_DPCD20_DSC_SUPPORT_PASS_THROUGH_SUPPORT                                       1:1 /* R-XUF */
 #define NV_DPCD20_DSC_SUPPORT_PASS_THROUGH_SUPPORT_NO                           (0x00000000) /* R-XUV */
 #define NV_DPCD20_DSC_SUPPORT_PASS_THROUGH_SUPPORT_YES                          (0x00000001) /* R-XUV */
-
-#define NV_DPCD20_DSC_PASS_THROUGH                                              (0x00000160) /* R-XUR */
-#define NV_DPCD20_DSC_PASS_THROUGH_ENABLE                                                1:1 /* R-XUF */
-#define NV_DPCD20_DSC_PASS_THROUGH_ENABLE_NO                                    (0x00000000) /* R-XUV */
-#define NV_DPCD20_DSC_PASS_THROUGH_ENABLE_YES                                   (0x00000001) /* R-XUV */
-
-#define NV_DPCD20_GUID_2                                                        (0x00000040) /* R-XUR */
+// DSC Pass Through related DPCD. New bits in DPCD 0x0160h defined in DPCD2.0.
+#define NV_DPCD20_DSC_ENABLE_PASS_THROUGH                                                1:1 /* R-XUF */
+#define NV_DPCD20_DSC_ENABLE_PASS_THROUGH_NO                                    (0x00000000) /* R-XUV */
+#define NV_DPCD20_DSC_ENABLE_PASS_THROUGH_YES                                   (0x00000001) /* R-XUV */
 
 // PANEL REPLAY RELATED DPCD
 #define NV_DPCD20_PANEL_REPLAY_CAPABILITY                                         (0x000000B0)
@@ -46,3 +46,17 @@
 #define NV_DPCD20_PANEL_REPLAY_CONFIGURATION_ENABLE_PR_MODE                               0:0
 #define NV_DPCD20_PANEL_REPLAY_CONFIGURATION_ENABLE_PR_MODE_NO                    (0x00000000)
 #define NV_DPCD20_PANEL_REPLAY_CONFIGURATION_ENABLE_PR_MODE_YES                   (0x00000001)
+
+#define NV_DPCD20_PANEL_REPLAY_AND_FRAME_LOCK_STATUS                              (0x00002022)
+#define NV_DPCD20_PANEL_REPLAY_AND_FRAME_LOCK_STATUS_PR_STATUS                            2:0
+#define NV_DPCD20_PANEL_REPLAY_AND_FRAME_LOCK_STATUS_PR_STATUS_STATE_0            (0x00000000)
+#define NV_DPCD20_PANEL_REPLAY_AND_FRAME_LOCK_STATUS_PR_STATUS_STATE_1            (0x00000001)
+#define NV_DPCD20_PANEL_REPLAY_AND_FRAME_LOCK_STATUS_PR_STATUS_STATE_2            (0x00000002)
+#define NV_DPCD20_PANEL_REPLAY_AND_FRAME_LOCK_STATUS_PR_STATUS_STATE_ERROR        (0x00000007)
+#define NV_DPCD20_PANEL_REPLAY_AND_FRAME_LOCK_STATUS_SINK_FRAME_LOCKED                    4:3
+#define NV_DPCD20_PANEL_REPLAY_AND_FRAME_LOCK_STATUS_SINK_FRAME_LOCKED_LOCKED     (0x00000000)
+#define NV_DPCD20_PANEL_REPLAY_AND_FRAME_LOCK_STATUS_SINK_FRAME_LOCKED_COASTING   (0x00000001)
+#define NV_DPCD20_PANEL_REPLAY_AND_FRAME_LOCK_STATUS_SINK_FRAME_LOCKED_GOVERNING  (0x00000002)
+#define NV_DPCD20_PANEL_REPLAY_AND_FRAME_LOCK_STATUS_SINK_FRAME_LOCKED_RELOCKING  (0x00000003)
+
+#endif // #ifndef _DISPLAYPORT20_H_

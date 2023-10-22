@@ -22,6 +22,7 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJTRACEABLE;
 void __nvoc_init_OBJGPU(OBJGPU*,
         NvU32 ChipHal_arch, NvU32 ChipHal_impl, NvU32 ChipHal_hidrev,
         RM_RUNTIME_VARIANT RmVariantHal_rmVariant,
+        TEGRA_CHIP_TYPE TegraChipHal_tegraType,
         NvU32 DispIpHal_ipver);
 void __nvoc_init_funcTable_OBJGPU(OBJGPU*);
 NV_STATUS __nvoc_ctor_OBJGPU(OBJGPU*, NvU32 arg_gpuInstance);
@@ -108,94 +109,106 @@ void __nvoc_init_dataField_OBJGPU(OBJGPU *pThis) {
     pThis->setProperty(pThis, PDB_PROP_GPU_IS_CONNECTED, ((NvBool)(0 == 0)));
 
     // NVOC Property Hal field -- PDB_PROP_GPU_TEGRA_SOC_NVDISPLAY
-    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x00010000UL) )) /* ChipHal: T234D */ 
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
     {
         pThis->setProperty(pThis, PDB_PROP_GPU_TEGRA_SOC_NVDISPLAY, ((NvBool)(0 == 0)));
     }
-    // default
-    else
-    {
-        pThis->setProperty(pThis, PDB_PROP_GPU_TEGRA_SOC_NVDISPLAY, ((NvBool)(0 != 0)));
-    }
 
     // NVOC Property Hal field -- PDB_PROP_GPU_TEGRA_SOC_IGPU
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->setProperty(pThis, PDB_PROP_GPU_TEGRA_SOC_IGPU, ((NvBool)(0 != 0)));
     }
 
     // NVOC Property Hal field -- PDB_PROP_GPU_ATS_SUPPORTED
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->setProperty(pThis, PDB_PROP_GPU_ATS_SUPPORTED, ((NvBool)(0 != 0)));
     }
 
-    // NVOC Property Hal field -- PDB_PROP_GPU_ZERO_FB
-    if (0)
-    {
-    }
+    // NVOC Property Hal field -- PDB_PROP_GPU_BUG_3007008_EMULATE_VF_MMU_TLB_INVALIDATE
     // default
-    else
+    {
+        pThis->setProperty(pThis, PDB_PROP_GPU_BUG_3007008_EMULATE_VF_MMU_TLB_INVALIDATE, ((NvBool)(0 != 0)));
+    }
+
+    // NVOC Property Hal field -- PDB_PROP_GPU_ZERO_FB
+    // default
     {
         pThis->setProperty(pThis, PDB_PROP_GPU_ZERO_FB, ((NvBool)(0 != 0)));
     }
 
     // NVOC Property Hal field -- PDB_PROP_GPU_CAN_OPTIMIZE_COMPUTE_USE_CASE
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->setProperty(pThis, PDB_PROP_GPU_CAN_OPTIMIZE_COMPUTE_USE_CASE, ((NvBool)(0 != 0)));
     }
 
     // NVOC Property Hal field -- PDB_PROP_GPU_MIG_SUPPORTED
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->setProperty(pThis, PDB_PROP_GPU_MIG_SUPPORTED, ((NvBool)(0 != 0)));
     }
 
     // NVOC Property Hal field -- PDB_PROP_GPU_VC_CAPABILITY_SUPPORTED
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->setProperty(pThis, PDB_PROP_GPU_VC_CAPABILITY_SUPPORTED, ((NvBool)(0 != 0)));
     }
 
     // NVOC Property Hal field -- PDB_PROP_GPU_RESETLESS_MIG_SUPPORTED
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->setProperty(pThis, PDB_PROP_GPU_RESETLESS_MIG_SUPPORTED, ((NvBool)(0 != 0)));
     }
 
     // NVOC Property Hal field -- PDB_PROP_GPU_IS_COT_ENABLED
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->setProperty(pThis, PDB_PROP_GPU_IS_COT_ENABLED, ((NvBool)(0 != 0)));
+    }
+
+    // NVOC Property Hal field -- PDB_PROP_GPU_VGPU_OFFLOAD_CAPABLE
+    // default
+    {
+        pThis->setProperty(pThis, PDB_PROP_GPU_VGPU_OFFLOAD_CAPABLE, ((NvBool)(0 != 0)));
+    }
+
+    // NVOC Property Hal field -- PDB_PROP_GPU_UNIX_DYNAMIC_POWER_SUPPORTED
+    // default
+    {
+        pThis->setProperty(pThis, PDB_PROP_GPU_UNIX_DYNAMIC_POWER_SUPPORTED, ((NvBool)(0 != 0)));
+    }
+
+    // NVOC Property Hal field -- PDB_PROP_GPU_SKIP_CE_MAPPINGS_NO_NVLINK
+    // default
+    {
+        pThis->setProperty(pThis, PDB_PROP_GPU_SKIP_CE_MAPPINGS_NO_NVLINK, ((NvBool)(0 == 0)));
+    }
+    pThis->setProperty(pThis, PDB_PROP_GPU_OPTIMUS_GOLD_CFG_SPACE_RESTORE, ((NvBool)(0 == 0)));
+
+    // NVOC Property Hal field -- PDB_PROP_GPU_CC_FEATURE_CAPABLE
+    // default
+    {
+        pThis->setProperty(pThis, PDB_PROP_GPU_CC_FEATURE_CAPABLE, ((NvBool)(0 != 0)));
+    }
+
+    // NVOC Property Hal field -- PDB_PROP_GPU_APM_FEATURE_CAPABLE
+    // default
+    {
+        pThis->setProperty(pThis, PDB_PROP_GPU_APM_FEATURE_CAPABLE, ((NvBool)(0 != 0)));
+    }
+
+    // NVOC Property Hal field -- PDB_PROP_GPU_EXTENDED_GSP_RM_INITIALIZATION_TIMEOUT_FOR_VGX
+    // default
+    {
+        pThis->setProperty(pThis, PDB_PROP_GPU_EXTENDED_GSP_RM_INITIALIZATION_TIMEOUT_FOR_VGX, ((NvBool)(0 != 0)));
+    }
+
+    // NVOC Property Hal field -- PDB_PROP_GPU_CHIP_SUPPORTS_RTD3_DEF
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
+    {
+        pThis->setProperty(pThis, PDB_PROP_GPU_CHIP_SUPPORTS_RTD3_DEF, ((NvBool)(0 == 0)));
     }
 
     pThis->boardId = ~0;
@@ -203,10 +216,7 @@ void __nvoc_init_dataField_OBJGPU(OBJGPU *pThis) {
     pThis->deviceInstance = 32;
 
     // Hal field -- isVirtual
-    if (0)
-    {
-    }
-    else if (( ((rmVariantHal_HalVarIdx >> 5) == 0UL) && ((1UL << (rmVariantHal_HalVarIdx & 0x1f)) & 0x00000002UL) )) /* RmVariantHal: PF_KERNEL_ONLY */ 
+    if (( ((rmVariantHal_HalVarIdx >> 5) == 0UL) && ((1UL << (rmVariantHal_HalVarIdx & 0x1f)) & 0x00000002UL) )) /* RmVariantHal: PF_KERNEL_ONLY */ 
     {
         pThis->isVirtual = ((NvBool)(0 != 0));
     }
@@ -215,9 +225,6 @@ void __nvoc_init_dataField_OBJGPU(OBJGPU *pThis) {
     if (( ((rmVariantHal_HalVarIdx >> 5) == 0UL) && ((1UL << (rmVariantHal_HalVarIdx & 0x1f)) & 0x00000002UL) )) /* RmVariantHal: PF_KERNEL_ONLY */ 
     {
         pThis->isGspClient = ((NvBool)(0 == 0));
-    }
-    else if (0)
-    {
     }
 
     pThis->bIsDebugModeEnabled = ((NvBool)(0 != 0));
@@ -229,92 +236,80 @@ void __nvoc_init_dataField_OBJGPU(OBJGPU *pThis) {
     pThis->boardInfo = ((void *)0);
 
     // Hal field -- bUnifiedMemorySpaceEnabled
-    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x00010000UL) )) /* ChipHal: T234D */ 
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
     {
         pThis->bUnifiedMemorySpaceEnabled = ((NvBool)(0 == 0));
-    }
-    // default
-    else
-    {
-        pThis->bUnifiedMemorySpaceEnabled = ((NvBool)(0 != 0));
     }
 
     // Hal field -- bWarBug200577889SriovHeavyEnabled
     pThis->bWarBug200577889SriovHeavyEnabled = ((NvBool)(0 != 0));
 
+    // Hal field -- bNonPowerOf2ChannelCountSupported
+    pThis->bNonPowerOf2ChannelCountSupported = ((NvBool)(0 != 0));
+
     // Hal field -- bNeed4kPageIsolation
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->bNeed4kPageIsolation = ((NvBool)(0 != 0));
     }
 
     // Hal field -- bInstLoc47bitPaWar
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->bInstLoc47bitPaWar = ((NvBool)(0 != 0));
     }
 
     // Hal field -- bIsBarPteInSysmemSupported
-    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x00010000UL) )) /* ChipHal: T234D */ 
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
     {
         pThis->bIsBarPteInSysmemSupported = ((NvBool)(0 == 0));
     }
-    // default
-    else
-    {
-        pThis->bIsBarPteInSysmemSupported = ((NvBool)(0 != 0));
-    }
 
     // Hal field -- bClientRmAllocatedCtxBuffer
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->bClientRmAllocatedCtxBuffer = ((NvBool)(0 != 0));
     }
 
     // Hal field -- bVidmemPreservationBrokenBug3172217
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->bVidmemPreservationBrokenBug3172217 = ((NvBool)(0 != 0));
     }
 
     // Hal field -- bInstanceMemoryAlwaysCached
-    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x00010000UL) )) /* ChipHal: T234D */ 
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
     {
         pThis->bInstanceMemoryAlwaysCached = ((NvBool)(0 == 0));
-    }
-    // default
-    else
-    {
-        pThis->bInstanceMemoryAlwaysCached = ((NvBool)(0 != 0));
     }
 
     pThis->bIsGeforce = ((NvBool)(0 == 0));
 
     // Hal field -- bComputePolicyTimesliceSupported
-    if (0)
-    {
-    }
     // default
-    else
     {
         pThis->bComputePolicyTimesliceSupported = ((NvBool)(0 != 0));
     }
+
+    // Hal field -- bSriovCapable
+    if (( ((chipHal_HalVarIdx >> 5) == 2UL) && ((1UL << (chipHal_HalVarIdx & 0x1f)) & 0x04000000UL) )) /* ChipHal: T234D */ 
+    {
+        pThis->bSriovCapable = ((NvBool)(0 == 0));
+    }
+
+    // Hal field -- bRecheckSliSupportAtResume
+    // default
+    {
+        pThis->bRecheckSliSupportAtResume = ((NvBool)(0 != 0));
+    }
+
+    // Hal field -- bGpuNvEncAv1Supported
+    // default
+    {
+        pThis->bGpuNvEncAv1Supported = ((NvBool)(0 != 0));
+    }
+
+    pThis->bIsGspOwnedFaultBuffersEnabled = ((NvBool)(0 != 0));
 }
 
 NV_STATUS __nvoc_ctor_Object(Object* );
@@ -363,18 +358,19 @@ void __nvoc_init_funcTable_OBJGPU(OBJGPU *pThis) {
 }
 
 void __nvoc_init_Object(Object*);
-void __nvoc_init_RmHalspecOwner(RmHalspecOwner*, NvU32, NvU32, NvU32, RM_RUNTIME_VARIANT, NvU32);
+void __nvoc_init_RmHalspecOwner(RmHalspecOwner*, NvU32, NvU32, NvU32, RM_RUNTIME_VARIANT, TEGRA_CHIP_TYPE, NvU32);
 void __nvoc_init_OBJTRACEABLE(OBJTRACEABLE*);
 void __nvoc_init_OBJGPU(OBJGPU *pThis,
         NvU32 ChipHal_arch, NvU32 ChipHal_impl, NvU32 ChipHal_hidrev,
         RM_RUNTIME_VARIANT RmVariantHal_rmVariant,
+        TEGRA_CHIP_TYPE TegraChipHal_tegraType,
         NvU32 DispIpHal_ipver) {
     pThis->__nvoc_pbase_OBJGPU = pThis;
     pThis->__nvoc_pbase_Object = &pThis->__nvoc_base_Object;
     pThis->__nvoc_pbase_RmHalspecOwner = &pThis->__nvoc_base_RmHalspecOwner;
     pThis->__nvoc_pbase_OBJTRACEABLE = &pThis->__nvoc_base_OBJTRACEABLE;
     __nvoc_init_Object(&pThis->__nvoc_base_Object);
-    __nvoc_init_RmHalspecOwner(&pThis->__nvoc_base_RmHalspecOwner, ChipHal_arch, ChipHal_impl, ChipHal_hidrev, RmVariantHal_rmVariant, DispIpHal_ipver);
+    __nvoc_init_RmHalspecOwner(&pThis->__nvoc_base_RmHalspecOwner, ChipHal_arch, ChipHal_impl, ChipHal_hidrev, RmVariantHal_rmVariant, TegraChipHal_tegraType, DispIpHal_ipver);
     __nvoc_init_OBJTRACEABLE(&pThis->__nvoc_base_OBJTRACEABLE);
     __nvoc_init_funcTable_OBJGPU(pThis);
 }
@@ -382,17 +378,21 @@ void __nvoc_init_OBJGPU(OBJGPU *pThis,
 NV_STATUS __nvoc_objCreate_OBJGPU(OBJGPU **ppThis, Dynamic *pParent, NvU32 createFlags,
         NvU32 ChipHal_arch, NvU32 ChipHal_impl, NvU32 ChipHal_hidrev,
         RM_RUNTIME_VARIANT RmVariantHal_rmVariant,
+        TEGRA_CHIP_TYPE TegraChipHal_tegraType,
         NvU32 DispIpHal_ipver, NvU32 arg_gpuInstance) {
     NV_STATUS status;
     Object *pParentObj;
     OBJGPU *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(OBJGPU));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(OBJGPU), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
     portMemSet(pThis, 0, sizeof(OBJGPU));
 
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_OBJGPU);
+
+    pThis->__nvoc_base_Object.createFlags = createFlags;
 
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
@@ -404,16 +404,22 @@ NV_STATUS __nvoc_objCreate_OBJGPU(OBJGPU **ppThis, Dynamic *pParent, NvU32 creat
         pThis->__nvoc_base_Object.pParent = NULL;
     }
 
-    __nvoc_init_OBJGPU(pThis, ChipHal_arch, ChipHal_impl, ChipHal_hidrev, RmVariantHal_rmVariant, DispIpHal_ipver);
+    __nvoc_init_OBJGPU(pThis, ChipHal_arch, ChipHal_impl, ChipHal_hidrev, RmVariantHal_rmVariant, TegraChipHal_tegraType, DispIpHal_ipver);
     status = __nvoc_ctor_OBJGPU(pThis, arg_gpuInstance);
     if (status != NV_OK) goto __nvoc_objCreate_OBJGPU_cleanup;
 
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_OBJGPU_cleanup:
     // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(OBJGPU));
+    else
+        portMemFree(pThis);
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 
@@ -423,10 +429,11 @@ NV_STATUS __nvoc_objCreateDynamic_OBJGPU(OBJGPU **ppThis, Dynamic *pParent, NvU3
     NvU32 ChipHal_impl = va_arg(args, NvU32);
     NvU32 ChipHal_hidrev = va_arg(args, NvU32);
     RM_RUNTIME_VARIANT RmVariantHal_rmVariant = va_arg(args, RM_RUNTIME_VARIANT);
+    TEGRA_CHIP_TYPE TegraChipHal_tegraType = va_arg(args, TEGRA_CHIP_TYPE);
     NvU32 DispIpHal_ipver = va_arg(args, NvU32);
     NvU32 arg_gpuInstance = va_arg(args, NvU32);
 
-    status = __nvoc_objCreate_OBJGPU(ppThis, pParent, createFlags, ChipHal_arch, ChipHal_impl, ChipHal_hidrev, RmVariantHal_rmVariant, DispIpHal_ipver, arg_gpuInstance);
+    status = __nvoc_objCreate_OBJGPU(ppThis, pParent, createFlags, ChipHal_arch, ChipHal_impl, ChipHal_hidrev, RmVariantHal_rmVariant, TegraChipHal_tegraType, DispIpHal_ipver, arg_gpuInstance);
 
     return status;
 }
