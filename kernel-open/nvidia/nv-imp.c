@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -607,7 +607,7 @@ nv_imp_icc_get
     }
     else if (IS_ERR(nvl->nv_imp_icc_path))
     {
-        nv_printf(NV_DBG_ERRORS, "NVRM: invalid path = %s\n",
+        nv_printf(NV_DBG_ERRORS, "NVRM: invalid path = %d\n",
                   PTR_ERR(nvl->nv_imp_icc_path));
         nvl->nv_imp_icc_path = NULL;
         status = NV_ERR_GENERIC;
