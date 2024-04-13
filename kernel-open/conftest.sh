@@ -1652,6 +1652,22 @@ compile_test() {
             fi
         ;;
 
+        of_clk_get_parent_count)
+            #
+            # Determine if the of_clk_get_parent_count function is present.
+            #
+            CODE="
+            #if defined(NV_LINUX_OF_CLK_H_PRESENT)
+            #include <linux/of_clk.h>
+            #endif
+            void conftest_of_clk_get_parent_count(void)
+            {
+                of_clk_get_parent_count();
+            }
+            "
+            compile_check_conftest "$CODE" "NV_OF_CLK_GET_PARENT_COUNT_PRESENT" "" "functions"
+        ;;
+
         of_node_to_nid)
             #
             # Determine if of_node_to_nid is present
@@ -6441,22 +6457,6 @@ compile_test() {
             }"
 
             compile_check_conftest "$CODE" "NV_DRM_APERTURE_REMOVE_CONFLICTING_PCI_FRAMEBUFFERS_HAS_DRIVER_ARG" "" "types"
-        ;;
-
-        remove_conflicting_framebuffers)
-            #
-            # Determine if remove_conflicting_framebuffers function is present.
-            #
-            # Added by commit 06415c5 ("fbmem, drm/nouveau: kick firmware framebuffers as soon as possible")
-            # in v2.6.35-rc1 (2010-05-18)
-            #
-            CODE="
-            #include <linux/fb.h>
-            void conftest_remove_conflicting_framebuffers(void) {
-                remove_conflicting_framebuffers();
-            }"
-
-            compile_check_conftest "$CODE" "NV_REMOVE_CONFLICTING_FRAMEBUFFERS_PRESENT" "" "functions"
         ;;
 
         crypto)

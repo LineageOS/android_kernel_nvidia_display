@@ -45,6 +45,7 @@
 #include <class/cl003e.h>               // NV01_MEMORY_SYSTEM
 #include <class/cl00c3.h>               // NV01_MEMORY_SYNCPOINT
 #include <class/cl0071.h>               // NV01_MEMORY_SYSTEM_OS_DESCRIPTOR
+#include <class/cl0076.h>               // NV01_MEMORY_FRAMEBUFFER_CONSOLE
 #include <class/cl00f2.h>               // IO_VASPACE_A
 #include <class/cl0005.h>               // NV01_EVENT
 #include <nvos.h>                       // NV01_EVENT_KERNEL_CALLBACK
@@ -127,6 +128,10 @@
 
 #ifndef NV01_MEMORY_SYSTEM_OS_DESCRIPTOR
 #define NV01_MEMORY_SYSTEM_OS_DESCRIPTOR         (0x00000071)
+#endif
+
+#ifndef NV01_MEMORY_FRAMEBUFFER_CONSOLE
+#define NV01_MEMORY_FRAMEBUFFER_CONSOLE          (0x00000076)
 #endif
 
 #ifndef IO_VASPACE_A

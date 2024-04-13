@@ -115,6 +115,7 @@ struct KernelDisplay {
     NvBool PDB_PROP_KDISP_BUG_2089053_SERIALIZE_AGGRESSIVE_VBLANKS_ONLY_ON_HMD_ACTIVE;
     NvBool PDB_PROP_KDISP_IN_AWAKEN_INTR;
     struct DisplayInstanceMemory *pInst;
+    struct DisplayConsoleMemory *pConsoleMem;
     struct KernelHead *pKernelHead[4];
     const KernelDisplayStaticInfo *pStaticInfo;
     NvBool bWarPurgeSatellitesOnCoreFree;
@@ -207,6 +208,33 @@ static inline void kdispDestructInstMem(struct KernelDisplay *pKernelDisplay) {
 #endif //__nvoc_kern_disp_h_disabled
 
 #define kdispDestructInstMem_HAL(pKernelDisplay) kdispDestructInstMem(pKernelDisplay)
+
+NV_STATUS kdispConstructConsoleMem_IMPL(struct KernelDisplay *pKernelDisplay);
+
+
+#ifdef __nvoc_kern_disp_h_disabled
+static inline NV_STATUS kdispConstructConsoleMem(struct KernelDisplay *pKernelDisplay) {
+    NV_ASSERT_FAILED_PRECOMP("KernelDisplay was disabled!");
+    return NV_ERR_NOT_SUPPORTED;
+}
+#else //__nvoc_kern_disp_h_disabled
+#define kdispConstructConsoleMem(pKernelDisplay) kdispConstructConsoleMem_IMPL(pKernelDisplay)
+#endif //__nvoc_kern_disp_h_disabled
+
+#define kdispConstructConsoleMem_HAL(pKernelDisplay) kdispConstructConsoleMem(pKernelDisplay)
+
+void kdispDestructConsoleMem_IMPL(struct KernelDisplay *pKernelDisplay);
+
+
+#ifdef __nvoc_kern_disp_h_disabled
+static inline void kdispDestructConsoleMem(struct KernelDisplay *pKernelDisplay) {
+    NV_ASSERT_FAILED_PRECOMP("KernelDisplay was disabled!");
+}
+#else //__nvoc_kern_disp_h_disabled
+#define kdispDestructConsoleMem(pKernelDisplay) kdispDestructConsoleMem_IMPL(pKernelDisplay)
+#endif //__nvoc_kern_disp_h_disabled
+
+#define kdispDestructConsoleMem_HAL(pKernelDisplay) kdispDestructConsoleMem(pKernelDisplay)
 
 NV_STATUS kdispSelectClass_v03_00_KERNEL(struct OBJGPU *pGpu, struct KernelDisplay *pKernelDisplay, NvU32 swClass);
 

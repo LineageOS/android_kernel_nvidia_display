@@ -182,6 +182,16 @@ RS_ENTRY(
     /* Flags                  */ RS_FLAGS_ALLOC_PRIVILEGED | RS_FLAGS_ACQUIRE_GPU_GROUP_LOCK,
     /* Required Access Rights */ RS_ACCESS_NONE
 )
+RS_ENTRY(
+    /* External Class         */ NV01_MEMORY_FRAMEBUFFER_CONSOLE,
+    /* Internal Class         */ ConsoleMemory,
+    /* Multi-Instance         */ NV_TRUE,
+    /* Parents                */ RS_LIST(classId(Device)),
+    /* Alloc Param Info       */ RS_NONE,
+    /* Resource Free Priority */ RS_FREE_PRIORITY_DEFAULT,
+    /* Flags                  */ RS_FLAGS_ALLOC_PRIVILEGED | RS_FLAGS_ACQUIRE_GPUS_LOCK,
+    /* Required Access Rights */ RS_ACCESS_NONE
+)
     /* Subdevice Children: */
 RS_ENTRY(
     /* External Class         */ NVC671_DISP_SF_USER,

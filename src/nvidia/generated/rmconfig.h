@@ -303,7 +303,7 @@
 #define RMCFG_CLASS_NV01_MEMORY_SYNCPOINT         1
 #define RMCFG_CLASS_NV01_MEMORY_SYSTEM_OS_DESCRIPTOR  1
 #define RMCFG_CLASS_NV01_MEMORY_DEVICELESS        0
-#define RMCFG_CLASS_NV01_MEMORY_FRAMEBUFFER_CONSOLE  0
+#define RMCFG_CLASS_NV01_MEMORY_FRAMEBUFFER_CONSOLE  1
 #define RMCFG_CLASS_NV01_MEMORY_HW_RESOURCES      0
 #define RMCFG_CLASS_NV01_MEMORY_LIST_SYSTEM       0
 #define RMCFG_CLASS_NV01_MEMORY_LIST_FBMEM        0
@@ -528,6 +528,7 @@
 #define RMCFG_MODULE_SF                           1  // Display component: Serial Formatter, output protocol formatting
 #define RMCFG_MODULE_DISPLAY_INSTANCE_MEMORY      1
 #define RMCFG_MODULE_KERNEL_HEAD                  1
+#define RMCFG_MODULE_DISPLAY_CONSOLE_MEMORY       1
 #define RMCFG_MODULE_INTR                         0
 #define RMCFG_MODULE_MC                           0
 #define RMCFG_MODULE_KERNEL_MC                    0  // Master Control-related code needed in Kernel RM

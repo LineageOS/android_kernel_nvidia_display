@@ -1994,6 +1994,7 @@ static NvBool ConstructModeTimingsMetaData(
                 // Currently hardcoded to send infoframe necessary for HDMI 1.4a 4kx2k extended modes.
                 if (NVT_GET_TIMING_STATUS_TYPE(timing.etc.status) == NVT_TYPE_HDMI_EXT) {
                     pVendorInfoFrameCtrl->Enable = 1;
+                    pVendorInfoFrameCtrl->HDMIRevision = 14;
                     pVendorInfoFrameCtrl->HDMIFormat = NVT_HDMI_VS_BYTE4_HDMI_VID_FMT_EXT;
                     pVendorInfoFrameCtrl->HDMI_VIC = NVT_GET_TIMING_STATUS_SEQ(timing.etc.status);
                     pVendorInfoFrameCtrl->ThreeDStruc  = NVT_HDMI_VS_BYTE5_HDMI_3DS_NA;
@@ -2001,7 +2002,9 @@ static NvBool ConstructModeTimingsMetaData(
                     pVendorInfoFrameCtrl->MetadataPresent = 0;
                     pVendorInfoFrameCtrl->MetadataType = NVT_HDMI_VS_BYTE_OPT2_HDMI_METADATA_TYPE_NA;
                 } else {
-                    pVendorInfoFrameCtrl->Enable = 0;
+                    pVendorInfoFrameCtrl->Enable = 1;
+                    pVendorInfoFrameCtrl->HDMIRevision = 14;
+                    pVendorInfoFrameCtrl->HDMIFormat = NVT_HDMI_VS_BYTE4_HDMI_VID_FMT_NONE;
                 }
             }
         }

@@ -387,6 +387,17 @@ typedef struct SyncpointMemory SyncpointMemory;
 #define __nvoc_class_id_SyncpointMemory 0x529def
 #endif /* __nvoc_class_id_SyncpointMemory */
 
+struct ConsoleMemory;
+
+#ifndef __NVOC_CLASS_ConsoleMemory_TYPEDEF__
+#define __NVOC_CLASS_ConsoleMemory_TYPEDEF__
+typedef struct ConsoleMemory ConsoleMemory;
+#endif /* __NVOC_CLASS_ConsoleMemory_TYPEDEF__ */
+
+#ifndef __nvoc_class_id_ConsoleMemory
+#define __nvoc_class_id_ConsoleMemory 0xaac69e
+#endif /* __nvoc_class_id_ConsoleMemory */
+
 struct DispSfUser;
 
 #ifndef __NVOC_CLASS_DispSfUser_TYPEDEF__
@@ -502,6 +513,7 @@ struct NVOCFwdDeclHack {
     struct SystemMemory *PRIVATE_FIELD(SystemMemory_NV01_MEMORY_SYSTEM);
     struct OsDescMemory *PRIVATE_FIELD(OsDescMemory_NV01_MEMORY_SYSTEM_OS_DESCRIPTOR);
     struct SyncpointMemory *PRIVATE_FIELD(SyncpointMemory_NV01_MEMORY_SYNCPOINT);
+    struct ConsoleMemory *PRIVATE_FIELD(ConsoleMemory_NV01_MEMORY_FRAMEBUFFER_CONSOLE);
     struct DispSfUser *PRIVATE_FIELD(DispSfUser_NVC671_DISP_SF_USER);
     struct NvDispApi *PRIVATE_FIELD(NvDispApi_NVC670_DISPLAY);
     struct DispSwObj *PRIVATE_FIELD(DispSwObj_NVC372_DISPLAY_SW);

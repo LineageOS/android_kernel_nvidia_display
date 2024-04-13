@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -35,6 +35,6 @@ int       nv_platform_count_devices(void);
 int       nv_soc_register_irqs(nv_state_t *nv);
 void      nv_soc_free_irqs(nv_state_t *nv);
 
-int nv_remove_conflicting_framebuffers(void);
+int nv_disable_simplefb_clocks(void);
 
 #endif

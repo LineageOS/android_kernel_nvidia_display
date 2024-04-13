@@ -572,6 +572,18 @@ typedef struct DisplayInstanceMemory DisplayInstanceMemory;
 #endif /* __nvoc_class_id_DisplayInstanceMemory */
 
 
+struct DisplayConsoleMemory;
+
+#ifndef __NVOC_CLASS_DisplayConsoleMemory_TYPEDEF__
+#define __NVOC_CLASS_DisplayConsoleMemory_TYPEDEF__
+typedef struct DisplayConsoleMemory DisplayConsoleMemory;
+#endif /* __NVOC_CLASS_DisplayConsoleMemory_TYPEDEF__ */
+
+#ifndef __nvoc_class_id_DisplayConsoleMemory
+#define __nvoc_class_id_DisplayConsoleMemory 0x0f96d3
+#endif /* __nvoc_class_id_DisplayConsoleMemory */
+
+
 struct KernelHead;
 
 #ifndef __NVOC_CLASS_KernelHead_TYPEDEF__
@@ -1380,6 +1392,7 @@ typedef struct OBJGMMU OBJGMMU;
 #define ENG_DPU                  MKENGDESC(classId(OBJDPU),              0)
 #define ENG_FAN                  MKENGDESC(classId(Fan),                 0)
 #define ENG_INST                 MKENGDESC(classId(DisplayInstanceMemory), 0)
+#define ENG_CONSOLE_MEM          MKENGDESC(classId(DisplayConsoleMemory), 0)
 #define ENG_KERNEL_HEAD          MKENGDESC(classId(KernelHead),          0)
 #define ENG_VOLT                 MKENGDESC(classId(OBJVOLT),             0)
 #define ENG_INTR                 MKENGDESC(classId(Intr),                0)

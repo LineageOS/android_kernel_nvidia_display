@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -1255,11 +1255,11 @@ static int nv_start_device(nv_state_t *nv, nvidia_stack_t *sp)
         goto failed;
     }
 
-    rc = nv_remove_conflicting_framebuffers();
+    rc = nv_disable_simplefb_clocks();
     if (rc)
     {
         NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-                      "nv_remove_conflicting_framebuffers failed, status %d\n",
+                      "nv_disable_simplefb_clocks failed, status %d\n",
                       rc);
         goto failed;
     }

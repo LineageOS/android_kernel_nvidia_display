@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -1386,7 +1386,7 @@ NvBool nv_get_hdcp_enabled(nv_state_t *nv)
     return NV_FALSE;
 }
 
-int nv_remove_conflicting_framebuffers(void)
+int nv_disable_simplefb_clocks(void)
 {
     int status = 0;
 
@@ -1399,8 +1399,38 @@ int nv_remove_conflicting_framebuffers(void)
         {
             if (!registered_fb[i])
                 continue;
-#if defined(NV_REMOVE_CONFLICTING_FRAMEBUFFERS_PRESENT)
-            status = remove_conflicting_framebuffers(registered_fb[i]->apertures, nv_platform_driver.driver.name, false);
+
+#if defined(CONFIG_OF) && defined(CONFIG_COMMON_CLK)
+            struct clk *clock;
+            struct device_node *np = NULL;
+            unsigned int clk_count = 0;
+            int j;
+
+            np = of_find_node_by_name(NULL, "framebuffer");
+            if ((np != NULL) && of_device_is_available(np))
+            {
+#if defined(NV_LINUX_OF_CLK_H_PRESENT) && defined(NV_OF_CLK_GET_PARENT_COUNT_PRESENT)
+                clk_count = of_clk_get_parent_count(np);
+                for (j = 0; j < clk_count; j++)
+                {
+                    clock = of_clk_get(np, j);
+                    if (IS_ERR(clock))
+                    {
+                         nv_printf(NV_DBG_ERRORS, "clock %d not found %ld\n", j, PTR_ERR(clock));
+                         continue;
+                    }
+                    else
+                    {
+                         if (__clk_is_enabled(clock))
+                         {
+                             clk_disable_unprepare(clock);
+                         }
+                         clk_put(clock);
+                    }
+                }
+#endif
+            }
+            of_node_put(np);
 #endif
         }
     }

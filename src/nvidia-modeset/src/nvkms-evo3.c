@@ -8094,7 +8094,11 @@ NVEvoHAL nvEvoC6 = {
         TRUE,                                     /* supportsVblankSyncObjects */
         FALSE,                                    /* requiresScalingTapsInBothDimensions */
         TRUE,                                     /* supportsMergeMode */
-        TRUE,                                     /* supportsHDMI10BPC */
+        // XXX HDMI TODO: Enable 10bpc support in Bug 4590142
+        // HDMI RGB 10bpc support is not fully working on rel-36 yet for Tegra SOC
+        // resulting in issues with specific monitors. Hence disabling it temporarily
+        // until it is fully enabled along with HDR support in above tracking bug.
+        FALSE,                                    /* supportsHDMI10BPC */
         NV_EVO3_SUPPORTED_DITHERING_MODES,        /* supportedDitheringModes */
         sizeof(NVC372_CTRL_IS_MODE_POSSIBLE_PARAMS), /* impStructSize */
         NV_EVO_SCALER_2TAPS,                      /* minScalerTaps */

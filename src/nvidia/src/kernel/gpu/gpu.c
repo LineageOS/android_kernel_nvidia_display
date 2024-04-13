@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -31,6 +31,7 @@
 #include "gpu/gpu.h"
 #include "gpu/disp/kern_disp.h"
 #include "gpu/disp/inst_mem/disp_inst_mem.h"
+#include "gpu/disp/console_mem/disp_console_mem.h"
 #include "gpu/subdevice/subdevice.h"
 #include "gpu/eng_desc.h"
 #include "nv_ref.h"
@@ -3806,6 +3807,13 @@ gpuInitDispIpHal_IMPL
         __nvoc_init_dataField_KernelHead(KDISP_GET_HEAD(pKernelDisplay, headIdx),
                                          pRmHalspecOwner);
     }
+
+    void __nvoc_init_funcTable_DisplayConsoleMemory(DisplayConsoleMemory *, RmHalspecOwner *);
+    void __nvoc_init_dataField_DisplayConsoleMemory(DisplayConsoleMemory *, RmHalspecOwner *);
+    __nvoc_init_funcTable_DisplayConsoleMemory(KERNEL_DISPLAY_GET_CONSOLE_MEM(pKernelDisplay),
+                                                pRmHalspecOwner);
+    __nvoc_init_dataField_DisplayConsoleMemory(KERNEL_DISPLAY_GET_CONSOLE_MEM(pKernelDisplay),
+                                                pRmHalspecOwner);
 
     return NV_OK;
 }

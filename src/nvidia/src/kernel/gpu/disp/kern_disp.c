@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -39,6 +39,7 @@
 #include "gpu/device/device.h"
 #include "gpu/disp/kern_disp.h"
 #include "gpu/disp/inst_mem/disp_inst_mem.h"
+#include "gpu/disp/console_mem/disp_console_mem.h"
 #include "gpu/disp/head/kernel_head.h"
 #include "gpu/disp/disp_objs.h"
 #include "gpu_mgr/gpu_mgr.h"
@@ -111,6 +112,13 @@ kdispConstructEngine_IMPL(OBJGPU        *pGpu,
         return status;
     }
 
+    pKernelDisplay->pConsoleMem = NULL;
+    status = kdispConstructConsoleMem_HAL(pKernelDisplay);
+    if (status != NV_OK)
+    {
+        return status;
+    }
+
     status = kdispConstructKhead(pKernelDisplay);
 
     // We defer checking whether DISP has been disabled some other way until
@@ -127,6 +135,7 @@ kdispDestruct_IMPL
 {
     // Destroy children
     kdispDestructInstMem_HAL(pKernelDisplay);
+    kdispDestructConsoleMem_HAL(pKernelDisplay);
     kdispDestructKhead(pKernelDisplay);
 }
 
@@ -159,6 +168,37 @@ kdispDestructInstMem_IMPL
 {
     objDelete(pKernelDisplay->pInst);
     pKernelDisplay->pInst = NULL;
+}
+
+/*! Constructor for DisplayConsoleMemory */
+NV_STATUS
+kdispConstructConsoleMem_IMPL
+(
+    KernelDisplay *pKernelDisplay
+)
+{
+    NV_STATUS status;
+    DisplayConsoleMemory *pConsole;
+
+    status = objCreate(&pConsole, pKernelDisplay, DisplayConsoleMemory);
+    if (status != NV_OK)
+    {
+        return status;
+    }
+    pKernelDisplay->pConsoleMem = pConsole;
+
+    return NV_OK;
+}
+
+/*! Destructor for DisplayConsoleMemory */
+void
+kdispDestructConsoleMem_IMPL
+(
+    KernelDisplay *pKernelDisplay
+)
+{
+    objDelete(pKernelDisplay->pConsoleMem);
+    pKernelDisplay->pConsoleMem = NULL;
 }
 
 /*! Constructor for Kernel head */
@@ -448,6 +488,12 @@ kdispStateInitLocked_IMPL(OBJGPU        *pGpu,
                 instmemStateInitLocked(pGpu, pKernelDisplay->pInst), exit);
     }
 
+    if (pKernelDisplay->pConsoleMem != NULL)
+    {
+        NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
+                consolememStateInitLocked(pGpu, pKernelDisplay->pConsoleMem), exit);
+    }
+
     if (pKernelDisplay->getProperty(pKernelDisplay, PDB_PROP_KDISP_IMP_ENABLE))
     {
         // NOTE: Fills IMP parameters and populate those to disp object in Tegra
@@ -469,7 +515,10 @@ kdispStateDestroy_IMPL(OBJGPU *pGpu,
     {
         instmemStateDestroy(pGpu, pKernelDisplay->pInst);
     }
-
+    if (pKernelDisplay->pConsoleMem != NULL)
+    {
+        consolememStateDestroy(pGpu, pKernelDisplay->pConsoleMem);
+    }
     portMemFree((void*) pKernelDisplay->pStaticInfo);
     pKernelDisplay->pStaticInfo = NULL;
 

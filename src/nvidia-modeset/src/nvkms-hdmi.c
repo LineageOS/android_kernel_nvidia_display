@@ -561,6 +561,10 @@ SendHDMIVendorSpecificInfoFrame(const NVDispEvoRec *pDispEvo,
     NVT_VENDOR_SPECIFIC_INFOFRAME vendorInfoFrame;
     NVT_STATUS status;
 
+    if (!vendorCtrl.Enable) {
+        return;
+    }
+
     status = NvTiming_ConstructVendorSpecificInfoframe(pEdidInfo,
                                                        &vendorCtrl,
                                                        &vendorInfoFrame);

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -45,6 +45,7 @@
 #include <objtmr.h>
 #include "nverror.h"
 #include <gpu/mem_mgr/mem_mgr.h>
+#include <gpu/disp/console_mem/disp_console_mem.h>
 #include <mem_mgr/io_vaspace.h>
 #include <gpu/disp/kern_disp.h>
 
@@ -601,6 +602,36 @@ osInitNvMapping(
 
         nv->preserve_vidmem_allocations = NV_TRUE;
     }
+}
+
+static void
+RmTegraSetConsolePreservationParams(OBJGPU *pGpu)
+{
+    nv_state_t *nv = NV_GET_NV_STATE(pGpu);
+    NvU64 fbBaseAddress = 0;
+    NvU64 fbConsoleSize = 0;
+
+    if (!gpuFuseSupportsDisplay_HAL(pGpu))
+    {
+        return;
+    }
+
+    //
+    // Check the OS layer for any video memory used by a console
+    // driver that should be reserved.
+    //
+    fbConsoleSize = rm_get_uefi_console_size(nv, &fbBaseAddress);
+
+    if (fbConsoleSize == 0)
+    {
+        NV_PRINTF(LEVEL_INFO, "No Frame Buffer Present\n");
+        return;
+    }
+
+    KernelDisplay *pKernelDisplay        = GPU_GET_KERNEL_DISPLAY(pGpu);
+    DisplayConsoleMemory *pConsoleMem    = KERNEL_DISPLAY_GET_CONSOLE_MEM(pKernelDisplay);
+
+    consolememSetMemory(pGpu, pConsoleMem, fbBaseAddress, fbConsoleSize);
 }
 
 static NV_STATUS
@@ -1249,6 +1280,7 @@ NvBool RmInitAdapter(
 
     pOS    = SYS_GET_OS(pSys);
 
+    RmTegraSetConsolePreservationParams(pGpu);
     RmInitAcpiMethods(pOS, pSys, pGpu);
 
     if (IS_GSP_CLIENT(pGpu) && IsT234DorBetter(pGpu))

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -235,12 +235,6 @@ deviceCtrlCmdOsUnixVTSwitch_IMPL
     Device *pDevice,
     NV0080_CTRL_OS_UNIX_VT_SWITCH_PARAMS *pParams
 )
-{
-    return NV_OK;
-}
-
-NV_STATUS deviceCtrlCmdOsUnixVTGetFBInfo_IMPL(Device *pDevice,
-    NV0080_CTRL_OS_UNIX_VT_GET_FB_INFO_PARAMS *pParams)
 {
     return NV_OK;
 }

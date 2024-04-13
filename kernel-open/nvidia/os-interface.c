@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -1218,9 +1218,6 @@ void NV_API_CALL os_get_screen_info(
             if (!registered_fb[i])
                 continue;
 
-            /* Make sure base address is mapped to GPU BAR */
-            if ((registered_fb[i]->fix.smem_start == consoleBar1Address) ||
-                (registered_fb[i]->fix.smem_start == consoleBar2Address))
             {
                 *pPhysicalAddress = registered_fb[i]->fix.smem_start;
                 *pFbWidth = registered_fb[i]->var.xres;
