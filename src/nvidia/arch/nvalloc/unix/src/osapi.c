@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -4351,11 +4351,9 @@ NvBool rm_get_uefi_console_status(
     // UEFI console check the fbBaseAddress: if it was set up by the EFI GOP
     // driver, it will point into BAR1 (FB); if it was set up by the VBIOS,
     // it will point to BAR2 + 16MB.
-    os_get_screen_info(&fbBaseAddress, &fbWidth, &fbHeight, &fbDepth, &fbPitch,
+    os_get_screen_info(&fbBaseAddress, &fbWidth, &fbHeight, &fbDepth, &fbPitch, &fbSize,
                        nv->bars[NV_GPU_BAR_INDEX_FB].cpu_address,
                        nv->bars[NV_GPU_BAR_INDEX_IMEM].cpu_address + 0x1000000);
-
-    fbSize = (NvU64)fbHeight * (NvU64)fbPitch;
 
     bConsoleDevice = (fbSize != 0);
 
@@ -4377,11 +4375,9 @@ NvU64 rm_get_uefi_console_size(
     // UEFI console check the fbBaseAddress: if it was set up by the EFI GOP
     // driver, it will point into BAR1 (FB); if it was set up by the VBIOS,
     // it will point to BAR2 + 16MB.
-    os_get_screen_info(pFbBaseAddress, &fbWidth, &fbHeight, &fbDepth, &fbPitch,
+    os_get_screen_info(pFbBaseAddress, &fbWidth, &fbHeight, &fbDepth, &fbPitch, &fbSize,
                        nv->bars[NV_GPU_BAR_INDEX_FB].cpu_address,
                        nv->bars[NV_GPU_BAR_INDEX_IMEM].cpu_address + 0x1000000);
-
-    fbSize = (NvU64)fbHeight * (NvU64)fbPitch;
 
     return fbSize;
 }

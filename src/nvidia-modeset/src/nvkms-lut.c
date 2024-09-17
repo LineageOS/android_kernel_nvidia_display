@@ -27,6 +27,7 @@
 #include "nvkms-dma.h"
 #include "nvkms-utils.h"
 #include "nvos.h"
+#include "nvkms-softfloat.h"
 
 #include <class/cl0040.h> /* NV01_MEMORY_LOCAL_USER */
 
@@ -367,7 +368,7 @@ void nvUnrefTmoLutSurfacesEvo(NVDevEvoPtr pDevEvo,
 NvBool nvAllocLutSurfacesEvo(NVDevEvoPtr pDevEvo)
 {
     NVDispEvoPtr pDispEvo;
-    NvU32 apiHead, dispIndex, i, sd;
+    NvU32 apiHead, dispIndex, i;
 
     for (apiHead = 0; apiHead < pDevEvo->numApiHeads; apiHead++) {
         for (i = 0; i < ARRAY_LEN(pDevEvo->lut.apiHead[apiHead].LUT); i++) {
@@ -387,21 +388,17 @@ NvBool nvAllocLutSurfacesEvo(NVDevEvoPtr pDevEvo)
         }
     }
 
-    if (pDevEvo->hal->caps.needDefaultLutSurface) {
-        pDevEvo->lut.defaultLut = AllocLutSurfaceEvo(pDevEvo);
-        if (pDevEvo->lut.defaultLut == NULL) {
+    // Allocate memory for the predefined LUTs.
+    for (i = 0; i < NVKMS_GAMMA_LUT_LAST; i++) {
+        pDevEvo->lut.gammaLUTs[i] = AllocLutSurfaceEvo(pDevEvo);
+        if (pDevEvo->lut.gammaLUTs[i] == NULL) {
             nvFreeLutSurfacesEvo(pDevEvo);
             return FALSE;
         }
-
-        for (sd = 0; sd < NVKMS_MAX_SUBDEVICES; sd++) {
-            pDevEvo->lut.defaultBaseLUTState[sd] =
-            pDevEvo->lut.defaultOutputLUTState[sd] =
-                NvKmsLUTStateUninitialized;
-        }
-
-        pDevEvo->hal->InitDefaultLut(pDevEvo);
     }
+
+    // Initialize the predefined LUTs.
+    pDevEvo->hal->InitDefaultLut(pDevEvo);
 
     return TRUE;
 }
@@ -432,9 +429,12 @@ void nvFreeLutSurfacesEvo(NVDevEvoPtr pDevEvo)
         }
     }
 
-    if (pDevEvo->lut.defaultLut != NULL) {
-        FreeLutSurfaceEvo(pDevEvo->lut.defaultLut);
-        pDevEvo->lut.defaultLut = NULL;
+    // Free any previously-allocated predefined gamma LUTs.
+    for (i = 0; i < NVKMS_GAMMA_LUT_LAST; i++) {
+        if (pDevEvo->lut.gammaLUTs[i] != NULL) {
+            FreeLutSurfaceEvo(pDevEvo->lut.gammaLUTs[i]);
+            pDevEvo->lut.gammaLUTs[i] = NULL;
+        }
     }
 
     for (apiHead = 0; apiHead < pDevEvo->numApiHeads; apiHead++) {

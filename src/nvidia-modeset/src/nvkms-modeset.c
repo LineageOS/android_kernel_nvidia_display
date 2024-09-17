@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2014-2019 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -443,14 +443,14 @@ static void AdjustHwModeTimingsForVrr(const NVDispEvoRec *pDispEvo,
 
 /*
  * Return whether headSurface is allowed. But, only honor the requestor's
- * setting if they are the modeset owner. Otherwise, inherit the cached value
- * in pDevEvo.
+ * setting if they have modeset owner permission. Otherwise, inherit the cached
+ * value in pDevEvo.
  */
 NvBool nvGetAllowHeadSurfaceInNvKms(const NVDevEvoRec *pDevEvo,
                                     const struct NvKmsPerOpenDev *pOpenDev,
                                     const struct NvKmsSetModeRequest *pRequest)
 {
-    if (pOpenDev == pDevEvo->modesetOwner || pOpenDev == pDevEvo->pNvKmsOpenDev) {
+    if (nvKmsOpenDevHasSubOwnerPermissionOrBetter(pOpenDev)) {
         return pRequest->allowHeadSurfaceInNvKms;
     }
 
@@ -1170,6 +1170,18 @@ AssignProposedModeSetHwState(NVDevEvoRec *pDevEvo,
                 pProposedApiHead->lut = pRequestHead->lut;
             } else {
                 pProposedApiHead->lut.input.specified = FALSE;
+            }
+
+            if (pRequestHead->outputColorSpace.specified) {
+                pProposedApiHead->outputColorSpace =
+                    pRequestHead->outputColorSpace.val;
+
+                // A specified output color space takes precedence over a
+                // specified custom OLUT. Setting the lut.output as follows
+                // will cause nvEvoSetLut() to set the relevant parameter to
+                // output disabled.
+                pProposedApiHead->lut.output.specified = TRUE;
+                pProposedApiHead->lut.output.enabled = FALSE;
             }
 
             if (pRequestHead->flip.viewPortIn.specified) {
@@ -2458,6 +2470,7 @@ ApplyProposedModeSetHwStateOneHeadPreUpdate(
         nvEvoColorSpaceBpcToPixelDepth(pProposedApiHead->attributes.colorSpace,
                                        pProposedApiHead->attributes.colorBpc);
     pHeadState->audio = pProposedHead->audio;
+    pHeadState->outputColorSpace = pProposedApiHead->outputColorSpace;
 
     /* Update current LUT to hardware */
     nvEvoSetLUTContextDma(pDispEvo, head, updateState);

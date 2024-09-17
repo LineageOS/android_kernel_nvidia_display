@@ -126,6 +126,7 @@ struct nv_drm_device {
     NvU64 modifiers[6 /* block linear */ + 1 /* linear */ + 1 /* terminator */];
 #endif
 
+    struct delayed_work hotplug_event_work;
     atomic_t enable_event_handling;
 
     /**
@@ -146,6 +147,8 @@ struct nv_drm_device {
     NvBool hasVideoMemory;
 
     NvBool supportsSyncpts;
+    NvBool subOwnershipGranted;
+    NvBool hasFramebufferConsole;
 
     struct drm_property *nv_out_fence_property;
     struct drm_property *nv_input_colorspace_property;

@@ -1255,15 +1255,6 @@ static int nv_start_device(nv_state_t *nv, nvidia_stack_t *sp)
         goto failed;
     }
 
-    rc = nv_disable_simplefb_clocks();
-    if (rc)
-    {
-        NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-                      "nv_disable_simplefb_clocks failed, status %d\n",
-                      rc);
-        goto failed;
-    }
-
     {
         const NvU8 *uuid = rm_get_gpu_uuid_raw(sp, nv);
 

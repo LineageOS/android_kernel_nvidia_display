@@ -31,6 +31,8 @@ int nv_drm_probe_devices(void);
 
 void nv_drm_remove_devices(void);
 
+void nv_drm_suspend_resume(NvBool suspend);
+
 #endif /* defined(NV_DRM_AVAILABLE) */
 
 #endif /* __NVIDIA_DRM_DRV_H__ */

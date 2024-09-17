@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2017 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -37,6 +37,7 @@ typedef struct {
     NVDpyIdList dpyIdList;
     NVAttributesSetEvoRec attributes;
     struct NvKmsSetLutCommonParams lut;
+    enum NvKmsOutputColorSpace outputColorSpace;
     NVDispStereoParamsEvoRec stereo;
     NVDscInfoEvoRec dscInfo;
     NVDispHeadInfoFrameStateEvoRec infoFrame;

@@ -682,6 +682,8 @@ nvkms_event_queue_changed(nvkms_per_open_handle_t *pOpenKernel,
 
 static void nvkms_suspend(NvU32 gpuId)
 {
+    nvKmsKapiSuspendResume(NV_TRUE /* suspend */);
+
     if (gpuId == 0) {
         nvkms_write_lock_pm_lock();
     }
@@ -700,6 +702,8 @@ static void nvkms_resume(NvU32 gpuId)
     if (gpuId == 0) {
         nvkms_write_unlock_pm_lock();
     }
+
+    nvKmsKapiSuspendResume(NV_FALSE /* suspend */);
 }
 
 
@@ -1450,6 +1454,26 @@ struct nvkms_per_open* nvkms_open_from_kapi
 void nvkms_close_from_kapi(struct nvkms_per_open *popen)
 {
     nvkms_close_pm_unlocked(popen);
+}
+
+NvBool nvkms_ioctl_from_kapi_try_pmlock
+(
+    struct nvkms_per_open *popen,
+    NvU32 cmd, void *params_address, const size_t param_size
+)
+{
+    NvBool ret;
+
+    if (nvkms_read_trylock_pm_lock()) {
+        return NV_FALSE;
+    }
+
+    ret = nvkms_ioctl_common(popen,
+                             cmd,
+                             (NvU64)(NvUPtr)params_address, param_size) == 0;
+    nvkms_read_unlock_pm_lock();
+
+    return ret;
 }
 
 NvBool nvkms_ioctl_from_kapi

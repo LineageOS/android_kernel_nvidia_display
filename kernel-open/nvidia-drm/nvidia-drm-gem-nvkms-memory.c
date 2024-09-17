@@ -180,7 +180,35 @@ static void *__nv_drm_gem_nvkms_prime_vmap(
         }
     }
 
-    return nv_nvkms_memory->pWriteCombinedIORemapAddress;
+    if (nv_nvkms_memory->physically_mapped) {
+        return nv_nvkms_memory->pWriteCombinedIORemapAddress;
+    }
+
+    /*
+     * If this buffer isn't physically mapped, it might be backed by struct
+     * pages. Use vmap in that case. Do a noncached mapping for system memory
+     * as display is non io-coherent device in case of Tegra.
+     */
+    if (nv_nvkms_memory->pages_count > 0) {
+         return nv_drm_vmap(nv_nvkms_memory->pages,
+                            nv_nvkms_memory->pages_count,
+                            false);
+    }
+
+    return ERR_PTR(-ENOMEM);
+}
+
+static void __nv_drm_gem_nvkms_prime_vunmap(
+    struct nv_drm_gem_object *nv_gem,
+    void *address)
+{
+    struct nv_drm_gem_nvkms_memory *nv_nvkms_memory =
+        to_nv_nvkms_memory(nv_gem);
+
+    if (!nv_nvkms_memory->physically_mapped &&
+        nv_nvkms_memory->pages_count > 0) {
+        nv_drm_vunmap(address);
+    }
 }
 
 static int __nv_drm_gem_map_nvkms_memory_offset(
@@ -228,6 +256,7 @@ const struct nv_drm_gem_object_funcs nv_gem_nvkms_memory_ops = {
     .free = __nv_drm_gem_nvkms_memory_free,
     .prime_dup = __nv_drm_gem_nvkms_prime_dup,
     .prime_vmap = __nv_drm_gem_nvkms_prime_vmap,
+    .prime_vunmap = __nv_drm_gem_nvkms_prime_vunmap,
     .mmap = __nv_drm_gem_nvkms_mmap,
     .handle_vma_fault = __nv_drm_gem_nvkms_handle_vma_fault,
     .create_mmap_offset = __nv_drm_gem_map_nvkms_memory_offset,

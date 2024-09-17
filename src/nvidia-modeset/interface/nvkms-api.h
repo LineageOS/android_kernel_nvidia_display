@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2014-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -267,6 +267,7 @@ enum NvKmsIoctlCommand {
     NVKMS_IOCTL_ENABLE_VBLANK_SYNC_OBJECT,
     NVKMS_IOCTL_DISABLE_VBLANK_SYNC_OBJECT,
     NVKMS_IOCTL_NOTIFY_VBLANK,
+    NVKMS_IOCTL_QUERY_VT_FB_DATA,
 };
 
 
@@ -916,7 +917,12 @@ struct NvKmsFlipCommonParams {
             NvBool specified;
         } colorRange;
 
-        /* This field has no effect right now. */
+        /*
+         * Specifies the input colorspace and gamma encoding.
+         * If this is specified as any non-NONE colorspace, the driver will
+         * load a predefined ILUT for that colorspace, and that will take
+         * precedence over any custom LUTs the client supplies.
+         */
         struct {
             enum NvKmsInputColorSpace val;
             NvBool specified;
@@ -1465,6 +1471,19 @@ struct NvKmsQueryDpyDynamicDataParams {
     struct NvKmsQueryDpyDynamicDataReply reply;     /*! out */
 };
 
+struct NvKmsQueryVtFbDataRequest {
+    NvKmsDeviceHandle deviceHandle;
+};
+
+struct NvKmsQueryVtFbDataReply {
+    NvU64 baseAddress;
+    NvU64 size;
+};
+
+struct NvKmsQueryVtFbDataParams {
+    struct NvKmsQueryVtFbDataRequest request; /*! in */
+    struct NvKmsQueryVtFbDataReply reply; /*! out */
+};
 
 /*!
  * NVKMS_IOCTL_VALIDATE_MODE_INDEX: Validate a particular mode from a
@@ -1791,9 +1810,26 @@ struct NvKmsSetModeOneHeadRequest {
     struct NvKmsSize viewPortSizeIn;
 
     /*!
-     * Describe the LUT to be used with the modeset.
+     * Clients can supply custom ILUT and OLUT ramps through this variable. If
+     * a client wishes to use a custom ILUT/OLUT, they must specify
+     * NVKMS_INPUT_COLORSPACE_NONE (see NvKmsInputColorSpace in
+     * FlipCommonParams) and NVKMS_OUTPUT_COLORSPACE_NONE (see
+     * NvKmsOutputColorSpace below), otherwise the predefined LUTs for the
+     * specified input/output colorspaces will be used instead.
      */
     struct NvKmsSetLutCommonParams lut;
+
+    /*!
+     * If specified, this will determine the gamma encoding of the output.
+     * Note: this will take precendence over a custom output lut ramp if that
+     * is also supplied via the `lut` member variable above.
+     * Note: if neither this nor a custom OLUT is specified, the driver will
+     * default to an Identity OLUT (i.e. no regamma).
+     */
+     struct {
+         NvBool specified;
+         enum NvKmsOutputColorSpace val;
+     } outputColorSpace;
 
     /*!
      * Describe the surfaces to present on this head.
@@ -3189,6 +3225,11 @@ struct NvKmsSetLayerPositionParams {
  *
  * Releasing modeset ownership enables console hotplug handling. See the
  * explanation in the comment for enableConsoleHotplugHandling above.
+ *
+ * If modeset ownership is held by nvidia-drm, then NVKMS_IOCTL_GRAB_OWNERSHIP
+ * will fail. Clients should open the corresponding DRM device node, acquire
+ * 'master' on it, and then use DRM_NVIDIA_GRANT_PERMISSIONS with permission
+ * type NV_DRM_PERMISSIONS_TYPE_SUB_OWNER to acquire sub-owner permission.
  */
 
 struct NvKmsGrabOwnershipRequest {
@@ -3227,8 +3268,9 @@ struct NvKmsReleaseOwnershipParams {
  * successfully called NVKMS_IOCTL_GRAB_OWNERSHIP) is allowed to flip
  * or set modes.
  *
- * However, the modeset owner can grant various permissions to other
- * clients through the following steps:
+ * However, the modeset owner or another NVKMS client with
+ * NV_KMS_PERMISSIONS_TYPE_SUB_OWNER permission can grant various
+ * permissions to other clients through the following steps:
  *
  * - The modeset owner should open /dev/nvidia-modeset, and call
  *   NVKMS_IOCTL_GRANT_PERMISSIONS to define a set of permissions
@@ -3277,6 +3319,7 @@ struct NvKmsReleaseOwnershipParams {
 enum NvKmsPermissionsType {
     NV_KMS_PERMISSIONS_TYPE_FLIPPING = 1,
     NV_KMS_PERMISSIONS_TYPE_MODESET = 2,
+    NV_KMS_PERMISSIONS_TYPE_SUB_OWNER = 3,
 };
 
 struct NvKmsFlipPermissions {

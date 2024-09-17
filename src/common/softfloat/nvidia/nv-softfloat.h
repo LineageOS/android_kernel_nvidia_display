@@ -55,6 +55,11 @@ INLINE NvU32 F32viewAsNvU32(float32_t f)
     return f.v;
 }
 
+INLINE NvU16 F16viewAsNvU16(float16_t f)
+{
+    return f.v;
+}
+
 /*
  * Convert the value of a float32_t to an NvU16.
  *

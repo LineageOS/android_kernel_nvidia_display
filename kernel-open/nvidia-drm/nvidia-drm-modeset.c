@@ -237,6 +237,14 @@ nv_drm_atomic_apply_modeset_config(struct drm_device *dev,
     int i;
     int ret;
 
+    /*
+     * If sub-owner permission was granted to another NVKMS client, disallow
+     * modesets through the DRM interface.
+     */
+    if (nv_dev->subOwnershipGranted) {
+        return -EINVAL;
+    }
+
     memset(requested_config, 0, sizeof(*requested_config));
 
     /* Loop over affected crtcs and construct NvKmsKapiRequestedModeSetConfig */
@@ -547,6 +555,9 @@ int nv_drm_atomic_commit(struct drm_device *dev,
                 NV_DRM_DEV_LOG_ERR(
                     nv_dev,
                     "Flip event timeout on head %u", nv_crtc->head);
+                while (!list_empty(&nv_crtc->flip_list)) {
+                    __nv_drm_handle_flip_event(nv_crtc);
+                }
             }
         }
     }

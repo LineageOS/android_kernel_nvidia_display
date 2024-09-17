@@ -1201,12 +1201,13 @@ void NV_API_CALL os_get_screen_info(
     NvU32 *pFbHeight,
     NvU32 *pFbDepth,
     NvU32 *pFbPitch,
+    NvU64 *pFbSize,
     NvU64 consoleBar1Address,
     NvU64 consoleBar2Address
 )
 {
     *pPhysicalAddress = 0;
-    *pFbWidth = *pFbHeight = *pFbDepth = *pFbPitch = 0;
+    *pFbWidth = *pFbHeight = *pFbDepth = *pFbPitch = *pFbSize = 0;
 
 #if defined(CONFIG_FB) && defined(NV_NUM_REGISTERED_FB_PRESENT)
     if (num_registered_fb > 0)
@@ -1224,6 +1225,7 @@ void NV_API_CALL os_get_screen_info(
                 *pFbHeight = registered_fb[i]->var.yres;
                 *pFbDepth = registered_fb[i]->var.bits_per_pixel;
                 *pFbPitch = registered_fb[i]->fix.line_length;
+                *pFbSize = registered_fb[i]->fix.smem_len;
                 return;
             }
         }

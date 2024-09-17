@@ -652,6 +652,38 @@ static int nv_drm_plane_atomic_get_property(
     return -EINVAL;
 }
 
+/**
+ * nv_drm_plane_atomic_reset - plane state reset hook
+ * @plane: DRM plane
+ *
+ * Allocate an empty DRM plane state.
+ */
+static void nv_drm_plane_atomic_reset(struct drm_plane *plane)
+{
+    struct nv_drm_plane_state *nv_plane_state =
+        nv_drm_calloc(1, sizeof(*nv_plane_state));
+
+    if (!nv_plane_state) {
+        return;
+    }
+
+    drm_atomic_helper_plane_reset(plane);
+
+    /*
+     * The drm atomic helper function allocates a state object that is the wrong
+     * size. Copy its contents into the one we allocated above and replace the
+     * pointer.
+     */
+    if (plane->state) {
+        nv_plane_state->base = *plane->state;
+        kfree(plane->state);
+        plane->state = &nv_plane_state->base;
+    } else {
+        kfree(nv_plane_state);
+    }
+}
+
+
 static struct drm_plane_state *
 nv_drm_plane_atomic_duplicate_state(struct drm_plane *plane)
 {
@@ -711,7 +743,7 @@ static const struct drm_plane_funcs nv_plane_funcs = {
     .update_plane           = drm_atomic_helper_update_plane,
     .disable_plane          = drm_atomic_helper_disable_plane,
     .destroy                = nv_drm_plane_destroy,
-    .reset                  = drm_atomic_helper_plane_reset,
+    .reset                  = nv_drm_plane_atomic_reset,
     .atomic_get_property    = nv_drm_plane_atomic_get_property,
     .atomic_set_property    = nv_drm_plane_atomic_set_property,
     .atomic_duplicate_state = nv_drm_plane_atomic_duplicate_state,
@@ -765,6 +797,36 @@ static inline void nv_drm_crtc_duplicate_req_head_modeset_config(
         new->layerRequestedConfig[i] = (struct NvKmsKapiLayerRequestedConfig) {
             .config = old->layerRequestedConfig[i].config,
         };
+    }
+}
+
+/**
+ * nv_drm_atomic_crtc_reset - crtc state reset hook
+ * @crtc: DRM crtc
+ *
+ * Allocate an empty DRM crtc state.
+ */
+static void nv_drm_atomic_crtc_reset(struct drm_crtc *crtc)
+{
+    struct nv_drm_crtc_state *nv_state = nv_drm_calloc(1, sizeof(*nv_state));
+
+    if (!nv_state) {
+        return;
+    }
+
+    drm_atomic_helper_crtc_reset(crtc);
+
+    /*
+     * The drm atomic helper function allocates a state object that is the wrong
+     * size. Copy its contents into the one we allocated above and replace the
+     * pointer.
+     */
+    if (crtc->state) {
+        nv_state->base = *crtc->state;
+        kfree(crtc->state);
+        crtc->state = &nv_state->base;
+    } else {
+        kfree(nv_state);
     }
 }
 
@@ -829,7 +891,7 @@ static void nv_drm_atomic_crtc_destroy_state(struct drm_crtc *crtc,
 static struct drm_crtc_funcs nv_crtc_funcs = {
     .set_config             = drm_atomic_helper_set_config,
     .page_flip              = drm_atomic_helper_page_flip,
-    .reset                  = drm_atomic_helper_crtc_reset,
+    .reset                  = nv_drm_atomic_crtc_reset,
     .destroy                = nv_drm_crtc_destroy,
     .atomic_duplicate_state = nv_drm_atomic_crtc_duplicate_state,
     .atomic_destroy_state   = nv_drm_atomic_crtc_destroy_state,

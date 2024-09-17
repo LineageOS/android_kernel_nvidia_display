@@ -58,10 +58,18 @@ typedef struct nv_timer nv_drm_timer;
 #error "Need to define kernel timer callback primitives for this OS"
 #endif /* else defined(NV_LINUX) */
 
+#if defined(NV_DRM_FBDEV_GENERIC_SETUP_PRESENT) && defined(NV_DRM_APERTURE_REMOVE_CONFLICTING_PCI_FRAMEBUFFERS_PRESENT)
+#define NV_DRM_FBDEV_GENERIC_AVAILABLE
+#endif
+
 struct page;
 
 /* Set to true when the atomic modeset feature is enabled. */
 extern bool nv_drm_modeset_module_param;
+#if defined(NV_DRM_FBDEV_GENERIC_AVAILABLE)
+/* Set to true when the nvidia-drm driver should install a framebuffer device */
+extern bool nv_drm_fbdev_module_param;
+#endif
 
 void *nv_drm_calloc(size_t nmemb, size_t size);
 
@@ -76,7 +84,7 @@ int nv_drm_lock_user_pages(unsigned long address,
 
 void nv_drm_unlock_user_pages(unsigned long  pages_count, struct page **pages);
 
-void *nv_drm_vmap(struct page **pages, unsigned long pages_count);
+void *nv_drm_vmap(struct page **pages, unsigned long pages_count, bool cached);
 
 void nv_drm_vunmap(void *address);
 

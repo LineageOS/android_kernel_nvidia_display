@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -411,6 +411,14 @@ struct NvKmsKapiDynamicDisplayParams {
     NvBool forceDisconnected;
 };
 
+struct NvKmsKapiVtFbParams {
+    /* [OUT] VT framebuffer memory base address */
+    NvU64 baseAddress;
+
+    /* [OUT] VT framebuffer memory size */
+    NvU64 size;
+};
+
 struct NvKmsKapiCreateSurfaceParams {
 
     /* [IN] Parameter of each plane */
@@ -454,6 +462,8 @@ typedef enum NvKmsKapiRegisterWaiterResultRec {
     NVKMS_KAPI_REG_WAITER_SUCCESS,
     NVKMS_KAPI_REG_WAITER_ALREADY_SIGNALLED,
 } NvKmsKapiRegisterWaiterResult;
+
+typedef void NvKmsKapiSuspendResumeCallbackFunc(NvBool suspend);
 
 struct NvKmsKapiFunctionsTable {
 
@@ -540,8 +550,8 @@ struct NvKmsKapiFunctionsTable {
     );
 
     /*!
-     * Revoke permissions previously granted. Only one (dispIndex, head,
-     * display) is currently supported.
+     * Revoke modeset permissions previously granted. Only one (dispIndex,
+     * head, display) is currently supported.
      *
      * \param [in]  device     A device returned by allocateDevice().
      *
@@ -556,6 +566,34 @@ struct NvKmsKapiFunctionsTable {
         struct NvKmsKapiDevice *device,
         NvU32 head,
         NvKmsKapiDisplay display
+    );
+
+    /*!
+     * Grant modeset sub-owner permissions to fd. This is used by clients to
+     * convert drm 'master' permissions into nvkms sub-owner permission.
+     *
+     * \param [in]  fd         fd from opening /dev/nvidia-modeset.
+     *
+     * \param [in]  device     A device returned by allocateDevice().
+     *
+     * \return NV_TRUE on success, NV_FALSE on failure.
+     */
+    NvBool (*grantSubOwnership)
+    (
+        NvS32 fd,
+        struct NvKmsKapiDevice *device
+    );
+
+    /*!
+     * Revoke sub-owner permissions previously granted.
+     *
+     * \param [in]  device     A device returned by allocateDevice().
+     *
+     * \return NV_TRUE on success, NV_FALSE on failure.
+     */
+    NvBool (*revokeSubOwnership)
+    (
+        struct NvKmsKapiDevice *device
     );
 
     /*!
@@ -677,6 +715,20 @@ struct NvKmsKapiFunctionsTable {
     (
         struct NvKmsKapiDevice *device,
         struct NvKmsKapiDynamicDisplayParams *params
+    );
+
+    /*!
+     * Get VT framebuffer information.
+     *
+     * \param [out]  params    Parameters containing the base address and size
+     *                         of VT framebuffer memory
+     *
+     * \return NV_TRUE on success, NV_FALSE on failure.
+     */
+    NvBool (*getVtFbInfo)
+    (
+        struct NvKmsKapiDevice *device,
+        struct NvKmsKapiVtFbParams *params
     );
 
     /*!
@@ -1335,6 +1387,15 @@ struct NvKmsKapiFunctionsTable {
         struct NvKmsKapiSemaphoreSurface *semaphoreSurface,
         NvU64 index,
         NvU64 new_value
+    );
+
+    /*!
+     * Set the callback function for suspending and resuming the display system.
+     */
+    void
+    (*setSuspendResumeCallback)
+    (
+        NvKmsKapiSuspendResumeCallbackFunc *function
     );
 };
 

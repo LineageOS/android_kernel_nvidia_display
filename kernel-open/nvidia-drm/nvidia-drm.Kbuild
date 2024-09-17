@@ -84,6 +84,9 @@ NV_CONFTEST_FUNCTION_COMPILE_TESTS += list_is_first
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += timer_setup
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += dma_fence_set_error
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += sync_file_get_fence
+NV_CONFTEST_FUNCTION_COMPILE_TESTS += drm_aperture_remove_conflicting_framebuffers
+NV_CONFTEST_FUNCTION_COMPILE_TESTS += drm_aperture_remove_conflicting_pci_framebuffers
+NV_CONFTEST_FUNCTION_COMPILE_TESTS += drm_fbdev_generic_setup
 
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_bus_present
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_bus_has_bus_type
@@ -140,3 +143,6 @@ NV_CONFTEST_TYPE_COMPILE_TESTS += vm_area_struct_has_const_vm_flags
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_driver_has_dumb_destroy
 NV_CONFTEST_TYPE_COMPILE_TESTS += fence_ops_use_64bit_seqno
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_unlocked_ioctl_flag_present
+NV_CONFTEST_TYPE_COMPILE_TESTS += drm_aperture_remove_conflicting_framebuffers_has_driver_arg
+NV_CONFTEST_TYPE_COMPILE_TESTS += drm_aperture_remove_conflicting_framebuffers_has_no_primary_arg
+NV_CONFTEST_TYPE_COMPILE_TESTS += drm_aperture_remove_conflicting_pci_framebuffers_has_driver_arg

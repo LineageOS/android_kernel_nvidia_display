@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -784,7 +784,8 @@ fail:
  */
 static NvBool ValidateNvKmsPermissions(
     const NVDevEvoRec *pDevEvo,
-    const struct NvKmsPermissions *pPermissions)
+    const struct NvKmsPermissions *pPermissions,
+    enum NvKmsClientType clientType)
 {
     if (pPermissions->type == NV_KMS_PERMISSIONS_TYPE_FLIPPING) {
         NvU32 d, h;
@@ -845,6 +846,13 @@ static NvBool ValidateNvKmsPermissions(
                 }
             }
         }
+    } else if (pPermissions->type == NV_KMS_PERMISSIONS_TYPE_SUB_OWNER) {
+
+        /* Only kapi uses this permission type, so disallow it from userspace */
+        if (clientType != NVKMS_CLIENT_KERNEL_SPACE) {
+            return FALSE;
+        }
+
     } else {
         return FALSE;
     }
@@ -888,6 +896,16 @@ static void AssignFullNvKmsModesetPermissions(
     }
 }
 
+static void AssignFullNvKmsPermissions(
+    struct NvKmsPerOpenDev *pOpenDev
+)
+{
+    NVDevEvoPtr pDevEvo = pOpenDev->pDevEvo;
+
+    AssignFullNvKmsFlipPermissions(pDevEvo, &pOpenDev->flipPermissions);
+    AssignFullNvKmsModesetPermissions(pDevEvo, &pOpenDev->modesetPermissions);
+}
+
 /*!
  * Set the modeset owner to pOpenDev
  *
@@ -917,9 +935,7 @@ static NvBool GrabModesetOwnership(struct NvKmsPerOpenDev *pOpenDev)
     pDevEvo->modesetOwner = pOpenDev;
     pDevEvo->modesetOwnerChanged = TRUE;
 
-    AssignFullNvKmsFlipPermissions(pDevEvo, &pOpenDev->flipPermissions);
-    AssignFullNvKmsModesetPermissions(pDevEvo, &pOpenDev->modesetPermissions);
-
+    AssignFullNvKmsPermissions(pOpenDev);
     return TRUE;
 }
 
@@ -991,7 +1007,7 @@ static NvBool RemoveModesetPermissions(struct NvKmsModesetPermissions *pModeset,
  */
 static void RevokePermissionsInternal(
     const NvU32 typeBitmask,
-    const NVDevEvoRec *pDevEvo,
+    NVDevEvoRec *pDevEvo,
     const struct NvKmsPerOpenDev *pOpenDevExclude)
 {
     struct NvKmsPerOpen *pOpen;
@@ -1016,6 +1032,19 @@ static void RevokePermissionsInternal(
             }
 
             if (pOpenDev == pOpenDevExclude || pOpenDev->isPrivileged) {
+                continue;
+            }
+
+            if (pOpenDev == pDevEvo->modesetSubOwner &&
+                (typeBitmask & NVBIT(NV_KMS_PERMISSIONS_TYPE_SUB_OWNER))) {
+                pDevEvo->modesetSubOwner = NULL;
+            }
+
+            /*
+             * Clients with sub-owner permission (or better) don't get flipping
+             * or modeset permission revoked.
+             */
+            if (nvKmsOpenDevHasSubOwnerPermissionOrBetter(pOpenDev)) {
                 continue;
             }
 
@@ -1075,7 +1104,8 @@ static NvBool ReleaseModesetOwnership(struct NvKmsPerOpenDev *pOpenDev)
 
     RestoreConsole(pDevEvo);
     RevokePermissionsInternal(NVBIT(NV_KMS_PERMISSIONS_TYPE_FLIPPING) |
-                              NVBIT(NV_KMS_PERMISSIONS_TYPE_MODESET),
+                              NVBIT(NV_KMS_PERMISSIONS_TYPE_MODESET) |
+                              NVBIT(NV_KMS_PERMISSIONS_TYPE_SUB_OWNER),
                               pDevEvo, NULL /* pOpenDevExclude */);
     return TRUE;
 }
@@ -1173,10 +1203,7 @@ struct NvKmsPerOpenDev *nvAllocPerOpenDev(struct NvKmsPerOpen *pOpen,
 
     pOpenDev->isPrivileged = isPrivileged;
     if (pOpenDev->isPrivileged) {
-        AssignFullNvKmsFlipPermissions(pDevEvo,
-                                       &pOpenDev->flipPermissions);
-        AssignFullNvKmsModesetPermissions(pOpenDev->pDevEvo,
-                                          &pOpenDev->modesetPermissions);
+        AssignFullNvKmsPermissions(pOpenDev);
     }
 
     if (!nvEvoInitApiHandles(&pOpenDev->deferredRequestFifoHandles, 4)) {
@@ -1513,6 +1540,11 @@ static void FreeDeviceReference(struct NvKmsPerOpen *pOpen,
         ReleaseModesetOwnership(pOpenDev);
 
         nvAssert(pOpenDev->pDevEvo->modesetOwner != pOpenDev);
+
+        // If this pOpenDev is the modeset sub-owner, implicitly release it.
+        if (pOpenDev->pDevEvo->modesetSubOwner == pOpenDev) {
+            pOpenDev->pDevEvo->modesetSubOwner = NULL;
+        }
     }
 
     nvFreePerOpenDev(pOpen, pOpenDev);
@@ -1751,6 +1783,36 @@ static NvBool QueryDpyDynamicData(struct NvKmsPerOpen *pOpen,
     }
 
     return nvDpyGetDynamicData(pDpyEvo, pParams);
+}
+
+/*!
+ * Get the base address and size of the VT framebuffer memory
+ */
+static NvBool QueryVtFbData(struct NvKmsPerOpen *pOpen,
+                            void *pParamsVoid)
+{
+    struct NvKmsQueryVtFbDataParams *pParams = pParamsVoid;
+    struct NvKmsPerOpenDev *pOpenDev;
+    NV0080_CTRL_OS_UNIX_VT_GET_FB_INFO_PARAMS *vtFbInfo;
+
+    if (pOpen->clientType != NVKMS_CLIENT_KERNEL_SPACE) {
+        return FALSE;
+    }
+
+    pOpenDev = GetPerOpenDev(pOpen, pParams->request.deviceHandle);
+
+    if (pOpenDev == NULL ||
+        !nvKmsOpenDevHasSubOwnerPermissionOrBetter(pOpenDev)) {
+        return FALSE;
+    }
+
+    vtFbInfo = &pOpenDev->pDevEvo->vtFbInfo;
+
+    nvkms_memset(&pParams->reply, 0, sizeof(pParams->reply));
+    pParams->reply.baseAddress = vtFbInfo->baseAddress;
+    pParams->reply.size = vtFbInfo->size;
+
+    return TRUE;
 }
 
 /* Store a copy of the user's infoString pointer, so we can copy out to it when
@@ -2380,9 +2442,9 @@ static NvBool IdleBaseChannel(struct NvKmsPerOpen *pOpen,
         return FALSE;
     }
 
-    /* Only the modesetOwner can idle base. */
+    /* Only a modeset owner can idle base. */
 
-    if (pOpenDev->pDevEvo->modesetOwner != pOpenDev) {
+    if (!nvKmsOpenDevHasSubOwnerPermissionOrBetter(pOpenDev)) {
         return FALSE;
     }
 
@@ -3080,14 +3142,15 @@ static NvBool GrantPermissions(struct NvKmsPerOpen *pOpen, void *pParamsVoid)
         return FALSE;
     }
 
-    /* Only the modesetOwner can grant permissions. */
+    /* Only a modeset owner can grant permissions. */
 
-    if (pOpenDev->pDevEvo->modesetOwner != pOpenDev) {
+    if (!nvKmsOpenDevHasSubOwnerPermissionOrBetter(pOpenDev)) {
         return FALSE;
     }
 
     if (!ValidateNvKmsPermissions(pOpenDev->pDevEvo,
-                                  &pParams->request.permissions)) {
+                                  &pParams->request.permissions,
+                                  pOpen->clientType)) {
         return FALSE;
     }
 
@@ -3164,6 +3227,16 @@ static NvBool AcquirePermissions(struct NvKmsPerOpen *pOpen, void *pParamsVoid)
         }
 
         pParams->reply.permissions.modeset = pOpenDev->modesetPermissions;
+
+    } else if (type == NV_KMS_PERMISSIONS_TYPE_SUB_OWNER) {
+
+        if (pOpenDev->pDevEvo->modesetSubOwner != NULL) {
+            /* There can be only one sub-owner */
+            return FALSE;
+        }
+
+        pOpenDev->pDevEvo->modesetSubOwner = pOpenDev;
+        AssignFullNvKmsPermissions(pOpenDev);
 
     } else {
         /*
@@ -3267,20 +3340,42 @@ static NvBool RevokePermissions(struct NvKmsPerOpen *pOpen, void *pParamsVoid)
         GetPerOpenDev(pOpen, pParams->request.deviceHandle);
     const NvU32 validBitmask =
         NVBIT(NV_KMS_PERMISSIONS_TYPE_FLIPPING) |
-        NVBIT(NV_KMS_PERMISSIONS_TYPE_MODESET);
+        NVBIT(NV_KMS_PERMISSIONS_TYPE_MODESET) |
+        NVBIT(NV_KMS_PERMISSIONS_TYPE_SUB_OWNER);
 
     if (pOpenDev == NULL) {
-        return FALSE;
-    }
-
-    /* Only the modeset owner can revoke permissions. */
-    if (pOpenDev->pDevEvo->modesetOwner != pOpenDev) {
         return FALSE;
     }
 
     /* Reject invalid bitmasks. */
 
     if ((pParams->request.permissionsTypeBitmask & ~validBitmask) != 0) {
+        return FALSE;
+    }
+
+    if ((pParams->request.permissionsTypeBitmask & NVBIT(NV_KMS_PERMISSIONS_TYPE_SUB_OWNER)) != 0) {
+        if (pOpenDev->pDevEvo->modesetOwner != pOpenDev) {
+            /* Only the modeset owner can revoke sub-owner permissions. */
+            return FALSE;
+        }
+
+        /*
+         * When revoking ownership permissions, shut down all heads.
+         *
+         * This is necessary to keep the state of nvidia-drm in sync with NVKMS.
+         * Otherwise, an NVKMS client can leave heads enabled when handing off
+         * control of the device back to nvidia-drm, and nvidia-drm's flip queue
+         * handling will get out of sync because it thinks all heads are
+         * disabled and does not expect flip events on those heads.
+         */
+        nvShutDownApiHeads(pOpenDev->pDevEvo, NULL /* pTestFunc */);
+    }
+
+    /*
+     * Only a client with sub-owner permissions (or better) can revoke other
+     * kinds of permissions.
+     */
+    if (!nvKmsOpenDevHasSubOwnerPermissionOrBetter(pOpenDev)) {
         return FALSE;
     }
 
@@ -3410,8 +3505,8 @@ static NvBool QueryDpyCRC32(struct NvKmsPerOpen *pOpen,
         return FALSE;
     }
 
-    if (pOpenDev->pDevEvo->modesetOwner != pOpenDev) {
-        // Only the current owner can query CRC32 values.
+    if (!nvKmsOpenDevHasSubOwnerPermissionOrBetter(pOpenDev)) {
+        // Only a current owner can query CRC32 values.
         return FALSE;
     }
 
@@ -3452,15 +3547,13 @@ static NvBool SwitchMux(
     struct NvKmsSwitchMuxParams *pParams = pParamsVoid;
     const struct NvKmsSwitchMuxRequest *r = &pParams->request;
     NVDpyEvoPtr pDpyEvo;
-    NVDevEvoPtr pDevEvo;
 
     pDpyEvo = GetPerOpenDpy(pOpen, r->deviceHandle, r->dispHandle, r->dpyId);
     if (pDpyEvo == NULL) {
         return FALSE;
     }
 
-    pDevEvo = pDpyEvo->pDispEvo->pDevEvo;
-    if (pDevEvo->modesetOwner != GetPerOpenDev(pOpen, r->deviceHandle)) {
+    if (!nvKmsOpenDevHasSubOwnerPermissionOrBetter(GetPerOpenDev(pOpen, r->deviceHandle))) {
         return FALSE;
     }
 
@@ -3956,6 +4049,7 @@ NvBool nvKmsIoctl(
         ENTRY(NVKMS_IOCTL_QUERY_CONNECTOR_DYNAMIC_DATA, QueryConnectorDynamicData),
         ENTRY(NVKMS_IOCTL_QUERY_DPY_STATIC_DATA, QueryDpyStaticData),
         ENTRY(NVKMS_IOCTL_QUERY_DPY_DYNAMIC_DATA, QueryDpyDynamicData),
+        ENTRY(NVKMS_IOCTL_QUERY_VT_FB_DATA, QueryVtFbData),
         ENTRY_CUSTOM_USER(NVKMS_IOCTL_VALIDATE_MODE_INDEX, ValidateModeIndex),
         ENTRY_CUSTOM_USER(NVKMS_IOCTL_VALIDATE_MODE, ValidateMode),
         ENTRY_CUSTOM_USER(NVKMS_IOCTL_SET_MODE, SetMode),
@@ -4232,6 +4326,7 @@ static const char *ProcFsPermissionsTypeString(
     switch (permissionsType) {
     case NV_KMS_PERMISSIONS_TYPE_FLIPPING: return "flipping";
     case NV_KMS_PERMISSIONS_TYPE_MODESET:  return "modeset";
+    case NV_KMS_PERMISSIONS_TYPE_SUB_OWNER:return "sub-owner";
     }
 
     return "unknown";
@@ -5531,4 +5626,11 @@ NvBool nvKmsSetBacklight(NvU32 display_id, void *drv_priv, NvU32 brightness)
                             &params, sizeof(params));
 
     return status == NV_OK;
+}
+
+NvBool nvKmsOpenDevHasSubOwnerPermissionOrBetter(const struct NvKmsPerOpenDev *pOpenDev)
+{
+    return pOpenDev->isPrivileged ||
+           pOpenDev->pDevEvo->modesetOwner == pOpenDev ||
+           pOpenDev->pDevEvo->modesetSubOwner == pOpenDev;
 }

@@ -330,6 +330,16 @@ NvBool nvkms_ioctl_from_kapi
 );
 
 /*!
+ * Like nvkms_ioctl_from_kapi, but return NV_FALSE instead of waiting if the
+ * power management read lock cannot be acquired.
+ */
+NvBool nvkms_ioctl_from_kapi_try_pmlock
+(
+    struct nvkms_per_open *popen,
+    NvU32 cmd, void *params_address, const size_t params_size
+);
+
+/*!
  * APIs for locking.
  */
 

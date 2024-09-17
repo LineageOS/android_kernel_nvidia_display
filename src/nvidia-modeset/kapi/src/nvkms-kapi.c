@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -915,6 +915,51 @@ static NvBool RevokePermissions
                                  sizeof(paramsRevoke));
 }
 
+static NvBool GrantSubOwnership
+(
+    NvS32 fd,
+    struct NvKmsKapiDevice *device
+)
+{
+    struct NvKmsGrantPermissionsParams paramsGrant = { };
+    struct NvKmsPermissions *perm = &paramsGrant.request.permissions;
+
+    if (device->hKmsDevice == 0x0) {
+        return NV_TRUE;
+    }
+
+    perm->type = NV_KMS_PERMISSIONS_TYPE_SUB_OWNER;
+
+    paramsGrant.request.fd = fd;
+    paramsGrant.request.deviceHandle = device->hKmsDevice;
+
+    return nvkms_ioctl_from_kapi(device->pKmsOpen,
+                                 NVKMS_IOCTL_GRANT_PERMISSIONS, &paramsGrant,
+                                 sizeof(paramsGrant));
+}
+
+static NvBool RevokeSubOwnership
+(
+    struct NvKmsKapiDevice *device
+)
+{
+    struct NvKmsRevokePermissionsParams paramsRevoke = { };
+
+    if (device->hKmsDevice == 0x0) {
+        return NV_TRUE;
+    }
+
+    paramsRevoke.request.permissionsTypeBitmask =
+        NVBIT(NV_KMS_PERMISSIONS_TYPE_FLIPPING) |
+        NVBIT(NV_KMS_PERMISSIONS_TYPE_MODESET) |
+        NVBIT(NV_KMS_PERMISSIONS_TYPE_SUB_OWNER);
+    paramsRevoke.request.deviceHandle = device->hKmsDevice;
+
+    return nvkms_ioctl_from_kapi(device->pKmsOpen,
+                                 NVKMS_IOCTL_REVOKE_PERMISSIONS, &paramsRevoke,
+                                 sizeof(paramsRevoke));
+}
+
 static NvBool DeclareEventInterest
 (
     const struct NvKmsKapiDevice *device,
@@ -1286,6 +1331,40 @@ done:
         nvKmsKapiFree(pParamsDpyDynamic);
     }
 
+    return status;
+}
+
+static NvBool GetVtFbInfo
+(
+    struct NvKmsKapiDevice *device,
+    struct NvKmsKapiVtFbParams *pParam
+)
+{
+    struct NvKmsQueryVtFbDataParams params = { };
+    NvBool status = NV_FALSE;
+
+    if (device == NULL || pParam == NULL) {
+        goto done;
+    }
+
+    params.request.deviceHandle = device->hKmsDevice;
+    status = nvkms_ioctl_from_kapi(device->pKmsOpen,
+                                   NVKMS_IOCTL_QUERY_VT_FB_DATA,
+                                   &params, sizeof(params));
+
+    if (!status)
+    {
+        nvKmsKapiLogDeviceDebug(
+            device,
+            "Failed to query VT framebuffer information");
+
+        goto done;
+    }
+
+    pParam->baseAddress = params.reply.baseAddress;
+    pParam->size = params.reply.size;
+
+done:
     return status;
 }
 
@@ -2883,9 +2962,9 @@ static NvBool KmsSetMode(
         goto done;
     }
 
-    status = nvkms_ioctl_from_kapi(device->pKmsOpen,
-                                   NVKMS_IOCTL_SET_MODE,
-                                   params, sizeof(*params));
+    status = nvkms_ioctl_from_kapi_try_pmlock(device->pKmsOpen,
+                                              NVKMS_IOCTL_SET_MODE,
+                                              params, sizeof(*params));
 
     if (!status) {
         nvKmsKapiLogDeviceDebug(
@@ -3042,9 +3121,9 @@ static NvBool KmsFlip(
         goto done;
     }
 
-    status = nvkms_ioctl_from_kapi(device->pKmsOpen,
-                                   NVKMS_IOCTL_FLIP,
-                                   params, sizeof(*params));
+    status = nvkms_ioctl_from_kapi_try_pmlock(device->pKmsOpen,
+                                              NVKMS_IOCTL_FLIP,
+                                              params, sizeof(*params));
 
     if (!status) {
         nvKmsKapiLogDeviceDebug(
@@ -3271,6 +3350,30 @@ static NvBool GetCRC32
     return NV_TRUE;
 }
 
+static NvKmsKapiSuspendResumeCallbackFunc *pSuspendResumeFunc;
+
+void nvKmsKapiSuspendResume
+(
+    NvBool suspend
+)
+{
+    if (pSuspendResumeFunc) {
+        pSuspendResumeFunc(suspend);
+    }
+}
+
+static void nvKmsKapiSetSuspendResumeCallback
+(
+    NvKmsKapiSuspendResumeCallbackFunc *function
+)
+{
+    if (pSuspendResumeFunc && function) {
+        nvKmsKapiLogDebug("Kapi suspend/resume callback function already registered");
+    }
+
+    pSuspendResumeFunc = function;
+}
+
 NvBool nvKmsKapiGetFunctionsTableInternal
 (
     struct NvKmsKapiFunctionsTable *funcsTable
@@ -3298,6 +3401,8 @@ NvBool nvKmsKapiGetFunctionsTableInternal
 
     funcsTable->grantPermissions     = GrantPermissions;
     funcsTable->revokePermissions    = RevokePermissions;
+    funcsTable->grantSubOwnership    = GrantSubOwnership;
+    funcsTable->revokeSubOwnership   = RevokeSubOwnership;
 
     funcsTable->declareEventInterest = DeclareEventInterest;
 
@@ -3307,6 +3412,8 @@ NvBool nvKmsKapiGetFunctionsTableInternal
 
     funcsTable->getStaticDisplayInfo   = GetStaticDisplayInfo;
     funcsTable->getDynamicDisplayInfo  = GetDynamicDisplayInfo;
+
+    funcsTable->getVtFbInfo            = GetVtFbInfo;
 
     funcsTable->allocateVideoMemory  = AllocateVideoMemory;
     funcsTable->allocateSystemMemory = AllocateSystemMemory;
@@ -3347,6 +3454,7 @@ NvBool nvKmsKapiGetFunctionsTableInternal
         nvKmsKapiUnregisterSemaphoreSurfaceCallback;
     funcsTable->setSemaphoreSurfaceValue =
         nvKmsKapiSetSemaphoreSurfaceValue;
+    funcsTable->setSuspendResumeCallback = nvKmsKapiSetSuspendResumeCallback;
 
     return NV_TRUE;
 }

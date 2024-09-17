@@ -1652,22 +1652,6 @@ compile_test() {
             fi
         ;;
 
-        of_clk_get_parent_count)
-            #
-            # Determine if the of_clk_get_parent_count function is present.
-            #
-            CODE="
-            #if defined(NV_LINUX_OF_CLK_H_PRESENT)
-            #include <linux/of_clk.h>
-            #endif
-            void conftest_of_clk_get_parent_count(void)
-            {
-                of_clk_get_parent_count();
-            }
-            "
-            compile_check_conftest "$CODE" "NV_OF_CLK_GET_PARENT_COUNT_PRESENT" "" "functions"
-        ;;
-
         of_node_to_nid)
             #
             # Determine if of_node_to_nid is present
@@ -6500,6 +6484,96 @@ compile_test() {
             }"
 
             compile_check_conftest "$CODE" "NV_CRYPTO_PRESENT" "" "symbols"
+        ;;
+
+        drm_aperture_remove_conflicting_framebuffers)
+            #
+            # Determine whether drm_aperture_remove_conflicting_framebuffers is present.
+            #
+            # drm_aperture_remove_conflicting_framebuffers was added in commit 2916059147ea
+            # ("drm/aperture: Add infrastructure for aperture ownership) in
+            # v5.14-rc1 (2021-04-12)
+            #
+            CODE="
+            #if defined(NV_DRM_DRM_APERTURE_H_PRESENT)
+            #include <drm/drm_aperture.h>
+            #endif
+            void conftest_drm_aperture_remove_conflicting_framebuffers(void) {
+                drm_aperture_remove_conflicting_framebuffers();
+            }"
+
+            compile_check_conftest "$CODE" "NV_DRM_APERTURE_REMOVE_CONFLICTING_FRAMEBUFFERS_PRESENT" "" "functions"
+        ;;
+
+        drm_aperture_remove_conflicting_framebuffers_has_driver_arg)
+            #
+            # Determine whether drm_aperture_remove_conflicting_framebuffers
+            # takes a struct drm_driver * as its fourth argument.
+            #
+            # Prior to commit 97c9bfe3f6605d41eb8f1206e6e0f62b31ba15d6, the
+            # second argument was a char * pointer to the driver's name.
+            #
+            # To test if drm_aperture_remove_conflicting_framebuffers() has
+            # a req_driver argument, define a function with the expected
+            # signature and then define the corresponding function
+            # implementation with the expected signature. Successful compilation
+            # indicates that this function has the expected signature.
+            #
+            # This change occurred in commit 97c9bfe3f660 ("drm/aperture: Pass
+            # DRM driver structure instead of driver name") in v5.15
+            # (2021-06-29).
+            #
+            CODE="
+            #if defined(NV_DRM_DRM_DRV_H_PRESENT)
+            #include <drm/drm_drv.h>
+            #endif
+            #if defined(NV_DRM_DRM_APERTURE_H_PRESENT)
+            #include <drm/drm_aperture.h>
+            #endif
+            typeof(drm_aperture_remove_conflicting_framebuffers) conftest_drm_aperture_remove_conflicting_framebuffers;
+            int conftest_drm_aperture_remove_conflicting_framebuffers(resource_size_t base, resource_size_t size,
+                                                                      bool primary, const struct drm_driver *req_driver)
+            {
+                return 0;
+            }"
+
+            compile_check_conftest "$CODE" "NV_DRM_APERTURE_REMOVE_CONFLICTING_FRAMEBUFFERS_HAS_DRIVER_ARG" "" "types"
+        ;;
+
+        drm_aperture_remove_conflicting_framebuffers_has_no_primary_arg)
+            #
+            # Determine whether drm_aperture_remove_conflicting_framebuffers
+            # has its third argument as a bool.
+            #
+            # Prior to commit 62aeaeaa1b267c5149abee6b45967a5df3feed58, the
+            # third argument was a bool for figuring out whether the legacy vga
+            # stuff should be nuked, but it's only for pci devices and not
+            # really needed in this function.
+            #
+            # To test if drm_aperture_remove_conflicting_framebuffers() has
+            # a bool primary argument, define a function with the expected
+            # signature and then define the corresponding function
+            # implementation with the expected signature. Successful compilation
+            # indicates that this function has the expected signature.
+            #
+            # This change occurred in commit 62aeaeaa1b26 ("drm/aperture: Remove
+            # primary argument") in v6.5 (2023-04-16).
+            #
+            CODE="
+            #if defined(NV_DRM_DRM_DRV_H_PRESENT)
+            #include <drm/drm_drv.h>
+            #endif
+            #if defined(NV_DRM_DRM_APERTURE_H_PRESENT)
+            #include <drm/drm_aperture.h>
+            #endif
+            typeof(drm_aperture_remove_conflicting_framebuffers) conftest_drm_aperture_remove_conflicting_framebuffers;
+            int conftest_drm_aperture_remove_conflicting_framebuffers(resource_size_t base, resource_size_t size,
+                                                                      const struct drm_driver *req_driver)
+            {
+                return 0;
+            }"
+
+            compile_check_conftest "$CODE" "NV_DRM_APERTURE_REMOVE_CONFLICTING_FRAMEBUFFERS_HAS_NO_PRIMARY_ARG" "" "types"
         ;;
 
         # When adding a new conftest entry, please use the correct format for

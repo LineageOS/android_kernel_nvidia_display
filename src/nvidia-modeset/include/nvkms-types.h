@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2010-2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2010-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -924,10 +924,13 @@ typedef struct _NVEvoSubDeviceRec {
 
 } NVEvoSubDeviceRec;
 
-enum NvKmsLUTState {
-    NvKmsLUTStateUninitialized = 0,
-    NvKmsLUTStateIdentity      = 1,
-    NvKmsLUTStatePQ            = 2,
+enum NVKMS_GAMMA_LUT {
+    NVKMS_GAMMA_LUT_IDENTITY = 0,
+    NVKMS_GAMMA_LUT_SRGB     = 1,
+    NVKMS_GAMMA_LUT_PQ       = 2,
+
+    // Must be last, used to track number of colorspaces.
+    NVKMS_GAMMA_LUT_LAST     = 3,
 };
 
 /* Device-specific EVO state (subdevice- and channel-independent) */
@@ -977,6 +980,13 @@ typedef struct _NVEvoDevRec {
      * last modeset.
      */
     NvBool modesetOwnerChanged;
+
+    /*!
+     * modesetSubOwner points to the pOpenDev of the client that called
+     * NVKMS_IOCTL_ACQUIRE_PERMISSIONS with a file descriptor that grants
+     * NV_KMS_PERMISSIONS_TYPE_SUB_OWNER.
+     */
+    const struct NvKmsPerOpenDev *modesetSubOwner;
 
     /*!
      * NVEvoDevRec::numSubDevices is the number of GPUs in the SLI
@@ -1193,9 +1203,8 @@ typedef struct _NVEvoDevRec {
                 nvkms_timer_handle_t *updateTimer;
             } disp[NVKMS_MAX_SUBDEVICES];
         } apiHead[NVKMS_MAX_HEADS_PER_DISP];
-        NVLutSurfaceEvoPtr defaultLut;
-        enum NvKmsLUTState defaultBaseLUTState[NVKMS_MAX_SUBDEVICES];
-        enum NvKmsLUTState defaultOutputLUTState[NVKMS_MAX_SUBDEVICES];
+        // Identity, sRGB, and PQ LUTs.
+        NVLutSurfaceEvoPtr gammaLUTs[NVKMS_GAMMA_LUT_LAST];
     } lut;
 
     /*! stores pre-syncpts */
@@ -1748,6 +1757,8 @@ typedef struct _NVDispHeadStateEvoRec {
         NvBool outputLutEnabled : 1;
         NvBool baseLutEnabled   : 1;
     } lut;
+
+    enum NvKmsOutputColorSpace outputColorSpace;
 
     /*
      * The api head can be mapped onto the N harware heads, a frame presented

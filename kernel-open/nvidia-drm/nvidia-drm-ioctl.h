@@ -289,13 +289,20 @@ struct drm_nvidia_get_connector_id_for_dpy_id_params {
     uint32_t connectorId; /* OUT */
 };
 
+enum drm_nvidia_permissions_type {
+    NV_DRM_PERMISSIONS_TYPE_MODESET = 2,
+    NV_DRM_PERMISSIONS_TYPE_SUB_OWNER = 3
+};
+
 struct drm_nvidia_grant_permissions_params {
     int32_t fd;           /* IN */
     uint32_t dpyId;       /* IN */
+    uint32_t type;        /* IN */
 };
 
 struct drm_nvidia_revoke_permissions_params {
     uint32_t dpyId;       /* IN */
+    uint32_t type;        /* IN */
 };
 
 struct drm_nvidia_semsurf_fence_ctx_create_params {

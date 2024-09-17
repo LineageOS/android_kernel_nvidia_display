@@ -23,8 +23,10 @@
 
 #include "internal_crypt_lib.h"
 
+#ifdef USE_LKCA
 #ifndef NV_CRYPTO_TFM_CTX_ALIGNED_PRESENT
 #include <crypto/internal/hash.h>
+#endif
 #endif
 
 void *lkca_hash_new(const char* alg_name)

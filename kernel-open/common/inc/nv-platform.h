@@ -35,6 +35,4 @@ int       nv_platform_count_devices(void);
 int       nv_soc_register_irqs(nv_state_t *nv);
 void      nv_soc_free_irqs(nv_state_t *nv);
 
-int nv_disable_simplefb_clocks(void);
-
 #endif

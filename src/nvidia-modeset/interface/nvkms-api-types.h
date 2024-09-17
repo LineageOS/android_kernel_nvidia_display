@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2014-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -554,6 +554,23 @@ enum NvKmsInputColorSpace {
 
     /* PQ, Rec.2020 unity */
     NVKMS_INPUT_COLORSPACE_BT2100_PQ = 2,
+
+    /* sRGB colorspace with sRGB gamma transfer function */
+    NVKMS_INPUT_COLORSPACE_SRGB = 3,
+
+    /* Rec709 colorspace with Rec709 gamma transfer function */
+    NVKMS_INPUT_COLORSPACE_REC709 = 4,
+
+    /* Rec709 colorspace with linear (identity) gamma */
+    NVKMS_INPUT_COLORSPACE_REC709_LINEAR = 5
+};
+
+enum NvKmsOutputColorSpace {
+    /* Unknown colorspace; no re-gamma will be applied */
+    NVKMS_OUTPUT_COLORSPACE_NONE = 0,
+
+    /* sRGB gamma transfer function will be applied */
+    NVKMS_OUTPUT_COLORSPACE_SRGB = 1
 };
 
 enum NvKmsOutputTf {

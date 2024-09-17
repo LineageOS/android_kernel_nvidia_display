@@ -290,7 +290,6 @@ NV_HEADER_PRESENCE_TESTS = \
  linux/of_platform.h \
  linux/of_device.h \
  linux/of_gpio.h \
- linux/of_clk.h \
  linux/gpio.h \
  linux/gpio/consumer.h \
  linux/interconnect.h \
