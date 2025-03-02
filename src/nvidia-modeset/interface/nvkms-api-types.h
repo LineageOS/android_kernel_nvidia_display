@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2014-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -180,6 +180,8 @@ enum NvKmsEventType {
     NVKMS_EVENT_TYPE_DPY_ATTRIBUTE_CHANGED,
     NVKMS_EVENT_TYPE_FRAMELOCK_ATTRIBUTE_CHANGED,
     NVKMS_EVENT_TYPE_FLIP_OCCURRED,
+    NVKMS_EVENT_TYPE_DPY_CP_CHANGED,
+    NVKMS_EVENT_TYPE_DPY_CP_TOPOLOGY_CHANGED,
 };
 
 typedef enum {
@@ -691,5 +693,32 @@ struct NvKmsSuperframeInfo {
 };
 
 typedef void (*NVVBlankIntrCallbackProc)(NvU64 param1, NvU64 param2);
+
+enum NvKmsContentProtection {
+    NVKMS_CP_OFF             = 0,
+    NVKMS_CP_HDCP1X_ON       = 1,
+    NVKMS_CP_HDCP2X_TYPE0_ON = 2,
+    NVKMS_CP_HDCP2X_TYPE1_ON = 3,
+};
+
+#define HDCP_TOPOLOGY_MAX_LINK_COUNT (2)
+#define HDCP_TOPOLOGY_MAX_DEV_COUNT  (255)
+#define HDCP_TOPOLOGY_KSV_SIZE       (5)
+
+struct NvKmsHdcpTopology {
+    NvBool isHdcpCapable;
+    NvBool isHdcpAuthOn;
+    NvBool isHdcpRp;
+    NvBool isHdcp2X;
+    NvBool maxCascadeExceeded;
+    NvBool maxDeviceExceeded;
+    NvBool isHdcp1DevDownstream;
+    NvBool isHdcp2LegacyDevDownstream;
+    NvU8   cascadeDepth;
+    NvU8   linkCount;
+    NvU8   bksv[HDCP_TOPOLOGY_MAX_LINK_COUNT * HDCP_TOPOLOGY_KSV_SIZE];
+    NvU8   numOfBksv;
+    NvU8   bksvList[HDCP_TOPOLOGY_MAX_DEV_COUNT * HDCP_TOPOLOGY_KSV_SIZE];
+};
 
 #endif /* NVKMS_API_TYPES_H */

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2008-2019 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2008-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -205,3 +205,32 @@ nvHandleDPIRQEventDeferredWork(void *dataPtr, NvU32 dataU32)
         }
     }
 }
+
+void
+nvHandleCpEventDeferredWork(void *dataPtr, NvU32 dataU32)
+{
+    NVDispEvoPtr pDispEvo = dataPtr;
+    NVDpyIdList  dpyIdList = nvEmptyDpyIdList();
+    NVDpyEvoPtr  pDpyEvo;
+    NvU32 displayId = dataU32 & 0x00FFFFFFU;
+    NvU32 hdcpStatusChangeNotif = ((dataU32 & 0xFF000000) >> 24);
+
+    dpyIdList = nvAddDpyIdToDpyIdList(nvNvU32ToDpyId(displayId), dpyIdList);
+    FOR_ALL_EVO_DPYS(pDpyEvo, dpyIdList, pDispEvo) {
+        if (hdcpStatusChangeNotif == hdcpStatusChangeNotif_EncEnabled) {
+            nvSendDpyEventEvo(pDpyEvo, NVKMS_EVENT_TYPE_DPY_CP_CHANGED);
+        }
+        else if (hdcpStatusChangeNotif == hdcpStatusChangeNotif_KsvOk ||
+                 hdcpStatusChangeNotif == hdcpStatusChangeNotif_RepComplete) {
+            nvSendDpyEventEvo(pDpyEvo, NVKMS_EVENT_TYPE_DPY_CP_TOPOLOGY_CHANGED);
+        }
+        else if (hdcpStatusChangeNotif == hdcpStatusChangeNotif_HdcpDisabled ||
+                 hdcpStatusChangeNotif == hdcpStatusChangeNotif_HdcpInactive ||
+                 hdcpStatusChangeNotif == hdcpStatusChangeNotif_LinkFailed ||
+                 hdcpStatusChangeNotif == hdcpStatusChangeNotif_HdcpRestart) {
+            nvSendDpyClearEventEvo(pDpyEvo, NVKMS_EVENT_TYPE_DPY_CP_CHANGED);
+            nvSendDpyClearEventEvo(pDpyEvo, NVKMS_EVENT_TYPE_DPY_CP_TOPOLOGY_CHANGED);
+        }
+    }
+}
+

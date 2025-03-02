@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -62,6 +62,8 @@ ct_assert(NVKMS_KAPI_LAYER_MAX == NVKMS_MAX_LAYERS_PER_HEAD);
 #define NVKMS_KAPI_SUPPORTED_EVENTS_MASK             \
     ((1 << NVKMS_EVENT_TYPE_DPY_CHANGED) |           \
      (1 << NVKMS_EVENT_TYPE_DYNAMIC_DPY_CONNECTED) | \
+     (1 << NVKMS_EVENT_TYPE_DPY_CP_CHANGED) | \
+     (1 << NVKMS_EVENT_TYPE_DPY_CP_TOPOLOGY_CHANGED) | \
      (1 << NVKMS_EVENT_TYPE_FLIP_OCCURRED))
 
 static NvU32 EnumerateGpus(nv_gpu_info_t *gpuInfo)
@@ -1170,7 +1172,10 @@ static NvBool GetConnectorInfo
 )
 {
     struct NvKmsQueryConnectorStaticDataParams paramsConnector = { };
+    struct NvKmsQueryConnectorDynamicDataParams paramsDynamicConnector = { };
     NvBool status = NV_FALSE;
+    NvU64 startTime = 0;
+    NvBool timeout;
 
     if (device == NULL || info == NULL) {
         goto done;
@@ -1200,6 +1205,44 @@ static NvBool GetConnectorInfo
     info->signalFormat = paramsConnector.reply.signalFormat;
 
     info->type = paramsConnector.reply.type;
+
+
+    startTime = nvkms_get_usec();
+    do {
+        nvkms_memset(&paramsDynamicConnector, 0, sizeof(paramsDynamicConnector));
+        paramsDynamicConnector.request.deviceHandle    = device->hKmsDevice;
+        paramsDynamicConnector.request.dispHandle      = device->hKmsDisp;
+        paramsDynamicConnector.request.connectorHandle = connector;
+
+        if (!nvkms_ioctl_from_kapi(device->pKmsOpen,
+                                   NVKMS_IOCTL_QUERY_CONNECTOR_DYNAMIC_DATA,
+                                   &paramsDynamicConnector,
+                                   sizeof(paramsDynamicConnector))) {
+
+            nvKmsKapiLogDeviceDebug(
+                    device,
+                    "Failed to query dynamic data of connector 0x%08x",
+                    connector);
+            status = NV_FALSE;
+
+            goto done;
+        }
+
+        timeout = nvkms_get_usec() - startTime >
+            NVKMS_DP_DETECT_COMPLETE_TIMEOUT_USEC;
+
+        if (!paramsDynamicConnector.reply.detectComplete && !timeout) {
+            nvkms_usleep(NVKMS_DP_DETECT_COMPLETE_POLL_INTERVAL_USEC);
+        }
+    } while (!paramsDynamicConnector.reply.detectComplete && !timeout);
+
+    if (!paramsDynamicConnector.reply.detectComplete) {
+        nvKmsKapiLogDeviceDebug(device, "Timed out waiting for DisplayPort"
+               " device detection to complete.");
+        status = NV_FALSE;
+    }
+
+    info->dynamicDpyIdList = paramsDynamicConnector.reply.dynamicDpyIdList;
 
 done:
 
@@ -1253,6 +1296,7 @@ static NvBool GetStaticDisplayInfo
 
     info->internal = paramsDpyStatic.reply.mobileInternal;
     info->headMask = paramsDpyStatic.reply.headMask;
+    info->isDpMST = paramsDpyStatic.reply.isDpMST;
 done:
 
     return status;
@@ -2613,6 +2657,14 @@ static NvBool NvKmsKapiOverlayLayerConfigToKms(
             layerConfig->minPresentInterval;
     }
 
+    if (layerRequestedConfig->flags.cscChanged || bFromKmsSetMode) {
+        params->layer[layer].csc.specified = NV_TRUE;
+        params->layer[layer].csc.useMain = layerConfig->cscUseMain;
+        if (!layerConfig->cscUseMain) {
+            params->layer[layer].csc.matrix = layerConfig->csc;
+        }
+    }
+
     params->layer[layer].sizeIn.val.width = layerConfig->srcWidth;
     params->layer[layer].sizeIn.val.height = layerConfig->srcHeight;
     params->layer[layer].sizeIn.specified = TRUE;
@@ -2727,6 +2779,16 @@ static NvBool NvKmsKapiPrimaryLayerConfigToKms(
         params->viewPortIn.point.x = layerConfig->srcX;
         params->viewPortIn.point.y = layerConfig->srcY;
         params->viewPortIn.specified = NV_TRUE;
+
+        changed = TRUE;
+    }
+
+    if (layerRequestedConfig->flags.cscChanged || bFromKmsSetMode) {
+        nvAssert(!layerConfig->cscUseMain);
+
+        params->layer[NVKMS_MAIN_LAYER].csc.specified = NV_TRUE;
+        params->layer[NVKMS_MAIN_LAYER].csc.useMain = FALSE;
+        params->layer[NVKMS_MAIN_LAYER].csc.matrix = layerConfig->csc;
 
         changed = TRUE;
     }
@@ -2977,7 +3039,6 @@ static NvBool KmsSetMode(
     status = nvkms_ioctl_from_kapi_try_pmlock(device->pKmsOpen,
                                               NVKMS_IOCTL_SET_MODE,
                                               params, sizeof(*params));
-
     if (!status) {
         nvKmsKapiLogDeviceDebug(
             device,
@@ -3130,6 +3191,12 @@ static NvBool KmsFlip(
             flipParams->colorimetry.val = headModeSetConfig->colorimetry;
         }
 
+        flipParams->outputcolorrange.specified =
+            headRequestedConfig->flags.colorrangeChanged;
+        if (flipParams->outputcolorrange.specified) {
+            flipParams->outputcolorrange.val = headModeSetConfig->outputColorRange;
+        }
+
         if (headModeSetConfig->vrrEnabled) {
             params->request.allowVrr = NV_TRUE;
         }
@@ -3227,8 +3294,7 @@ static NvBool ApplyModeSetConfig(
         bRequiredModeset =
             headRequestedConfig->flags.activeChanged   ||
             headRequestedConfig->flags.displaysChanged ||
-            headRequestedConfig->flags.modeChanged     ||
-            headRequestedConfig->flags.colorrangeChanged;
+            headRequestedConfig->flags.modeChanged;
 
         /*
          * NVKMS flip ioctl could not validate flip configuration for an
@@ -3293,6 +3359,20 @@ void nvKmsKapiHandleEventQueueChange
                 kapiEvent.u.displayChanged.display =
                     nvDpyIdToNvU32(kmsEventParams.
                                    reply.event.u.dpyChanged.dpyId);
+                break;
+            case NVKMS_EVENT_TYPE_DPY_CP_CHANGED:
+                kapiEvent.u.displayCpChanged.display =
+                    nvDpyIdToNvU32(kmsEventParams.
+                                   reply.event.u.dpyCpChanged.dpyId);
+                kapiEvent.u.displayCpChanged.cp =
+                    kmsEventParams.reply.event.u.dpyCpChanged.cp;
+                break;
+            case NVKMS_EVENT_TYPE_DPY_CP_TOPOLOGY_CHANGED:
+                kapiEvent.u.displayCpTopologyChanged.display =
+                    nvDpyIdToNvU32(kmsEventParams.
+                                   reply.event.u.dpyCpTopologyChanged.dpyId);
+                kapiEvent.u.displayCpTopologyChanged.topology =
+                    kmsEventParams.reply.event.u.dpyCpTopologyChanged.topology;
                 break;
             case NVKMS_EVENT_TYPE_DYNAMIC_DPY_CONNECTED:
                 kapiEvent.u.dynamicDisplayConnected.display =

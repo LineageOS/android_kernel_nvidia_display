@@ -132,6 +132,11 @@ static NvBool UpdateProposedFlipStateOneApiHead(
         pProposedApiHead->hdr.colorimetry = pParams->colorimetry.val;
     }
 
+    if (pParams->outputcolorrange.specified) {
+        pProposedApiHead->dirty.hdr = TRUE;
+        pProposedApiHead->hdr.outputColorRange = pParams->outputcolorrange.val;
+    }
+
     if (pParams->tf.specified) {
         const NVDpyEvoRec *pDpyEvo =
             nvGetOneArbitraryDpyEvo(pApiHeadState->activeDpys, pDispEvo);
@@ -360,6 +365,7 @@ static void InitNvKmsFlipWorkArea(const NVDevEvoRec *pDevEvo,
 
             pProposedApiHead->hdr.tf = pApiHeadState->tf;
             pProposedApiHead->hdr.colorimetry = pApiHeadState->colorimetry;
+            pProposedApiHead->hdr.outputColorRange = pApiHeadState->outputColorRange;
             pProposedApiHead->hdr.colorSpace =
                 pApiHeadState->attributes.colorSpace;
             pProposedApiHead->hdr.colorBpc =
@@ -407,7 +413,7 @@ static void FlipEvoOneApiHead(NVDispEvoRec *pDispEvo,
                 head,
                 pProposedApiHead->hdr.colorimetry,
                 pProposedApiHead->hdr.colorSpace,
-                pProposedApiHead->hdr.colorRange,
+                pProposedApiHead->hdr.outputColorRange,
                 pUpdateState);
         }
     }
@@ -429,6 +435,8 @@ static void FlipEvoOneApiHead(NVDispEvoRec *pDispEvo,
         pApiHeadState->tf = pProposedApiHead->hdr.tf;
 
         pApiHeadState->colorimetry = pProposedApiHead->hdr.colorimetry;
+
+        pApiHeadState->outputColorRange = pProposedApiHead->hdr.outputColorRange;
 
         nvUpdateInfoFrames(pDpyEvo);
     }

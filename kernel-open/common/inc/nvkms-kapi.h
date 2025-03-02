@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -26,6 +26,7 @@
 #include "nvtypes.h"
 
 #include "nv-gpu-info.h"
+#include "nv_dpy_id.h"
 #include "nvkms-api-types.h"
 #include "nvkms-format.h"
 
@@ -190,6 +191,7 @@ struct NvKmsKapiConnectorInfo {
     NvU32        numIncompatibleConnectors;
     NvKmsKapiConnector incompatibleConnectorHandles[NVKMS_KAPI_MAX_CONNECTORS];
 
+    NVDpyIdList dynamicDpyIdList;
 };
 
 struct NvKmsKapiStaticDisplayInfo {
@@ -208,6 +210,8 @@ struct NvKmsKapiStaticDisplayInfo {
     NvKmsKapiDisplay possibleCloneHandles[NVKMS_KAPI_MAX_CLONE_DISPLAYS];
 
     NvU32 headMask;
+
+    NvBool isDpMST;
 };
 
 struct NvKmsKapiSyncpt {
@@ -249,6 +253,8 @@ struct NvKmsKapiLayerConfig {
 
     enum NvKmsInputColorSpace inputColorSpace;
     enum NvKmsInputColorRange inputColorRange;
+    struct NvKmsCscMatrix csc;
+    NvBool cscUseMain;
 };
 
 struct NvKmsKapiLayerRequestedConfig {
@@ -259,6 +265,7 @@ struct NvKmsKapiLayerRequestedConfig {
         NvBool srcWHChanged   : 1;
         NvBool dstXYChanged   : 1;
         NvBool dstWHChanged   : 1;
+        NvBool cscChanged     : 1;
     } flags;
 };
 
@@ -348,6 +355,16 @@ struct NvKmsKapiEventDisplayChanged {
     NvKmsKapiDisplay display;
 };
 
+struct NvKmsKapiEventDisplayCpChanged {
+    NvKmsKapiDisplay display;
+    enum NvKmsContentProtection cp;
+};
+
+struct NvKmsKapiEventDisplayCpTopologyChanged {
+    NvKmsKapiDisplay display;
+    struct NvKmsHdcpTopology *topology;
+};
+
 struct NvKmsKapiEventDynamicDisplayConnected {
     NvKmsKapiDisplay display;
 };
@@ -379,6 +396,8 @@ struct NvKmsKapiEvent {
         struct NvKmsKapiEventDisplayChanged displayChanged;
         struct NvKmsKapiEventDynamicDisplayConnected dynamicDisplayConnected;
         struct NvKmsKapiEventFlipOccurred flipOccurred;
+        struct NvKmsKapiEventDisplayCpChanged displayCpChanged;
+        struct NvKmsKapiEventDisplayCpTopologyChanged displayCpTopologyChanged;
     } u;
 };
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2013-2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2013-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -35,6 +35,12 @@ extern "C" {
 NvBool nvWriteDPCDReg(NVConnectorEvoPtr pConnectorEvo,
                       NvU32 dpcdAddr,
                       NvU8 dpcdData);
+
+void nvGetContentProtectionState(NVConnectorEvoPtr pConnectorEvo,
+                                 enum NvKmsContentProtection *cp);
+
+void nvGetContentProtectionTopology(NVConnectorEvoPtr pConnectorEvo,
+                                    struct NvKmsHdcpTopology *topology);
 
 NvBool nvRmRegisterCallback(const NVDevEvoRec *pDevEvo,
                             NVOS10_EVENT_KERNEL_CALLBACK_EX *cb,

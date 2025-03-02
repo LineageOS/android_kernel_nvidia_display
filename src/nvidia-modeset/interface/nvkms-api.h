@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2014-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -757,6 +757,14 @@ struct NvKmsFlipCommonParams {
         NvBool specified;
         enum NvKmsOutputColorimetry val;
     } colorimetry;
+
+    /*
+     * Specifies required output color range value.
+     */
+    struct {
+        NvBool specified;
+        enum NvKmsDpyAttributeColorRangeValue val;
+    } outputcolorrange;
 
     struct {
         struct {
@@ -3053,6 +3061,32 @@ struct NvKmsEventFlipOccurred {
 };
 
 
+/*!
+ * NVKMS_EVENT_TYPE_DPY_CP_CHANGED
+ *
+ * When a dpy content protection status changes, this event will be generated.
+ */
+
+struct NvKmsEventDpyCpChanged {
+    NvKmsDeviceHandle deviceHandle;
+    NvKmsDispHandle dispHandle;
+    NVDpyId dpyId;
+    enum NvKmsContentProtection cp;
+};
+
+/*!
+ * NVKMS_EVENT_TYPE_DPY_CP_TOPOLOGY_CHANGED
+ *
+ * When a dpy content protection topology changes, this event will be generated.
+ */
+
+struct NvKmsEventDpyCpTopologyChanged  {
+    NvKmsDeviceHandle deviceHandle;
+    NvKmsDispHandle dispHandle;
+    NVDpyId dpyId;
+    struct NvKmsHdcpTopology *topology;
+};
+
 struct NvKmsEvent {
     enum NvKmsEventType eventType;
     union {
@@ -3062,6 +3096,8 @@ struct NvKmsEvent {
         struct NvKmsEventDpyAttributeChanged dpyAttributeChanged;
         struct NvKmsEventFrameLockAttributeChanged frameLockAttributeChanged;
         struct NvKmsEventFlipOccurred flipOccurred;
+        struct NvKmsEventDpyCpChanged dpyCpChanged;
+        struct NvKmsEventDpyCpTopologyChanged dpyCpTopologyChanged;
     } u;
 };
 

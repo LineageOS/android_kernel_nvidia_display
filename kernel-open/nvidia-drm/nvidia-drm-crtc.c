@@ -49,6 +49,9 @@
 #endif
 
 #include <drm/drm_vblank.h>
+#if defined(NV_DRM_DRM_COLOR_MGMT_H_PRESENT)
+#include <drm/drm_color_mgmt.h>
+#endif
 
 #if defined(NV_DRM_HAS_HDR_OUTPUT_METADATA)
 static int
@@ -90,10 +93,21 @@ static void nv_drm_plane_destroy(struct drm_plane *plane)
 }
 
 static inline void
+plane_config_clear(struct NvKmsKapiLayerConfig *layerConfig)
+{
+    if (layerConfig == NULL) {
+        return;
+    }
+
+    memset(layerConfig, 0, sizeof(*layerConfig));
+    layerConfig->csc = NVKMS_IDENTITY_CSC_MATRIX;
+}
+
+static inline void
 plane_req_config_disable(struct NvKmsKapiLayerRequestedConfig *req_config)
 {
     /* Clear layer config */
-    memset(&req_config->config, 0, sizeof(req_config->config));
+    plane_config_clear(&req_config->config);
 
     /* Set flags to get cleared layer config applied */
     req_config->flags.surfaceChanged = NV_TRUE;
@@ -109,6 +123,45 @@ cursor_req_config_disable(struct NvKmsKapiCursorRequestedConfig *req_config)
     req_config->surface = NULL;
     req_config->flags.surfaceChanged = NV_TRUE;
 }
+
+#if defined(NV_DRM_COLOR_MGMT_AVAILABLE)
+static void color_mgmt_config_ctm_to_csc(struct NvKmsCscMatrix *nvkms_csc,
+                                         struct drm_color_ctm  *drm_ctm)
+{
+    int y;
+
+    /* CTM is a 3x3 matrix while ours is 3x4. Zero out the last column. */
+    nvkms_csc->m[0][3] = nvkms_csc->m[1][3] = nvkms_csc->m[2][3] = 0;
+
+    for (y = 0; y < 3; y++) {
+        int x;
+
+        for (x = 0; x < 3; x++) {
+            /*
+             * Values in the CTM are encoded in S31.32 sign-magnitude fixed-
+             * point format, while NvKms CSC values are signed 2's-complement
+             * S15.16 (Ssign-extend12-3.16?) fixed-point format.
+             */
+            NvU64 ctmVal = drm_ctm->matrix[y*3 + x];
+            NvU64 signBit = ctmVal & (1ULL << 63);
+            NvU64 magnitude = ctmVal & ~signBit;
+
+            /*
+             * Drop the low 16 bits of the fractional part and the high 17 bits
+             * of the integral part. Drop 17 bits to avoid corner cases where
+             * the highest resulting bit is a 1, causing the `cscVal = -cscVal`
+             * line to result in a positive number.
+             */
+            NvS32 cscVal = (magnitude >> 16) & ((1ULL << 31) - 1);
+            if (signBit) {
+                cscVal = -cscVal;
+            }
+
+            nvkms_csc->m[y][x] = cscVal;
+        }
+    }
+}
+#endif /* NV_DRM_COLOR_MGMT_AVAILABLE */
 
 static void
 cursor_plane_req_config_update(struct drm_plane *plane,
@@ -236,6 +289,8 @@ plane_req_config_update(struct drm_plane *plane,
             .dstY = plane_state->crtc_y,
             .dstWidth  = plane_state->crtc_w,
             .dstHeight = plane_state->crtc_h,
+
+            .csc = old_config.csc
         },
     };
 
@@ -569,6 +624,24 @@ static int nv_drm_plane_atomic_check(struct drm_plane *plane,
                 return ret;
             }
 
+#if defined(NV_DRM_COLOR_MGMT_AVAILABLE)
+            if (crtc_state->color_mgmt_changed) {
+                /*
+                 * According to the comment in the Linux kernel's
+                 * drivers/gpu/drm/drm_color_mgmt.c, if this property is NULL,
+                 * the CTM needs to be changed to the identity matrix
+                 */
+                if (crtc_state->ctm) {
+                    color_mgmt_config_ctm_to_csc(&plane_requested_config->config.csc,
+                                                 (struct drm_color_ctm *)crtc_state->ctm->data);
+                } else {
+                    plane_requested_config->config.csc = NVKMS_IDENTITY_CSC_MATRIX;
+                }
+                plane_requested_config->config.cscUseMain = NV_FALSE;
+                plane_requested_config->flags.cscChanged = NV_TRUE;
+            }
+#endif /* NV_DRM_COLOR_MGMT_AVAILABLE */
+
             if (__is_async_flip_requested(plane, crtc_state)) {
                 /*
                  * Async flip requests that the flip happen 'as soon as
@@ -812,6 +885,21 @@ static inline void nv_drm_crtc_duplicate_req_head_modeset_config(
     }
 }
 
+static inline struct nv_drm_crtc_state *nv_drm_crtc_state_alloc(void)
+{
+    struct nv_drm_crtc_state *nv_state = nv_drm_calloc(1, sizeof(*nv_state));
+    int i;
+
+    if (nv_state == NULL) {
+        return NULL;
+    }
+
+    for (i = 0; i < ARRAY_SIZE(nv_state->req_config.layerRequestedConfig); i++) {
+        plane_config_clear(&nv_state->req_config.layerRequestedConfig[i].config);
+    }
+    return nv_state;
+}
+
 /**
  * nv_drm_atomic_crtc_reset - crtc state reset hook
  * @crtc: DRM crtc
@@ -820,7 +908,7 @@ static inline void nv_drm_crtc_duplicate_req_head_modeset_config(
  */
 static void nv_drm_atomic_crtc_reset(struct drm_crtc *crtc)
 {
-    struct nv_drm_crtc_state *nv_state = nv_drm_calloc(1, sizeof(*nv_state));
+    struct nv_drm_crtc_state *nv_state = nv_drm_crtc_state_alloc();
 
     if (!nv_state) {
         return;
@@ -853,7 +941,7 @@ static void nv_drm_atomic_crtc_reset(struct drm_crtc *crtc)
 static struct drm_crtc_state*
 nv_drm_atomic_crtc_duplicate_state(struct drm_crtc *crtc)
 {
-    struct nv_drm_crtc_state *nv_state = nv_drm_calloc(1, sizeof(*nv_state));
+    struct nv_drm_crtc_state *nv_state = nv_drm_crtc_state_alloc();
 
     if (nv_state == NULL) {
         return NULL;
@@ -865,13 +953,19 @@ nv_drm_atomic_crtc_duplicate_state(struct drm_crtc *crtc)
         return NULL;
     }
 
-    __drm_atomic_helper_crtc_duplicate_state(crtc, &nv_state->base);
-
     INIT_LIST_HEAD(&nv_state->nv_flip->list_entry);
+
+    /*
+     * nv_drm_crtc_duplicate_req_head_modeset_config potentially allocates
+     * nv_state->req_config.modeSetConfig.lut.{in,out}put.pRamps, so they should
+     * be freed in any following failure paths.
+     */
 
     nv_drm_crtc_duplicate_req_head_modeset_config(
         &(to_nv_crtc_state(crtc->state)->req_config),
         &nv_state->req_config);
+
+    __drm_atomic_helper_crtc_duplicate_state(crtc, &nv_state->base);
 
     return &nv_state->base;
 }
@@ -1343,7 +1437,7 @@ static struct drm_crtc *__nv_drm_crtc_create(struct nv_drm_device *nv_dev,
         goto failed;
     }
 
-    nv_state = nv_drm_calloc(1, sizeof(*nv_state));
+    nv_state = nv_drm_crtc_state_alloc();
     if (nv_state == NULL) {
         goto failed_state_alloc;
     }
@@ -1378,6 +1472,14 @@ static struct drm_crtc *__nv_drm_crtc_create(struct nv_drm_device *nv_dev,
     /* Add crtc to drm sub-system */
 
     drm_crtc_helper_add(&nv_crtc->base, &nv_crtc_helper_funcs);
+
+#if defined(NV_DRM_COLOR_MGMT_AVAILABLE)
+#if defined(NV_DRM_CRTC_ENABLE_COLOR_MGMT_PRESENT)
+    drm_crtc_enable_color_mgmt(&nv_crtc->base, 0, true, 0);
+#else
+    drm_helper_crtc_enable_color_mgmt(&nv_crtc->base, 0, 0);
+#endif
+#endif
 
     return &nv_crtc->base;
 

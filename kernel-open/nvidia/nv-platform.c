@@ -852,6 +852,8 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
     nv->mipical_regs->cpu_address = res_addr;
     nv->mipical_regs->size = res_size;
 
+    pm_vt_switch_required(&plat_dev->dev, NV_TRUE);
+
     // Enabling power management for the device.
     pm_runtime_enable(&plat_dev->dev);
 
@@ -1073,18 +1075,18 @@ err_free_stack:
     return rc;
 }
 
-static int nv_platform_device_display_remove(struct platform_device *plat_dev)
+static void nv_platform_device_display_remove(struct platform_device *plat_dev)
 {
     nv_linux_state_t *nvl = NULL;
     nv_state_t *nv;
     nvidia_stack_t *sp = NULL;
-    int rc;
 
     nv_printf(NV_DBG_SETUP, "NVRM: removing SOC Display device\n");
 
-    rc = nv_kmem_cache_alloc_stack(&sp);
-    if (rc < 0)
-        return rc;
+    if (WARN_ON(nv_kmem_cache_alloc_stack(&sp) < 0))
+    {
+        return;
+    }
 
     LOCK_NV_LINUX_DEVICES();
     nvl = platform_get_drvdata(plat_dev);
@@ -1162,13 +1164,13 @@ static int nv_platform_device_display_remove(struct platform_device *plat_dev)
 
     nv_kmem_cache_free_stack(sp);
 
-    return 0;
+    return;
 
 done:
     UNLOCK_NV_LINUX_DEVICES();
     nv_kmem_cache_free_stack(sp);
 
-    return 0;
+    return;
 }
 
 static int nv_platform_device_probe(struct platform_device *plat_dev)
@@ -1189,23 +1191,33 @@ static int nv_platform_device_probe(struct platform_device *plat_dev)
     return rc;
 }
 
-static int nv_platform_device_remove(struct platform_device *plat_dev)
+static void nv_platform_device_remove(struct platform_device *plat_dev)
 {
-    int rc = 0;
-
     if (plat_dev->dev.of_node)
     {
         {
-            rc = nv_platform_device_display_remove(plat_dev);
+            nv_platform_device_display_remove(plat_dev);
         }
     }
     else
     {
-        rc = nv_platform_device_display_remove(plat_dev);
+        nv_platform_device_display_remove(plat_dev);
     }
-
-    return rc;
 }
+
+#if defined(NV_PLATFORM_DRIVER_STRUCT_REMOVE_RETURNS_VOID) /* Linux v6.11 */
+static void nv_platform_device_remove_wrapper(struct platform_device *pdev)
+{
+    nv_platform_device_remove(pdev);
+}
+#else
+static int nv_platform_device_remove_wrapper(struct platform_device *pdev)
+{
+    nv_platform_device_remove(pdev);
+
+    return 0;
+}
+#endif
 
 const struct of_device_id nv_platform_device_table[] =
 {
@@ -1228,7 +1240,7 @@ struct platform_driver nv_platform_driver = {
 #endif
     },
     .probe     = nv_platform_device_probe,
-    .remove    = nv_platform_device_remove,
+    .remove    = nv_platform_device_remove_wrapper,
 };
 
 int nv_platform_count_devices(void)

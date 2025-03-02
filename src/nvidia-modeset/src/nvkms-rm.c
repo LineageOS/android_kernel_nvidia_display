@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2013-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2013-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -1352,6 +1352,99 @@ NvBool nvWriteDPCDReg(NVConnectorEvoPtr pConnectorEvo,
     return TRUE;
 }
 
+void nvGetContentProtectionState(NVConnectorEvoPtr pConnectorEvo, enum NvKmsContentProtection *cp)
+{
+    NVDevEvoPtr pDevEvo = pConnectorEvo->pDispEvo->pDevEvo;
+    NvU32 subDeviceIndex = pConnectorEvo->pDispEvo->displayOwner;
+    NvU32 displayId = nvDpyIdToNvU32(pConnectorEvo->displayId);
+    NV0073_CTRL_SPECIFIC_GET_HDCP_STATE_PARAMS params = {0};
+    NvU32 ret = NVOS_STATUS_SUCCESS;
+    NvBool hdcpAuthOn, hdcp1xCapable, hdcp2xCapable, hdcp2xType1;
+
+    params.subDeviceInstance = subDeviceIndex;
+    params.displayId = displayId;
+    ret = nvRmApiControl(nvEvoGlobal.clientHandle,
+                         pDevEvo->displayCommonHandle,
+                         NV0073_CTRL_CMD_SPECIFIC_GET_HDCP_STATE,
+                         &params, sizeof params);
+    if (ret != NVOS_STATUS_SUCCESS)
+    {
+        nvEvoLogDev(pDevEvo, EVO_LOG_ERROR, "CTRL CMD GET_HDCP_STATE failed");
+        *cp = NVKMS_CP_OFF;
+        return;
+    }
+
+    hdcpAuthOn = FLD_TEST_DRF(0073_CTRL_SPECIFIC,
+        _HDCP_STATE, _AUTHENTICATED, _YES, params.flags) ? TRUE : FALSE;
+    hdcp1xCapable = FLD_TEST_DRF(0073_CTRL_SPECIFIC,
+        _HDCP_STATE, _RECEIVER_CAPABLE, _YES, params.flags) ? TRUE : FALSE;
+    hdcp2xCapable = FLD_TEST_DRF(0073_CTRL_SPECIFIC,
+        _HDCP_STATE, _HDCP22_RECEIVER_CAPABLE, _YES, params.flags) ? TRUE : FALSE;
+    hdcp2xType1 = FLD_TEST_DRF(0073_CTRL_SPECIFIC,
+        _HDCP_STATE, _HDCP22_TYPE1, _YES, params.flags) ? TRUE : FALSE;
+
+    if (hdcpAuthOn && hdcp2xCapable && hdcp2xType1) {
+        *cp = NVKMS_CP_HDCP2X_TYPE1_ON;
+    } else if (hdcpAuthOn && hdcp2xCapable) {
+        *cp = NVKMS_CP_HDCP2X_TYPE0_ON;
+    } else if (hdcpAuthOn && hdcp1xCapable) {
+        *cp = NVKMS_CP_HDCP1X_ON;
+    } else {
+        *cp = NVKMS_CP_OFF;
+    }
+}
+
+void nvGetContentProtectionTopology(NVConnectorEvoPtr pConnectorEvo,
+                                    struct NvKmsHdcpTopology *topology)
+{
+    NVDevEvoPtr pDevEvo = pConnectorEvo->pDispEvo->pDevEvo;
+    NvU32 subDeviceIndex = pConnectorEvo->pDispEvo->displayOwner;
+    NvU32 displayId = nvDpyIdToNvU32(pConnectorEvo->displayId);
+    NV0073_CTRL_SPECIFIC_HDCP_CTRL_PARAMS *params = nvCalloc(1, sizeof(NV0073_CTRL_SPECIFIC_HDCP_CTRL_PARAMS));
+    NvU32 ret = NVOS_STATUS_SUCCESS;
+
+    if (params == NULL) {
+        nvEvoLogDev(pDevEvo, EVO_LOG_ERROR,
+                    "Failed to allocate memory for NV0073_CTRL_SPECIFIC_HDCP_CTRL_PARAMS");
+        goto exit1;
+    }
+    nvkms_memset(topology, 0, sizeof(*topology));
+    params->subDeviceInstance = subDeviceIndex;
+    params->displayId = displayId;
+    params->cmd = DRF_DEF(0073_CTRL_SPECIFIC, _HDCP_CTRL, _CMD, _READ_TOPOLOGY);
+    ret = nvRmApiControl(nvEvoGlobal.clientHandle,
+                         pDevEvo->displayCommonHandle,
+                         NV0073_CTRL_CMD_SPECIFIC_HDCP_CTRL,
+                         params, sizeof(*params));
+    if (ret != NVOS_STATUS_SUCCESS)
+    {
+        nvEvoLogDev(pDevEvo, EVO_LOG_ERROR, "CTRL CMD READ_TOPOLOGY failed");
+        goto exit2;
+    }
+
+    topology->isHdcpCapable = params->isHdcpCapable;
+    topology->isHdcpAuthOn = params->isHdcpAuthOn;
+    topology->isHdcpRp = params->isHdcpRp;
+    topology->isHdcp2X = params->isHdcp2X;
+    topology->maxCascadeExceeded = params->bMaxCascadeExceeded;
+    topology->maxDeviceExceeded = params->bMaxDeviceExceeded;
+    topology->isHdcp1DevDownstream = params->bHdcp1DevDownstream;
+    topology->isHdcp2LegacyDevDownstream = params->bHdcp2LegacyDevDownstream;
+    topology->cascadeDepth = params->cascadeDepth;
+    topology->linkCount = params->linkCount;
+    nvkms_memcpy(topology->bksv,
+                 params->bKsv,
+                 params->linkCount * HDCP_TOPOLOGY_KSV_SIZE);
+    topology->numOfBksv = params->numBksvs;
+    nvkms_memcpy(topology->bksvList,
+                 params->bKsvList,
+                 params->numBksvs * HDCP_TOPOLOGY_KSV_SIZE);
+exit2:
+    nvFree(params);
+exit1:
+    return;
+}
+
 static NvBool ReadDPSerializerCaps(NVConnectorEvoPtr pConnectorEvo)
 {
     NVDpyIdList oneDpyIdList =
@@ -1502,6 +1595,19 @@ static void ReceiveDPIRQEvent(void *arg, void *pEventDataVoid, NvU32 hEvent,
         nvHandleDPIRQEventDeferredWork, /* callback */
         arg, /* argument (this is a ref_ptr to a pDispEvo) */
         0,   /* dataU32 */
+        0);
+}
+
+static void ReceiveCpEvent(void *arg, void *pEventDataVoid, NvU32 hEvent,
+                           NvU32 Data, NV_STATUS Status)
+{
+    Nv2080HdcpStatusChangeNotification *pEventData = (Nv2080HdcpStatusChangeNotification*)(pEventDataVoid);
+    NvU32 eventData = ((pEventData->hdcpStatusChangeNotif & 0xFFU) << 24) |
+                       (pEventData->displayId & 0x00FFFFFFU);
+    (void) nvkms_alloc_timer_with_ref_ptr(
+        nvHandleCpEventDeferredWork, /* callback */
+        arg, /* argument (this is a ref_ptr to a pDispEvo) */
+        eventData, /* dataU32 */
         0);
 }
 
@@ -1714,6 +1820,40 @@ enum NvKmsAllocDeviceStatus nvRmAllocDisplays(NVDevEvoPtr pDevEvo)
                         "handler: 0x%x\n", ret);
         }
     }
+
+    // Allocate a handler for the Content Protection event, which is signaled
+    // when there is a change in HDCP status
+    FOR_ALL_EVO_DISPLAYS(pDispEvo, sd, pDevEvo) {
+        NV2080_CTRL_EVENT_SET_NOTIFICATION_PARAMS setEventParams = { };
+        NvU32 subDevice, ret;
+
+        subDevice = pDevEvo->pSubDevices[pDispEvo->displayOwner]->handle;
+
+        pDispEvo->cpEventHandle =
+            nvGenerateUnixRmHandle(&pDevEvo->handleAllocator);
+
+        if (!RegisterDispCallback(&pDispEvo->rmCpCallback, pDispEvo,
+                                  pDispEvo->cpEventHandle, ReceiveCpEvent,
+                                  NV2080_NOTIFIERS_HDCP_STATUS_CHANGE)) {
+            nvEvoLogDev(pDevEvo, EVO_LOG_WARN,
+                        "Failed to register Content Protection event");
+        }
+
+        // Enable HDCP Status Change notifications from this subdevice.
+        setEventParams.event = NV2080_NOTIFIERS_HDCP_STATUS_CHANGE;
+        setEventParams.action = NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_REPEAT;
+        if ((ret = nvRmApiControl(nvEvoGlobal.clientHandle,
+                                  subDevice,
+                                  NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
+                                  &setEventParams,
+                                  sizeof(setEventParams)))
+                != NVOS_STATUS_SUCCESS) {
+            nvEvoLogDev(pDevEvo, EVO_LOG_WARN,
+                        "Failed to register Content Protection event "
+                        "handler: 0x%x\n", ret);
+        }
+    }
+
 
     FOR_ALL_EVO_DISPLAYS(pDispEvo, sd, pDevEvo) {
         ProbeBootDisplays(pDispEvo);

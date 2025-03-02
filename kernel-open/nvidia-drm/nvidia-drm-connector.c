@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015- 2024, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2015- 2025, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -44,6 +44,9 @@
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_edid.h>
+
+#include <drm/drm_hdcp.h>
+#include <drm/drm_sysfs.h>
 
 static void nv_drm_connector_destroy(struct drm_connector *connector)
 {
@@ -245,6 +248,10 @@ static struct drm_connector_state* nv_drm_connector_atomic_duplicate_state(struc
 
     nv_drm_new_connector_state->output_colorrange = nv_drm_old_connector_state->output_colorrange;
     nv_drm_new_connector_state->op_colorrange_changed = false;
+    nv_drm_new_connector_state->hdcp_topology_blob = nv_drm_old_connector_state->hdcp_topology_blob;
+    if (nv_drm_new_connector_state->hdcp_topology_blob) {
+        drm_property_blob_get(nv_drm_new_connector_state->hdcp_topology_blob);
+    }
 
     return &nv_drm_new_connector_state->base;
 }
@@ -257,6 +264,7 @@ static void nv_drm_connector_atomic_destroy_state(
            to_nv_drm_connector_state(state);
 
     __drm_atomic_helper_connector_destroy_state(state);
+    drm_property_blob_put(nv_drm_connector_state->hdcp_topology_blob);
 
     nv_drm_free(nv_drm_connector_state);
 }
@@ -437,6 +445,12 @@ nv_drm_connector_best_encoder(struct drm_connector *connector)
     return NULL;
 }
 
+#if defined(NV_DRM_MODE_CREATE_DP_COLORSPACE_PROPERTY_HAS_SUPPORTED_COLORSPACES_ARG)
+static const NvU32 __nv_drm_connector_supported_colorspaces =
+    BIT(DRM_MODE_COLORIMETRY_BT2020_RGB) |
+    BIT(DRM_MODE_COLORIMETRY_BT2020_YCC);
+#endif
+
 static int
 nv_drm_connector_atomic_check(struct drm_connector *connector,
                               struct drm_atomic_state *state)
@@ -484,7 +498,7 @@ nv_drm_connector_atomic_check(struct drm_connector *connector,
 
     req_config->flags.colorimetryChanged =
         (old_connector_state->colorspace != new_connector_state->colorspace);
-
+    // When adding a case here, also add to __nv_drm_connector_supported_colorspaces
     switch (new_connector_state->colorspace) {
         case DRM_MODE_COLORIMETRY_DEFAULT:
             req_config->modeSetConfig.colorimetry =
@@ -549,6 +563,7 @@ nv_drm_connector_new(struct drm_device *dev,
     nv_connector->internal = internal;
     nv_connector->modeset_permission_filep = NULL;
     nv_connector->modeset_permission_crtc = NULL;
+    nv_connector->cp = NVKMS_CP_OFF;
 
     strcpy(nv_connector->dpAddress, dpAddress);
 
@@ -574,18 +589,47 @@ nv_drm_connector_new(struct drm_device *dev,
             DRM_CONNECTOR_POLL_CONNECT | DRM_CONNECTOR_POLL_DISCONNECT;
     }
 
+    /* attach content protection properties */
+    if (nv_connector->type != NVKMS_CONNECTOR_TYPE_DSI) {
+        ret = drm_connector_attach_content_protection_property(&nv_connector->base, true);
+        if (ret != 0) {
+            NV_DRM_DEV_LOG_ERR(
+                nv_dev,
+                "Failed to attach content protction properties to connector created from physical index %u",
+                nv_connector->physicalIndex);
+            goto failed_connector_init;
+        }
+    }
+
     /* attach nvidia defined connector properties */
+    if (nv_connector->type != NVKMS_CONNECTOR_TYPE_DSI) {
+        drm_object_attach_property(&nv_connector->base.base,
+                                   nv_dev->nv_hdcp_topology_property,
+                                   0);
+    }
     drm_object_attach_property(&nv_connector->base.base,
                                nv_dev->nv_output_colorrange_property,
                                NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_FULL);
 
     if (nv_connector->type == NVKMS_CONNECTOR_TYPE_HDMI) {
+#if defined(NV_DRM_MODE_CREATE_DP_COLORSPACE_PROPERTY_HAS_SUPPORTED_COLORSPACES_ARG)
+        if (drm_mode_create_hdmi_colorspace_property(
+                &nv_connector->base,
+                __nv_drm_connector_supported_colorspaces) == 0) {
+#else
         if (drm_mode_create_hdmi_colorspace_property(&nv_connector->base) == 0) {
+#endif
             drm_connector_attach_colorspace_property(&nv_connector->base);
         }
         drm_connector_attach_hdr_output_metadata_property(&nv_connector->base);
     } else if (nv_connector->type == NVKMS_CONNECTOR_TYPE_DP) {
+#if defined(NV_DRM_MODE_CREATE_DP_COLORSPACE_PROPERTY_HAS_SUPPORTED_COLORSPACES_ARG)
+        if (drm_mode_create_dp_colorspace_property(
+                &nv_connector->base,
+                __nv_drm_connector_supported_colorspaces) == 0) {
+#else
         if (drm_mode_create_dp_colorspace_property(&nv_connector->base) == 0) {
+#endif
             drm_connector_attach_colorspace_property(&nv_connector->base);
         }
         drm_connector_attach_hdr_output_metadata_property(&nv_connector->base);
@@ -687,6 +731,64 @@ bool nv_drm_connector_revoke_permissions(struct drm_device *dev,
         nv_connector->modeset_permission_crtc = NULL;
     }
     nv_connector->modeset_permission_filep = NULL;
+    return ret;
+}
+
+void nv_drm_connector_update_content_protection(struct nv_drm_connector *nv_connector)
+{
+    struct drm_connector *connector = &nv_connector->base;
+    struct drm_connector_state *state = connector->state;
+    unsigned int content_protection = state->content_protection;
+    unsigned int hdcp_content_type = state->hdcp_content_type;
+    bool update_cp = false;
+    unsigned int cp_val;
+
+    if ((content_protection == DRM_MODE_CONTENT_PROTECTION_DESIRED) &&
+        (hdcp_content_type == DRM_MODE_HDCP_CONTENT_TYPE0)) {
+        if ((nv_connector->cp == NVKMS_CP_HDCP1X_ON) ||
+            (nv_connector->cp == NVKMS_CP_HDCP2X_TYPE0_ON) ||
+            (nv_connector->cp == NVKMS_CP_HDCP2X_TYPE1_ON)) {
+            cp_val = DRM_MODE_CONTENT_PROTECTION_ENABLED;
+            update_cp = true;
+        }
+    } else if ((content_protection == DRM_MODE_CONTENT_PROTECTION_DESIRED) &&
+             (hdcp_content_type == DRM_MODE_HDCP_CONTENT_TYPE1)) {
+        if (nv_connector->cp == NVKMS_CP_HDCP2X_TYPE1_ON) {
+            cp_val = DRM_MODE_CONTENT_PROTECTION_ENABLED;
+            update_cp = true;
+        }
+    } else if (content_protection == DRM_MODE_CONTENT_PROTECTION_ENABLED) {
+        if (nv_connector->cp == NVKMS_CP_OFF) {
+            cp_val = DRM_MODE_CONTENT_PROTECTION_DESIRED;
+            update_cp = true;
+        }
+    }
+
+    if (update_cp) {
+        drm_hdcp_update_content_protection(connector, cp_val);
+    }
+}
+
+int nv_drm_connector_update_topology_property(struct nv_drm_connector *nv_connector,
+                                              struct NvKmsHdcpTopology *topology)
+{
+    struct drm_connector *connector = &nv_connector->base;
+    struct drm_connector_state *state = connector->state;
+    struct nv_drm_connector_state *nv_state = to_nv_drm_connector_state(state);
+    struct drm_device *dev = connector->dev;
+    struct nv_drm_device *nv_dev = to_nv_device(dev);
+    int ret;
+
+    ret = drm_property_replace_global_blob(dev,
+                                            &nv_state->hdcp_topology_blob,
+                                            sizeof(*topology),
+                                            topology,
+                                            &connector->base,
+                                            nv_dev->nv_hdcp_topology_property);
+    // Generate uevent on cp property when topology is updated
+    drm_sysfs_connector_status_event(connector,
+        dev->mode_config.content_protection_property);
+
     return ret;
 }
 

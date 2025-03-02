@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -1279,6 +1279,16 @@ typedef struct NV0073_CTRL_SPECIFIC_HDCP_CTRL_PARAMS {
     NvBool bEnforceType0Hdcp1xDS;
 
     NvBool bPendingKsvListReady;
+
+    NvBool isHdcpCapable;
+    NvBool isHdcpAuthOn;
+    NvBool isHdcpRp;
+    NvBool isHdcp2X;
+    NvBool bMaxCascadeExceeded;
+    NvBool bMaxDeviceExceeded;
+    NvBool bHdcp1DevDownstream;
+    NvBool bHdcp2LegacyDevDownstream;
+    NvU8   cascadeDepth;
 } NV0073_CTRL_SPECIFIC_HDCP_CTRL_PARAMS;
 
 #define NV0073_CTRL_SPECIFIC_HDCP_CTRL_ERR_UNSUCCESSFUL             0:0
@@ -1310,6 +1320,7 @@ typedef struct NV0073_CTRL_SPECIFIC_HDCP_CTRL_PARAMS {
 #define NV0073_CTRL_SPECIFIC_HDCP_CTRL_CMD_SET_TYPE                      (0x0000009U)
 #define NV0073_CTRL_SPECIFIC_HDCP_CTRL_CMD_FORWARD_KSVLIST_READY         (0x000000AU)
 #define NV0073_CTRL_SPECIFIC_HDCP_CTRL_CMD_READ_LINK_STATUS_NO_DISPLAY   (0x000000BU)
+#define NV0073_CTRL_SPECIFIC_HDCP_CTRL_CMD_READ_TOPOLOGY                 (0x000000CU)
 
 #define NV0073_CTRL_SPECIFIC_HDCP_CTRL_FLAGS_BCAPS_PRESENT          0:0
 #define NV0073_CTRL_SPECIFIC_HDCP_CTRL_FLAGS_BCAPS_PRESENT_NO            (0x0000000U)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2024, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2015-2025, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -35,6 +35,8 @@
 #include "nvidia-drm-gem-nvkms-memory.h"
 #include "nvidia-drm-gem-user-memory.h"
 #include "nvidia-drm-gem-dma-buf.h"
+#include "nvidia-drm-utils.h"
+#include "nv_dpy_id.h"
 
 #if defined(NV_DRM_AVAILABLE)
 
@@ -71,6 +73,7 @@
 
 #include <linux/pci.h>
 #include <linux/workqueue.h>
+#include <linux/sort.h>
 
 /*
  * Commit fcd70cd36b9b ("drm: Split out drm_probe_helper.h")
@@ -164,6 +167,7 @@ static const char* nv_get_output_colorrange_name(
 
 #if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
 
+#if defined(NV_DRM_OUTPUT_POLL_CHANGED_PRESENT)
 static void nv_drm_output_poll_changed(struct drm_device *dev)
 {
     struct drm_connector *connector = NULL;
@@ -207,6 +211,7 @@ static void nv_drm_output_poll_changed(struct drm_device *dev)
     nv_drm_connector_list_iter_end(&conn_iter);
 #endif
 }
+#endif /* NV_DRM_OUTPUT_POLL_CHANGED_PRESENT */
 
 static struct drm_framebuffer *nv_drm_framebuffer_create(
     struct drm_device *dev,
@@ -244,7 +249,9 @@ static const struct drm_mode_config_funcs nv_mode_config_funcs = {
     .atomic_check  = nv_drm_atomic_check,
     .atomic_commit = nv_drm_atomic_commit,
 
+    #if defined(NV_DRM_OUTPUT_POLL_CHANGED_PRESENT)
     .output_poll_changed = nv_drm_output_poll_changed,
+    #endif
 };
 
 static void nv_drm_event_callback(const struct NvKmsKapiEvent *event)
@@ -262,6 +269,20 @@ static void nv_drm_event_callback(const struct NvKmsKapiEvent *event)
             nv_drm_handle_display_change(
                 nv_dev,
                 event->u.displayChanged.display);
+            break;
+
+        case NVKMS_EVENT_TYPE_DPY_CP_CHANGED:
+            nv_drm_handle_display_cp_change(
+                nv_dev,
+                event->u.displayCpChanged.display,
+                event->u.displayCpChanged.cp);
+            break;
+
+        case NVKMS_EVENT_TYPE_DPY_CP_TOPOLOGY_CHANGED:
+            nv_drm_handle_display_cp_topology_change(
+                nv_dev,
+                event->u.displayCpTopologyChanged.display,
+                event->u.displayCpTopologyChanged.topology);
             break;
 
         case NVKMS_EVENT_TYPE_DYNAMIC_DPY_CONNECTED:
@@ -283,6 +304,123 @@ done:
 
     mutex_unlock(&nv_dev->lock);
 }
+
+struct nv_drm_mst_display_info {
+    NvKmsKapiDisplay handle;
+    NvBool isDpMST;
+    char dpAddress[NVKMS_DP_ADDRESS_STRING_LENGTH];
+};
+
+/*
+ * Helper function to get DpMST display info.
+ * dpMSTDisplayInfos is allocated dynamically,
+ * so it needs to be freed after finishing the query.
+ */
+static int nv_drm_get_mst_display_infos
+(
+    struct nv_drm_device *nv_dev,
+    NvKmsKapiDisplay hDisplay,
+    struct nv_drm_mst_display_info **dpMSTDisplayInfos,
+    NvU32 *nDynamicDisplays
+)
+{
+    struct NvKmsKapiStaticDisplayInfo *displayInfo = NULL;
+    struct NvKmsKapiStaticDisplayInfo *dynamicDisplayInfo = NULL;
+    struct NvKmsKapiConnectorInfo *connectorInfo = NULL;
+    struct nv_drm_mst_display_info *displayInfos = NULL;
+    NvU32 i = 0;
+    int ret = 0;
+    NVDpyId dpyId;
+    *nDynamicDisplays = 0;
+
+    /* Query NvKmsKapiStaticDisplayInfo and NvKmsKapiConnectorInfo */
+
+    if ((displayInfo = nv_drm_calloc(1, sizeof(*displayInfo))) == NULL) {
+        ret = -ENOMEM;
+        goto done;
+    }
+
+    if ((dynamicDisplayInfo = nv_drm_calloc(1, sizeof(*dynamicDisplayInfo))) == NULL) {
+        ret = -ENOMEM;
+        goto done;
+    }
+
+    if (!nvKms->getStaticDisplayInfo(nv_dev->pDevice, hDisplay, displayInfo)) {
+        ret = -EINVAL;
+        goto done;
+    }
+
+    connectorInfo = nvkms_get_connector_info(nv_dev->pDevice,
+                displayInfo->connectorHandle);
+
+    if (IS_ERR(connectorInfo)) {
+        ret = PTR_ERR(connectorInfo);
+        goto done;
+    }
+
+
+    *nDynamicDisplays = nvCountDpyIdsInDpyIdList(connectorInfo->dynamicDpyIdList);
+
+    if (*nDynamicDisplays == 0) {
+        goto done;
+    }
+
+    if ((displayInfos = nv_drm_calloc(*nDynamicDisplays, sizeof(*displayInfos))) == NULL) {
+        ret = -ENOMEM;
+        goto done;
+    }
+
+    FOR_ALL_DPY_IDS(dpyId, connectorInfo->dynamicDpyIdList) {
+        if (!nvKms->getStaticDisplayInfo(nv_dev->pDevice,
+                    nvDpyIdToNvU32(dpyId),
+                    dynamicDisplayInfo)) {
+            ret = -EINVAL;
+            nv_drm_free(displayInfos);
+            goto done;
+        }
+
+        displayInfos[i].handle = dynamicDisplayInfo->handle;
+        displayInfos[i].isDpMST = dynamicDisplayInfo->isDpMST;
+        memcpy(displayInfos[i].dpAddress, dynamicDisplayInfo->dpAddress, sizeof(dynamicDisplayInfo->dpAddress));
+
+        i++;
+    }
+
+    *dpMSTDisplayInfos = displayInfos;
+
+done:
+
+    nv_drm_free(displayInfo);
+
+    nv_drm_free(dynamicDisplayInfo);
+
+    nv_drm_free(connectorInfo);
+
+    return ret;
+}
+
+static int nv_drm_disp_cmp (const void *l, const void *r)
+{
+    struct nv_drm_mst_display_info *l_info = (struct nv_drm_mst_display_info *)l;
+    struct nv_drm_mst_display_info *r_info = (struct nv_drm_mst_display_info *)r;
+
+    return strcmp(l_info->dpAddress, r_info->dpAddress);
+}
+
+/*
+ * Helper function to sort the dpAddress in terms of string.
+ * This function is to create DRM connectors ID order deterministically.
+ * It's not numerically.
+ */
+static void nv_drm_sort_dynamic_displays_by_dp_addr
+(
+    struct nv_drm_mst_display_info *infos,
+    int nDynamicDisplays
+)
+{
+    sort(infos, nDynamicDisplays, sizeof(*infos), nv_drm_disp_cmp, NULL);
+}
+
 
 /*
  * Helper function to initialize drm_device::mode_config from
@@ -365,9 +503,11 @@ static void nv_drm_enumerate_encoders_and_connectors
                     nv_dev,
                     "Failed to enumurate NvKmsKapiDisplay handles");
             } else {
-                NvU32 i;
+                NvU32 i, j;
+                NvU32 nDynamicDisplays = 0;
 
                 for (i = 0; i < nDisplays; i++) {
+                    struct nv_drm_mst_display_info *displayInfos = NULL;
                     struct drm_encoder *encoder =
                         nv_drm_add_encoder(dev, hDisplays[i]);
 
@@ -376,6 +516,34 @@ static void nv_drm_enumerate_encoders_and_connectors
                             nv_dev,
                             "Failed to add connector for NvKmsKapiDisplay 0x%08x",
                             hDisplays[i]);
+                    }
+
+                    if (nv_drm_get_mst_display_infos(nv_dev, hDisplays[i],
+                            &displayInfos, &nDynamicDisplays)) {
+                        NV_DRM_DEV_LOG_ERR(
+                                nv_dev,
+                                "Failed to get dynamic displays");
+                    } else if (nDynamicDisplays) {
+                        nv_drm_sort_dynamic_displays_by_dp_addr(displayInfos, nDynamicDisplays);
+
+                        for (j = 0; j < nDynamicDisplays; j++) {
+                            if (displayInfos[j].isDpMST) {
+                                struct drm_encoder *mst_encoder =
+                                    nv_drm_add_encoder(dev, displayInfos[j].handle);
+
+                                NV_DRM_DEV_DEBUG_DRIVER(nv_dev, "found DP MST port display handle %u",
+                                        displayInfos[j].handle);
+
+                                if (IS_ERR(mst_encoder)) {
+                                    NV_DRM_DEV_LOG_ERR(
+                                            nv_dev,
+                                            "Failed to add connector for NvKmsKapiDisplay 0x%08x",
+                                            displayInfos[j].handle);
+                                }
+                            }
+                        }
+
+                        nv_drm_free(displayInfos);
                     }
                 }
             }
@@ -468,6 +636,14 @@ static int nv_drm_create_properties(struct nv_drm_device *nv_dev)
         return -ENOMEM;
     }
 #endif
+
+    /* hdcp_topology is immutable by user space */
+    nv_dev->nv_hdcp_topology_property =
+        drm_property_create(nv_dev->dev, DRM_MODE_PROP_BLOB | DRM_MODE_PROP_IMMUTABLE,
+            "NV_HDCP_TOPOLOGY", 0);
+    if (nv_dev->nv_hdcp_topology_property == NULL) {
+        return -ENOMEM;
+    }
 
     return 0;
 }
@@ -617,6 +793,8 @@ static int nv_drm_load(struct drm_device *dev, unsigned long flags)
             nv_dev->pDevice,
             ((1 << NVKMS_EVENT_TYPE_DPY_CHANGED) |
              (1 << NVKMS_EVENT_TYPE_DYNAMIC_DPY_CONNECTED) |
+             (1 << NVKMS_EVENT_TYPE_DPY_CP_CHANGED) |
+             (1 << NVKMS_EVENT_TYPE_DPY_CP_TOPOLOGY_CHANGED) |
              (1 << NVKMS_EVENT_TYPE_FLIP_OCCURRED)))) {
         NV_DRM_DEV_LOG_ERR(nv_dev, "Failed to register event mask");
     }
@@ -763,6 +941,62 @@ static void nv_drm_master_set(struct drm_device *dev,
 }
 #endif
 
+static
+int nv_drm_reset_input_colorspace(struct drm_device *dev)
+{
+    struct drm_atomic_state *state;
+    struct drm_plane_state *plane_state;
+    struct drm_plane *plane;
+    struct nv_drm_plane_state *nv_drm_plane_state;
+    struct drm_modeset_acquire_ctx ctx;
+    int ret = 0;
+    bool do_reset = false;
+    NvU32 flags = 0;
+
+    state = drm_atomic_state_alloc(dev);
+    if (!state)
+        return -ENOMEM;
+
+#if defined(DRM_MODESET_ACQUIRE_INTERRUPTIBLE)
+    flags |= DRM_MODESET_ACQUIRE_INTERRUPTIBLE;
+#endif
+    drm_modeset_acquire_init(&ctx, flags);
+    state->acquire_ctx = &ctx;
+
+    nv_drm_for_each_plane(plane, dev) {
+        plane_state = drm_atomic_get_plane_state(state, plane);
+        if (IS_ERR(plane_state)) {
+            ret = PTR_ERR(plane_state);
+            goto out;
+        }
+
+        nv_drm_plane_state = to_nv_drm_plane_state(plane_state);
+        if (nv_drm_plane_state) {
+            if (nv_drm_plane_state->input_colorspace != NVKMS_INPUT_COLORSPACE_NONE) {
+                nv_drm_plane_state->input_colorspace = NVKMS_INPUT_COLORSPACE_NONE;
+                do_reset = true;
+            }
+        }
+    }
+
+    if (do_reset) {
+        ret = drm_atomic_commit(state);
+    }
+
+out:
+#if defined(NV_DRM_ATOMIC_STATE_REF_COUNTING_PRESENT)
+    drm_atomic_state_put(state);
+#else
+    // In case of success, drm_atomic_commit() takes care to cleanup and free state.
+    if (ret != 0) {
+        drm_atomic_state_free(state);
+    }
+#endif
+    drm_modeset_drop_locks(&ctx);
+    drm_modeset_acquire_fini(&ctx);
+
+    return ret;
+}
 
 #if defined(NV_DRM_MASTER_DROP_HAS_FROM_RELEASE_ARG)
 static
@@ -806,6 +1040,12 @@ void nv_drm_master_drop(struct drm_device *dev, struct drm_file *file_priv)
         drm_modeset_unlock_all(dev);
 
         nvKms->releaseOwnership(nv_dev->pDevice);
+    } else {
+        int err = nv_drm_reset_input_colorspace(dev);
+        if (err != 0) {
+            NV_DRM_DEV_LOG_WARN(nv_dev,
+            "nv_drm_reset_input_colorspace failed with error code: %d !", err);
+        }
     }
 }
 #endif /* NV_DRM_ATOMIC_MODESET_AVAILABLE */

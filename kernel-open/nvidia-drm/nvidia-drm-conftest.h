@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2017 - 2024, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -59,6 +59,17 @@
 #define NV_DRM_FENCE_AVAILABLE
 #else
 #undef NV_DRM_FENCE_AVAILABLE
+#endif
+
+/*
+ * We can support color management if either drm_helper_crtc_enable_color_mgmt()
+ * or drm_crtc_enable_color_mgmt() exist.
+ */
+#if defined(NV_DRM_HELPER_CRTC_ENABLE_COLOR_MGMT_PRESENT) || \
+    defined(NV_DRM_CRTC_ENABLE_COLOR_MGMT_PRESENT)
+#define NV_DRM_COLOR_MGMT_AVAILABLE
+#else
+#undef NV_DRM_COLOR_MGMT_AVAILABLE
 #endif
 
 #endif /* defined(__NVIDIA_DRM_CONFTEST_H__) */

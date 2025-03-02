@@ -5287,6 +5287,31 @@ compile_test() {
             fi
         ;;
 
+        of_property_for_each_u32_has_internal_args)
+            #
+            # Determine if the internal arguments for the macro
+            # of_property_for_each_u32() are present.
+            #
+            # Commit 9722c3b66e21 ("of: remove internal arguments from
+            # of_property_for_each_u32()") removes two arguments from
+            # of_property_for_each_u32() which are used internally within
+            # the macro and so do not need to be passed. This change was
+            # made for Linux v6.11.
+            #
+            CODE="
+            #include <linux/of.h>
+            void conftest_of_property_for_each_u32(struct device_node *np,
+                                                   char *propname) {
+                struct property *iparam1;
+                const __be32 *iparam2;
+                u32 val;
+
+                of_property_for_each_u32(np, propname, iparam1, iparam2, val);
+            }"
+
+            compile_check_conftest "$CODE" "NV_OF_PROPERTY_FOR_EACH_U32_HAS_INTERNAL_ARGS" "" "types"
+        ;;
+
         of_property_read_variable_u8_array)
             #
             # Determine if of_property_read_variable_u8_array is present
@@ -6373,6 +6398,29 @@ compile_test() {
             compile_check_conftest "$CODE" "NV_DRM_FBDEV_GENERIC_SETUP_PRESENT" "" "functions"
         ;;
 
+        drm_output_poll_changed)
+            #
+            # Determine whether drm_mode_config_funcs.output_poll_changed
+            # callback is present
+            #
+            # Removed by commit 446d0f4849b1 ("drm: Remove struct
+            # drm_mode_config_funcs.output_poll_changed") in v6.12. Hotplug
+            # event support is handled through the fbdev emulation interface
+            # going forward.
+            #
+            CODE="
+            #if defined(NV_DRM_DRM_MODE_CONFIG_H_PRESENT)
+            #include <drm/drm_mode_config.h>
+            #else
+            #include <drm/drm_crtc.h>
+            #endif
+            int conftest_drm_output_poll_changed_available(void) {
+                return offsetof(struct drm_mode_config_funcs, output_poll_changed);
+            }"
+
+            compile_check_conftest "$CODE" "NV_DRM_OUTPUT_POLL_CHANGED_PRESENT" "" "types"
+        ;;
+
         drm_aperture_remove_conflicting_pci_framebuffers)
             #
             # Determine whether drm_aperture_remove_conflicting_pci_framebuffers is present.
@@ -6556,6 +6604,69 @@ compile_test() {
             }"
 
             compile_check_conftest "$CODE" "NV_DRM_APERTURE_REMOVE_CONFLICTING_FRAMEBUFFERS_HAS_NO_PRIMARY_ARG" "" "types"
+        ;;
+
+        platform_driver_struct_remove_returns_void)
+            #
+            # Determine if the 'platform_driver' structure 'remove' function
+            # pointer returns void.
+            #
+            # Commit 0edb555a65d1 ("platform: Make platform_driver::remove()
+            # return void") updated the platform_driver structure 'remove'
+            # callback to return void instead of int in Linux v6.11-rc1.
+            #
+            echo "$CONFTEST_PREAMBLE
+            #include <linux/platform_device.h>
+            int conftest_platform_driver_struct_remove_returns_void(struct platform_device *pdev,
+                                                                    struct platform_driver *driver) {
+                return driver->remove(pdev);
+            }" > conftest$$.c
+
+            $CC $CFLAGS -c conftest$$.c > /dev/null 2>&1
+            rm -f conftest$$.c
+
+            if [ -f conftest$$.o ]; then
+                rm -f conftest$$.o
+
+                echo "#undef NV_PLATFORM_DRIVER_STRUCT_REMOVE_RETURNS_VOID" | append_conftest "types"
+            else
+                echo "#define NV_PLATFORM_DRIVER_STRUCT_REMOVE_RETURNS_VOID" | append_conftest "types"
+            fi
+        ;;
+
+        drm_mode_create_dp_colorspace_property_has_supported_colorspaces_arg)
+            # Determine if drm_mode_create_dp_colorspace_property() takes the
+            # 'supported_colorspaces' argument.
+            #
+            # The 'u32 supported_colorspaces' argument was added to
+            # drm_mode_create_dp_colorspace_property() by linux-next commit
+            # c265f340eaa8 ("drm/connector: Allow drivers to pass list of
+            # supported colorspaces").
+            #
+            # To test if drm_mode_create_dp_colorspace_property() has the
+            # 'supported_colorspaces' argument, declare a function prototype
+            # with typeof drm_mode_create_dp_colorspace_property and then
+            # define the corresponding function implementation with the
+            # expected signature. Successful compilation indicates that
+            # drm_mode_create_dp_colorspace_property() has the
+            # 'supported_colorspaces' argument.
+            #
+            CODE="
+            #if defined(NV_DRM_DRM_CRTC_H_PRESENT)
+            #include <drm/drm_crtc.h>
+            #endif
+            #if defined(NV_DRM_DRM_CONNECTOR_H_PRESENT)
+            #include <drm/drm_connector.h>
+            #endif
+
+            typeof(drm_mode_create_dp_colorspace_property) conftest_drm_mode_create_dp_colorspace_property_has_supported_colorspaces_arg;
+            int conftest_drm_mode_create_dp_colorspace_property_has_supported_colorspaces_arg(struct drm_connector *connector,
+                                                                                              u32 supported_colorspaces)
+            {
+                return 0;
+            }"
+
+            compile_check_conftest "$CODE" "NV_DRM_MODE_CREATE_DP_COLORSPACE_PROPERTY_HAS_SUPPORTED_COLORSPACES_ARG" "" "types"
         ;;
 
         # When adding a new conftest entry, please use the correct format for

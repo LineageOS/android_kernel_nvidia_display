@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -5119,11 +5119,16 @@ static void ConsoleRestoreTimerFired(void *dataPtr, NvU32 dataU32)
  *                        NVKMS_EVENT_TYPE_DPY_ATTRIBUTE_CHANGED.
  * \param[in]  NvS64      The NvKmsDpyAttribute value; only used for
  *                        NVKMS_EVENT_TYPE_DPY_ATTRIBUTE_CHANGED.
+ * \param[in]  NvBool     Only valid for NVKMS_EVENT_TYPE_DPY_CP_CHANGED
+ *                        and NVKMS_EVENT_TYPE_DPY_CP_TOPOLOGY_CHANGED.
+ *                        When set to NV_TRUE cp is considerd disabled
+ *                        and topology will be cleared.
  */
 static void SendDpyEventEvo(const NVDpyEvoRec *pDpyEvo,
                             const NvU32 eventType,
                             const enum NvKmsDpyAttribute attribute,
-                            const NvS64 value)
+                            const NvS64 value,
+                            const NvBool clear)
 {
     struct NvKmsPerOpen *pOpen;
     const NVDispEvoRec *pDispEvo = pDpyEvo->pDispEvo;
@@ -5151,6 +5156,29 @@ static void SendDpyEventEvo(const NVDpyEvoRec *pDpyEvo,
             event.u.dpyChanged.deviceHandle = deviceHandle;
             event.u.dpyChanged.dispHandle = dispHandle;
             event.u.dpyChanged.dpyId = pDpyEvo->id;
+            break;
+
+        case NVKMS_EVENT_TYPE_DPY_CP_CHANGED:
+            event.u.dpyCpChanged.deviceHandle = deviceHandle;
+            event.u.dpyCpChanged.dispHandle = dispHandle;
+            event.u.dpyCpChanged.dpyId = pDpyEvo->id;
+            if (clear) {
+                event.u.dpyCpChanged.cp = NVKMS_CP_OFF;
+            } else {
+                nvGetContentProtectionState(pDpyEvo->pConnectorEvo, &(event.u.dpyCpChanged.cp));
+            }	    
+            break;
+
+        case NVKMS_EVENT_TYPE_DPY_CP_TOPOLOGY_CHANGED:
+            event.u.dpyCpTopologyChanged.deviceHandle = deviceHandle;
+            event.u.dpyCpTopologyChanged.dispHandle = dispHandle;
+            event.u.dpyCpTopologyChanged.dpyId = pDpyEvo->id;
+            event.u.dpyCpTopologyChanged.topology = &(pDpyEvo->pConnectorEvo->cpTopology);
+            if (clear) {
+                nvkms_memset(&(pDpyEvo->pConnectorEvo->cpTopology), 0, sizeof(struct NvKmsHdcpTopology ));
+            } else {
+                nvGetContentProtectionTopology(pDpyEvo->pConnectorEvo, &(pDpyEvo->pConnectorEvo->cpTopology));
+            }
             break;
 
         case NVKMS_EVENT_TYPE_DYNAMIC_DPY_CONNECTED:
@@ -5197,7 +5225,17 @@ void nvSendDpyEventEvo(const NVDpyEvoRec *pDpyEvo, const NvU32 eventType)
     nvAssert(eventType != NVKMS_EVENT_TYPE_DPY_ATTRIBUTE_CHANGED);
     SendDpyEventEvo(pDpyEvo, eventType,
                     0 /* attribute (unused) */,
-                    0 /* value (unused) */ );
+                    0 /* value (unused) */,
+                    NV_FALSE);
+}
+
+void nvSendDpyClearEventEvo(const NVDpyEvoRec *pDpyEvo, const NvU32 eventType)
+{
+    nvAssert(eventType != NVKMS_EVENT_TYPE_DPY_ATTRIBUTE_CHANGED);
+    SendDpyEventEvo(pDpyEvo, eventType,
+                    0 /* attribute (unused) */,
+                    0 /* value (unused) */,
+                    NV_TRUE);
 }
 
 void nvSendDpyAttributeChangedEventEvo(const NVDpyEvoRec *pDpyEvo,
@@ -5206,7 +5244,7 @@ void nvSendDpyAttributeChangedEventEvo(const NVDpyEvoRec *pDpyEvo,
 {
     SendDpyEventEvo(pDpyEvo,
                     NVKMS_EVENT_TYPE_DPY_ATTRIBUTE_CHANGED,
-                    attribute, value);
+                    attribute, value, NV_FALSE);
 }
 
 void nvSendFrameLockAttributeChangedEventEvo(

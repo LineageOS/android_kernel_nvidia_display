@@ -985,6 +985,11 @@ NvBool nvUpdateFlipEvoHwState(
         pFlipState->colorimetry = pParams->colorimetry.val;
     }
 
+    if (pParams->outputcolorrange.specified) {
+        pFlipState->dirty.outputColorRange = TRUE;
+        pFlipState->outputColorRange = pParams->outputcolorrange.val;
+    }
+
     for (layer = 0; layer < pDevEvo->head[head].numLayers; layer++) {
         if (layer == NVKMS_MAIN_LAYER) {
             if (!UpdateMainLayerFlipEvoHwState(pOpenDev, pDevEvo, sd, head,
@@ -1578,6 +1583,11 @@ static void UpdateHDR(NVDevEvoPtr pDevEvo,
 
     if (pFlipState->dirty.colorimetry) {
         pHeadState->colorimetry = pFlipState->colorimetry;
+        dirty = TRUE;
+    }
+
+    if (pFlipState->dirty.outputColorRange) {
+        pHeadState->outputColorRange = pFlipState->outputColorRange;
         dirty = TRUE;
     }
 

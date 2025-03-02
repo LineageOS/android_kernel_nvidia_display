@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2015-2025, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -303,6 +303,47 @@ void nv_drm_handle_display_change(struct nv_drm_device *nv_dev,
     schedule_delayed_work(&nv_dev->hotplug_event_work, 0);
 }
 
+void nv_drm_handle_display_cp_change(struct nv_drm_device *nv_dev,
+                                     NvKmsKapiDisplay hDisplay,
+                                     enum NvKmsContentProtection cp)
+{
+    struct drm_device *dev = nv_dev->dev;
+    struct nv_drm_encoder *nv_encoder = NULL;
+
+    nv_encoder = get_nv_encoder_from_nvkms_display(dev, hDisplay);
+    if (nv_encoder == NULL) {
+        return;
+    }
+
+    mutex_lock(&dev->mode_config.mutex);
+
+    nv_encoder->nv_connector->cp = cp;
+
+    mutex_unlock(&dev->mode_config.mutex);
+
+    nv_drm_connector_update_content_protection(nv_encoder->nv_connector);
+}
+
+void nv_drm_handle_display_cp_topology_change(struct nv_drm_device *nv_dev,
+                                              NvKmsKapiDisplay hDisplay,
+                                              struct NvKmsHdcpTopology *topology)
+{
+    struct drm_device *dev = nv_dev->dev;
+    struct nv_drm_encoder *nv_encoder = NULL;
+
+    mutex_lock(&dev->mode_config.mutex);
+
+    nv_encoder = get_nv_encoder_from_nvkms_display(dev, hDisplay);
+
+    mutex_unlock(&dev->mode_config.mutex);
+
+    if (nv_encoder == NULL) {
+        NV_DRM_DEV_LOG_ERR(nv_dev, "Encoder not found for display %d", hDisplay);
+        return;
+    }
+    nv_drm_connector_update_topology_property(nv_encoder->nv_connector, topology);
+}
+
 void nv_drm_handle_dynamic_display_connected(struct nv_drm_device *nv_dev,
                                              NvKmsKapiDisplay hDisplay)
 {
@@ -319,7 +360,7 @@ void nv_drm_handle_dynamic_display_connected(struct nv_drm_device *nv_dev,
     nv_encoder = get_nv_encoder_from_nvkms_display(dev, hDisplay);
 
     if (nv_encoder != NULL) {
-        NV_DRM_DEV_LOG_ERR(
+        NV_DRM_DEV_LOG_INFO(
             nv_dev,
             "Encoder with NvKmsKapiDisplay 0x%08x already exists.",
             hDisplay);

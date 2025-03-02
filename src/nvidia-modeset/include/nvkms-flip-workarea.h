@@ -30,6 +30,7 @@ typedef struct {
     struct {
         enum NvKmsOutputTf tf;
         enum NvKmsOutputColorimetry colorimetry;
+        enum NvKmsDpyAttributeColorRangeValue outputColorRange;
         enum NvKmsDpyAttributeCurrentColorSpaceValue colorSpace;
         enum NvKmsDpyAttributeColorBpcValue colorBpc;
         enum NvKmsDpyAttributeColorRangeValue colorRange;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -37,6 +37,7 @@ void nvFreePerOpenDev(struct NvKmsPerOpen *pOpen,
                       struct NvKmsPerOpenDev *pOpenDev);
 
 void nvSendDpyEventEvo(const NVDpyEvoRec *pDpyEvo, const NvU32 eventType);
+void nvSendDpyClearEventEvo(const NVDpyEvoRec *pDpyEvo, const NvU32 eventType);
 
 void nvSendDpyAttributeChangedEventEvo(const NVDpyEvoRec *pDpyEvo,
                                        const enum NvKmsDpyAttribute attribute,

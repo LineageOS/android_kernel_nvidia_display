@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2010-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2010-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -694,6 +694,9 @@ typedef struct {
     enum NvKmsOutputTf tf;
 
     enum NvKmsOutputColorimetry colorimetry;
+
+    enum NvKmsDpyAttributeColorRangeValue outputColorRange;
+
     NvBool skipLayerPendingFlips[NVKMS_MAX_LAYERS_PER_HEAD];
 
     struct {
@@ -703,6 +706,7 @@ typedef struct {
         NvBool tf                : 1;
         NvBool hdrStaticMetadata : 1;
         NvBool colorimetry       : 1;
+        NvBool outputColorRange  : 1;
 
         NvBool layerPosition[NVKMS_MAX_LAYERS_PER_HEAD];
         NvBool layerSyncObjects[NVKMS_MAX_LAYERS_PER_HEAD];
@@ -1554,6 +1558,8 @@ typedef struct _NVConnectorEvoRec {
 
     NvEldCase audioDevEldCase[NV_MAX_AUDIO_DEVICE_ENTRIES];
 
+    struct NvKmsHdcpTopology cpTopology;
+
     NvBool isHdmiEnabled;
 } NVConnectorEvoRec;
 
@@ -1752,6 +1758,8 @@ typedef struct _NVDispHeadStateEvoRec {
 
     enum NvKmsOutputColorimetry colorimetry;
 
+    enum NvKmsDpyAttributeColorRangeValue outputColorRange;
+
     struct {
         enum NvKmsHDROutputState outputState;
         struct NvKmsHDRStaticMetadata staticMetadata;
@@ -1803,6 +1811,8 @@ typedef struct _NVDispApiHeadStateEvoRec {
 
     enum NvKmsOutputColorimetry colorimetry;
 
+    enum NvKmsDpyAttributeColorRangeValue outputColorRange;
+
     nvkms_timer_handle_t *hdrToSdrTransitionTimer;
 
     /*
@@ -1847,8 +1857,10 @@ typedef struct _NVDispEvoRec {
     NVDevEvoPtr pDevEvo;
     NvU32      hotplugEventHandle;
     NvU32      DPIRQEventHandle;
+    NvU32      cpEventHandle;
     NVOS10_EVENT_KERNEL_CALLBACK_EX rmHotplugCallback;
     NVOS10_EVENT_KERNEL_CALLBACK_EX rmDPIRQCallback;
+    NVOS10_EVENT_KERNEL_CALLBACK_EX rmCpCallback;
 
     NVDispHeadStateEvoRec headState[NVKMS_MAX_HEADS_PER_DISP];
     NVDispApiHeadStateEvoRec apiHeadState[NVKMS_MAX_HEADS_PER_DISP];

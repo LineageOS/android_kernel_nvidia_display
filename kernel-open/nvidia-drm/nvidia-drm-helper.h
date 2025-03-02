@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2016 - 2024, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -304,6 +304,36 @@ int nv_drm_atomic_helper_disable_all(struct drm_device *dev,
 #else
 #define nv_drm_for_each_plane_in_state(__state, plane, plane_state, __i) \
     for_each_plane_in_state(__state, plane, plane_state, __i)
+#endif
+
+/*
+ * for_each_new_plane_in_state() was added by kernel commit
+ * 581e49fe6b411f407102a7f2377648849e0fa37f which was Signed-off-by:
+ *      Maarten Lankhorst <maarten.lankhorst@linux.intel.com>
+ *      Daniel Vetter <daniel.vetter@ffwll.ch>
+ *
+ * This commit also added the old_state and new_state pointers to
+ * __drm_planes_state. Because of this, the best that can be done on kernel
+ * versions without this macro is for_each_plane_in_state.
+ */
+
+/**
+ * nv_drm_for_each_new_plane_in_state - iterate over all planes in an atomic update
+ * @__state: &struct drm_atomic_state pointer
+ * @plane: &struct drm_plane iteration cursor
+ * @new_plane_state: &struct drm_plane_state iteration cursor for the new state
+ * @__i: int iteration cursor, for macro-internal use
+ *
+ * This iterates over all planes in an atomic update, tracking only the new
+ * state. This is useful in enable functions, where we need the new state the
+ * hardware should be in when the atomic commit operation has completed.
+ */
+#if !defined(for_each_new_plane_in_state)
+#define nv_drm_for_each_new_plane_in_state(__state, plane, new_plane_state, __i) \
+    nv_drm_for_each_plane_in_state(__state, plane, new_plane_state, __i)
+#else
+#define nv_drm_for_each_new_plane_in_state(__state, plane, new_plane_state, __i) \
+    for_each_new_plane_in_state(__state, plane, new_plane_state, __i)
 #endif
 
 static inline struct drm_connector *
