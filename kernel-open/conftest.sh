@@ -341,7 +341,7 @@ check_symbol_exists() {
         # Check Module.symvers to see whether the given symbol is present.
         #
         if grep -e "${TAB}${SYMBOL}${TAB}.*${TAB}EXPORT_SYMBOL.*\$" \
-                    ${MODULE_SYMVERS_PATHS} >/dev/null 2>&1; then
+                   "$OUTPUT/Module.symvers" $(find $OUTPUT/.. -name '*Module.symvers') >/dev/null 2>&1; then
             return 0
         fi
     else
@@ -400,7 +400,7 @@ export_symbol_gpl_conftest() {
     TAB='	'
 
     if grep -e "${TAB}${SYMBOL}${TAB}.*${TAB}EXPORT_\(UNUSED_\)*SYMBOL_GPL\s*\$" \
-                ${MODULE_SYMVERS_PATHS} >/dev/null 2>&1; then
+               "$OUTPUT/Module.symvers" $(find $OUTPUT/.. -name '*Module.symvers') >/dev/null 2>&1; then
         echo "#define NV_IS_EXPORT_SYMBOL_GPL_$SYMBOL 1" |
             append_conftest "symbols"
     else

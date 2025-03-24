@@ -65,6 +65,7 @@ modules: $(nv_kernel_o_binary) $(nv_modeset_kernel_o_binary)
 .PHONY: modules_install
 modules_install:
 	$(MAKE) -C kernel-open modules_install
+	@cp $(COMMON_OUT_DIR)/vendor/nvidia/display/kernel-open/Module.symvers $(COMMON_OUT_DIR)/vendor/nvidia/display/ || true
 
 ###########################################################################
 # clean

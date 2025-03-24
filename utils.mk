@@ -32,6 +32,13 @@
 # values if they are not exported by the caller
 ##############################################################################
 
+ifeq ($(LLVM),1)
+  CXX     := clang++
+  CFLAGS  ?= -Wall --target=$(AARCH64_NDK_TRIPLE)
+  TARGET_ARCH ?= $(subst arm64,aarch64,$(ARCH))
+  CLANG_TRIPLE := --target=$(AARCH64_NDK_TRIPLE)
+endif
+
 CC                    ?= gcc
 CXX                   ?= g++
 LD                    ?= ld
@@ -232,7 +239,7 @@ endif
 ##############################################################################
 
 TEST_CC_ARG = \
- $(shell $(CC) -c -x c /dev/null -Werror $(1) -o /dev/null > /dev/null 2>&1 && \
+ $(shell $(CC) $(CLANG_TRIPLE) -c -x c /dev/null -Werror $(1) -o /dev/null > /dev/null 2>&1 && \
    $(ECHO) $(1))
 
 

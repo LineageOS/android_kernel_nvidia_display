@@ -25,6 +25,8 @@ else
 
   ifdef SYSSRC
     KERNEL_SOURCES := $(SYSSRC)
+  else ifdef KERNEL_DIR
+    KERNEL_SOURCES := $(ROOT_DIR)/$(KERNEL_DIR)
   else
     KERNEL_UNAME ?= $(shell uname -r)
     KERNEL_MODLIB := /lib/modules/$(KERNEL_UNAME)
@@ -37,6 +39,11 @@ else
   ifdef SYSOUT
     ifneq ($(SYSOUT), $(KERNEL_SOURCES))
       KERNEL_OUTPUT := $(SYSOUT)
+      KBUILD_PARAMS := KBUILD_OUTPUT=$(KERNEL_OUTPUT)
+    endif
+  else ifdef OUT_DIR
+    ifneq ($(OUT_DIR), $(KERNEL_SOURCES))
+      KERNEL_OUTPUT := $(OUT_DIR)
       KBUILD_PARAMS := KBUILD_OUTPUT=$(KERNEL_OUTPUT)
     endif
   else
@@ -100,12 +107,12 @@ else
   ifeq ($(NV_VERBOSE),1)
     KBUILD_PARAMS += V=1
   endif
-  KBUILD_PARAMS += -C $(KERNEL_SOURCES) M=$(CURDIR)
+  MDIR=$(shell python3 -c 'import os,sys;print(os.path.relpath(*(sys.argv[1:])))' $(CURDIR) $(KERNEL_SOURCES))
+  KBUILD_PARAMS += -C $(KERNEL_SOURCES) M=$(MDIR)
   KBUILD_PARAMS += ARCH=$(ARCH)
   KBUILD_PARAMS += NV_KERNEL_SOURCES=$(KERNEL_SOURCES)
   KBUILD_PARAMS += NV_KERNEL_OUTPUT=$(KERNEL_OUTPUT)
   KBUILD_PARAMS += NV_KERNEL_MODULES="$(NV_KERNEL_MODULES)"
-  KBUILD_PARAMS += INSTALL_MOD_DIR="$(INSTALL_MOD_DIR)"
   KBUILD_PARAMS += NV_SPECTRE_V2=$(SPECTRE_V2_RETPOLINE)
 
   export ORIG_PAHOLE := $(PAHOLE)

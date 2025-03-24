@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+load("//build/kernel/kleaf:kernel.bzl", "kernel_module")
+
+package(default_visibility = ["//vendor/nvidia:__subpackages__"])
+
+kernel_module(
+    name = "openrm",
+    srcs = glob(["**/*"]) + [
+        "//vendor/nvidia/nvidia-oot:nvidia-oot_openrm_headers",
+    ],
+    outs = [
+        "nvidia.ko",
+        "nvidia-modeset.ko",
+        "nvidia-drm.ko",
+    ],
+    kernel_build = "//vendor/nvidia/nvidia-oot:kernel",
+    deps = [
+        "//vendor/nvidia/nvidia-oot:host1x-nvhost",
+        "//vendor/nvidia/nvidia-oot:mc-utils",
+        "//vendor/nvidia/nvidia-oot:tegra-dce",
+        "//vendor/nvidia/nvidia-oot:tsecriscv",
+    ],
+)

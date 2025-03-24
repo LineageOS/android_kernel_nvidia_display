@@ -77,6 +77,7 @@ $(foreach _module, $(NV_KERNEL_MODULES), \
 
 ccflags-y += -I$(src)/common/inc
 ccflags-y += -I$(src)
+ccflags-y += -I$(shell realpath $(obj))
 ccflags-y += -Wall $(DEFINES) $(INCLUDES) -Wno-cast-qual -Wno-format-extra-args
 ccflags-y += -D__KERNEL__ -DMODULE -DNVRM
 ccflags-y += -DNV_VERSION_STRING=\"595.108\"
@@ -88,6 +89,9 @@ endif
 
 ifneq ($(SYSSRCHOST1X),)
  ccflags-y += -I$(SYSSRCHOST1X)
+else
+ ccflags-y += -I$(NV_KERNEL_SOURCES)/../nvidia-oot/drivers/gpu/host1x/include
+ ccflags-y += -I$(NV_KERNEL_SOURCES)/../nvidia-oot/include
 endif
 
 ifneq ($(SYSSRCNVOOT),)
@@ -99,7 +103,7 @@ endif
 # filp_open() and kernel_read(). Disable the NV_FILESYSTEM_ACCESS_AVAILABLE
 # functionality that uses those functions when building for Android.
 
-PLATFORM_IS_ANDROID ?= 0
+PLATFORM_IS_ANDROID ?= 1
 
 ifeq ($(PLATFORM_IS_ANDROID),1)
  ccflags-y += -DNV_FILESYSTEM_ACCESS_AVAILABLE=0
@@ -134,6 +138,10 @@ ifeq ($(ARCH),x86_64)
  ccflags-y += -mno-red-zone -mcmodel=kernel
 endif
 
+ifeq ($(LLVM),1)
+ ccflags-y += --target=$(AARCH64_NDK_TRIPLE) -fno-stack-protector
+endif
+
 ccflags-y += 
 ccflags-y += $(call cc-option,-Werror=undef,)
 ccflags-y += -DNV_SPECTRE_V2=$(NV_SPECTRE_V2)
@@ -157,6 +165,8 @@ ifeq ($(WARNINGS_AS_ERRORS),1)
 else
  ccflags-y += -Wno-error
 endif
+
+KBUILD_EXTRA_SYMBOLS += $(shell find $(NV_KERNEL_OUTPUT)/../nvidia-oot -maxdepth 1 -name '*_Module.symvers')
 
 #
 # The conftest.sh script tests various aspects of the target kernel.

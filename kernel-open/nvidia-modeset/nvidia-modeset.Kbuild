@@ -59,7 +59,7 @@ NVIDIA_MODESET_CFLAGS += -UDEBUG -U_DEBUG -DNDEBUG -DNV_BUILD_MODULE_INSTANCES=0
 # filp_open() and kernel_read().  Disable the NVKMS_CONFIG_FILE_SUPPORTED
 # functionality that uses those functions when building for Android.
 
-PLATFORM_IS_ANDROID ?= 0
+PLATFORM_IS_ANDROID ?= 1
 
 ifeq ($(PLATFORM_IS_ANDROID),1)
   NVIDIA_MODESET_CFLAGS += -DNVKMS_CONFIG_FILE_SUPPORTED=0
