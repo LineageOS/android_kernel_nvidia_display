@@ -647,6 +647,124 @@ static int nv_drm_create_properties(struct nv_drm_device *nv_dev)
     return 0;
 }
 
+static ssize_t state_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+    int ret;
+    struct notify_dev *sdev = (struct notify_dev *)
+        dev_get_drvdata(dev);
+
+    if (sdev->print_state) {
+        ret = sdev->print_state(sdev, buf);
+        if (ret >= 0)
+            return ret;
+    }
+    return sprintf(buf, "%d\n", sdev->state);
+}
+
+static ssize_t name_show(struct device *dev, struct device_attribute *attr,
+	char *buf)
+{
+    int ret;
+    struct notify_dev *sdev = (struct notify_dev *)
+    dev_get_drvdata(dev);
+
+    if (sdev->print_name) {
+        ret = sdev->print_name(sdev, buf);
+        if (ret >= 0)
+            return ret;
+    }
+    return sprintf(buf, "%s\n", sdev->name);
+}
+
+static DEVICE_ATTR_RO(state);
+static DEVICE_ATTR_RO(name);
+
+static int create_switch_class(struct class **switch_class, atomic_t *switch_count)
+{
+    if (!*switch_class) {
+#if defined(NV_CLASS_CREATE_HAS_NO_OWNER_ARG) /* Linux v6.4 */
+        *switch_class = class_create("switch");
+#else
+        *switch_class = class_create(THIS_MODULE, "switch");
+#endif
+        if (IS_ERR(*switch_class))
+            return PTR_ERR(*switch_class);
+
+        atomic_set(switch_count, 0);
+    }
+
+    return 0;
+}
+
+static int disp_uevent_dev_register(struct notify_dev *sdev, struct class **switch_class, atomic_t *switch_count)
+{
+    int ret;
+
+    if (!*switch_class) {
+        ret = create_switch_class(switch_class, switch_count);
+        if (ret != 0)
+            return ret;
+    }
+
+    sdev->index = atomic_inc_return(switch_count);
+    sdev->dev = device_create(*switch_class, NULL,
+                MKDEV(0, sdev->index), NULL, sdev->name);
+    if (IS_ERR(sdev->dev))
+        return PTR_ERR(sdev->dev);
+
+    ret = device_create_file(sdev->dev, &dev_attr_state);
+    if (ret < 0)
+        goto err_create_file_1;
+    ret = device_create_file(sdev->dev, &dev_attr_name);
+    if (ret < 0)
+        goto err_create_file_2;
+
+    dev_set_drvdata(sdev->dev, sdev);
+    sdev->state = 0;
+
+    return 0;
+
+err_create_file_2:
+    device_remove_file(sdev->dev, &dev_attr_state);
+err_create_file_1:
+    device_destroy(*switch_class, MKDEV(0, sdev->index));
+    printk(KERN_ERR "switch: Failed to register driver %s\n", sdev->name);
+    return ret;
+}
+
+static void disp_uevent_dev_unregister(struct notify_dev *sdev, struct class *switch_class)
+{
+    device_remove_file(sdev->dev, &dev_attr_name);
+    device_remove_file(sdev->dev, &dev_attr_state);
+    device_destroy(switch_class, MKDEV(0, sdev->index));
+    class_destroy(switch_class);
+    dev_set_drvdata(sdev->dev, NULL);
+}
+
+static int notify_uevent_user(struct notify_dev *sdev, int state)
+{
+    char *envp[3];
+    char name_buf[120];
+    char state_buf[120];
+
+    if (sdev == NULL)
+        return -1;
+
+    if (sdev->state != state)
+        sdev->state = state;
+
+    snprintf(name_buf, sizeof(name_buf), "SWITCH_NAME=%s", sdev->name);
+    envp[0] = name_buf;
+    snprintf(state_buf, sizeof(state_buf), "SWITCH_STATE=%d", sdev->state);
+    envp[1] = state_buf;
+    envp[2] = NULL;
+
+    kobject_uevent_env(&sdev->dev->kobj, KOBJ_CHANGE, envp);
+
+    return 0;
+}
+
 /*
  * We can't just call drm_kms_helper_hotplug_event directly because
  * fbdev_generic may attempt to set a mode from inside the hotplug event
@@ -664,6 +782,8 @@ static void nv_drm_handle_hotplug_event(struct work_struct *work)
         container_of(dwork, struct nv_drm_device, hotplug_event_work);
 
     drm_kms_helper_hotplug_event(nv_dev->dev);
+
+    //notify_uevent_user(&nv_dev->notify_data, (output->connector.status == connector_status_connected ? 1 : 0));
 }
 
 static int nv_drm_dev_load(struct drm_device *dev)
@@ -834,6 +954,17 @@ static int nv_drm_dev_load(struct drm_device *dev)
 
     drm_helper_hpd_irq_event(dev);
 
+    nv_dev->notify_data.name = "hdmi";  // now hwc not support DP
+    nv_dev->notify_data.index = 0;
+    nv_dev->notify_data.state = 0;
+    ret = disp_uevent_dev_register(&nv_dev->notify_data, &nv_dev->switch_class, &nv_dev->switch_count);
+    if (ret < 0) {
+        NV_DRM_DEV_LOG_ERR(nv_dev, "switch_dev_register failed: %d\n", ret);
+        return ret;
+    }
+
+    notify_uevent_user(&nv_dev->notify_data, 1);
+
     /* Enable event handling */
 
     INIT_DELAYED_WORK(&nv_dev->hotplug_event_work, nv_drm_handle_hotplug_event);
@@ -875,6 +1006,8 @@ static void nv_drm_dev_unload(struct drm_device *dev)
     /* Disable event handling */
 
     atomic_set(&nv_dev->enable_event_handling, false);
+
+    disp_uevent_dev_unregister(&nv_dev->notify_data, nv_dev->switch_class);
 
     /* Clean up output polling */
 

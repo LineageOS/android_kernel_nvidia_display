@@ -87,6 +87,16 @@ enum nv_drm_input_color_space {
     NV_DRM_INPUT_COLOR_SPACE_BT2100_PQ
 };
 
+struct notify_dev {
+    const char *name;
+    struct device *dev;
+    int index;
+    int state;
+
+    ssize_t (*print_name)(struct notify_dev *sdev, char *buf);
+    ssize_t (*print_state)(struct notify_dev *sdev, char *buf);
+};
+
 struct nv_drm_device {
     nv_gpu_info_t gpu_info;
     MIGDeviceId gpu_mig_device;
@@ -182,6 +192,10 @@ struct nv_drm_device {
 
     NvU64 vtFbBaseAddress;
     NvU64 vtFbSize;
+
+    struct notify_dev notify_data;
+    struct class *switch_class;
+    atomic_t switch_count;
 };
 
 static inline NvU32 nv_drm_next_display_semaphore(
