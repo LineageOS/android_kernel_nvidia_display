@@ -1,4 +1,6 @@
-NVIDIA_VERSION = 540.4.0
+NVIDIA_VERSION = 580.00
+NVIDIA_NVID_VERSION = TempVersion
+NVIDIA_NVID_EXTRA = (bugfix_main)
 
 # This file.
 VERSION_MK_FILE := $(lastword $(MAKEFILE_LIST))

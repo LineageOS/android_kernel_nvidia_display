@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -22,8 +22,10 @@
  */
 
 #include "kernel/gpu/gpu.h"
+#include "gpu_mgr/gpu_mgr.h"
 
 #include "core/thread_state.h"
+#include "platform/sli/sli.h"
 #include "nv_ref.h"
 
 // Following enums are duplicated in 'apps/nvbucket/oca/ocarm.h'.
@@ -260,6 +262,8 @@ ioaprtConstruct_IMPL
     NvU32            length
 )
 {
+    NV_ASSERT_OR_RETURN(length > 0, NV_ERR_INVALID_ARGUMENT);
+
     if (pParentAperture != NULL)
     {
         NV_ASSERT_OR_RETURN(pMapping == NULL, NV_ERR_INVALID_ARGUMENT);
@@ -1357,7 +1361,7 @@ gpuRegRd08_dumpinfo(const char *func, const char *addrStr, const char *vreg, OBJ
     static NvU8  prev_val  = 0;
     if (addr != prev_addr || val != prev_val)
     {
-        // filter out bar0 windows registers (NV_PRAMIN – range 0x007FFFFF:0x00700000 )
+        // filter out bar0 windows registers (NV_PRAMIN -- range 0x007FFFFF:0x00700000 )
         if ((addr & 0xFFF00000) != 0x00700000)
         {
             NV_PRINTF(LEVEL_NOTICE,
@@ -1379,7 +1383,7 @@ gpuRegRd16_dumpinfo(const char *func, const char *addrStr, const char *vreg, OBJ
     static NvU16 prev_val  = 0;
     if (addr != prev_addr || val != prev_val)
     {
-        // filter out bar0 windows registers (NV_PRAMIN – range 0x007FFFFF:0x00700000 )
+        // filter out bar0 windows registers (NV_PRAMIN -- range 0x007FFFFF:0x00700000 )
         if ((addr & 0xFFF00000) != 0x00700000)
         {
             NV_PRINTF(LEVEL_NOTICE,
@@ -1401,7 +1405,7 @@ gpuRegRd32_dumpinfo(const char *func, const char *addrStr, const char *vreg, OBJ
     static NvU32 prev_val  = 0;
     if (addr != prev_addr || val != prev_val)
     {
-        // filter out bar0 windows registers (NV_PRAMIN – range 0x007FFFFF:0x00700000 )
+        // filter out bar0 windows registers (NV_PRAMIN -- range 0x007FFFFF:0x00700000 )
         if ((addr & 0xFFF00000) != 0x00700000)
         {
             NV_PRINTF(LEVEL_NOTICE,
@@ -1417,7 +1421,7 @@ gpuRegRd32_dumpinfo(const char *func, const char *addrStr, const char *vreg, OBJ
 void
 gpuRegWr08_dumpinfo(const char *func, const char *addrStr, const char *vreg, OBJGPU *pGpu, NvU32 addr, NvV8 val)
 {
-    // filter out bar0 windows registers (NV_PRAMIN – range 0x007FFFFF:0x00700000 )
+    // filter out bar0 windows registers (NV_PRAMIN -- range 0x007FFFFF:0x00700000 )
     if ((addr & 0xFFF00000) != 0x00700000)
     {
         NV_PRINTF(LEVEL_NOTICE,
@@ -1430,7 +1434,7 @@ gpuRegWr08_dumpinfo(const char *func, const char *addrStr, const char *vreg, OBJ
 void
 gpuRegWr16_dumpinfo(const char *func, const char *addrStr, const char *vreg, OBJGPU *pGpu, NvU32 addr, NvV16 val)
 {
-    // filter out bar0 windows registers (NV_PRAMIN – range 0x007FFFFF:0x00700000 )
+    // filter out bar0 windows registers (NV_PRAMIN -- range 0x007FFFFF:0x00700000 )
     if ((addr & 0xFFF00000) != 0x00700000)
     {
         NV_PRINTF(LEVEL_NOTICE,
@@ -1443,7 +1447,7 @@ gpuRegWr16_dumpinfo(const char *func, const char *addrStr, const char *vreg, OBJ
 void
 gpuRegWr32_dumpinfo(const char *func, const char *addrStr, const char *vreg, OBJGPU *pGpu, NvU32 addr, NvV32 val)
 {
-    // filter out bar0 windows registers (NV_PRAMIN – range 0x007FFFFF:0x00700000 )
+    // filter out bar0 windows registers (NV_PRAMIN -- range 0x007FFFFF:0x00700000 )
     if ((addr & 0xFFF00000) != 0x00700000)
     {
         NV_PRINTF(LEVEL_NOTICE,
@@ -1456,7 +1460,7 @@ gpuRegWr32_dumpinfo(const char *func, const char *addrStr, const char *vreg, OBJ
 void
 gpuRegWr32Uc_dumpinfo(const char *func, const char *addrStr, const char *vreg, OBJGPU *pGpu, NvU32 addr, NvV32 val)
 {
-    // filter out bar0 windows registers (NV_PRAMIN – range 0x007FFFFF:0x00700000 )
+    // filter out bar0 windows registers (NV_PRAMIN -- range 0x007FFFFF:0x00700000 )
     if ((addr & 0xFFF00000) != 0x00700000)
     {
         NV_PRINTF(LEVEL_NOTICE,
@@ -1490,8 +1494,9 @@ gpuSanityCheckRegisterAccess_IMPL
     NvU32       *pRetVal
 )
 {
-    NV_STATUS status = NV_OK;
-    NvU32     retVal = ~0;
+    NV_STATUS   status = NV_OK;
+    NvU32       retVal = ~0;
+
 
     if (API_GPU_IN_RESET_SANITY_CHECK(pGpu))
     {
@@ -1507,6 +1512,9 @@ gpuSanityCheckRegisterAccess_IMPL
 
     if ((status = gpuSanityCheckVirtRegAccess_HAL(pGpu, addr)) != NV_OK)
     {
+        NV_PRINTF(LEVEL_ERROR, "Invalid register access on VF, addr: 0x%x\n", addr);
+        osAssertFailed();
+
         // Return 0 to match with HW behavior
         retVal = 0;
         goto done;
@@ -1556,6 +1564,7 @@ done:
  *
  * @param[in] pGpu
  * @param[in] offset
+ * @param[in] bSkipPermissionValidation
  *
  * @returns NV_OK if valid
  * @returns NV_ERR_INVALID_ARGUMENT if offset is too large for bar
@@ -1565,7 +1574,8 @@ NV_STATUS
 gpuValidateRegOffset_IMPL
 (
     OBJGPU *pGpu,
-    NvU32   offset
+    NvU32   offset,
+    NvBool bSkipPermissionValidation
 )
 {
     NvU64 maxBar0Size = pGpu->deviceMappings[0].gpuNvLength;
@@ -1576,7 +1586,10 @@ gpuValidateRegOffset_IMPL
         return NV_ERR_INVALID_ARGUMENT;
     }
 
-    if (!osIsAdministrator() &&
+    // Regop calls are typically subject to the allowlist, however certain regop calls might originate from RM on behalf of user-space clients.
+    // In these cases, we can skip permission validation so that these ctrl calls can be made by any UMD without adding these registers to the allowlist.
+    // To bypass this check, set bSkipPermissionValidation to true in gpuExecRegOps().
+    if (!bSkipPermissionValidation && !osIsAdministrator() &&
         !gpuGetUserRegisterAccessPermissions(pGpu, offset))
     {
         NV_PRINTF(LEVEL_ERROR,

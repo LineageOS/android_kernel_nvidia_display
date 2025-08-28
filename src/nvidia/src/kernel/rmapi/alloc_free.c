@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -22,6 +22,7 @@
  */
 
 #include "rmapi/rmapi.h"
+#include "rmapi/rmapi_specific.h"
 #include "rmapi/client.h"
 #include "entry_points.h"
 #include "core/locks.h"
@@ -32,13 +33,15 @@
 #include "gpu/disp/disp_channel.h"
 #include "nvsecurityinfo.h"
 #include "virtualization/hypervisor/hypervisor.h"
+#include "gpu_mgr/gpu_mgr.h"
+#include "platform/sli/sli.h"
+#include "kernel/gpu/gsp/gsp_trace_rats_macro.h"
 
 #include "gpu/device/device.h"
+#include "class/cl0080.h"
+#include "class/clc372sw.h"
 
-#include "class/cl0005.h" // NV01_EVENT
-#include "class/clc574.h" // UVM_CHANNEL_RETAINER
-
-#include "tmr.h"
+#include "gpu/timer/tmr.h"
 
 //
 // RM Alloc & Free internal flags -- code should be migrated to use rsresdesc
@@ -210,30 +213,6 @@ serverAllocApiCopyOut
     return status;
 }
 
-NvHandle
-serverAllocLookupSecondClient
-(
-    NvU32    externalClassId,
-    void     *pAllocParams
-)
-{
-    if (pAllocParams != NULL)
-    {
-        switch (externalClassId)
-        {
-            case UVM_CHANNEL_RETAINER:
-            {
-                return ((NV_UVM_CHANNEL_RETAINER_ALLOC_PARAMS *) pAllocParams)->hClient;
-                break;
-            }
-            default:
-                break;
-        }
-    }
-
-    return NV01_NULL_OBJECT;
-}
-
 NV_STATUS
 serverTopLock_Prologue
 (
@@ -311,13 +290,43 @@ serverTopLock_Epilogue
     }
 }
 
+static NvU32
+_resGetBackRefGpusMask(RsResourceRef *pResourceRef)
+{
+    NvU32 gpuMask = 0x0;
+    RsInterMapping *pBackRefItem;
+
+    if (pResourceRef == NULL)
+    {
+        return 0x0;
+    }
+
+    pBackRefItem = listHead(&pResourceRef->interBackRefsContext);
+    while (pBackRefItem != NULL)
+    {
+        RsResourceRef *pDeviceRef = pBackRefItem->pContextRef;
+        GpuResource *pGpuResource = dynamicCast(pDeviceRef->pResource, GpuResource);
+
+        if (pGpuResource != NULL)
+        {
+            OBJGPU *pGpu = GPU_RES_GET_GPU(pGpuResource);
+            gpuMask |= gpumgrGetGpuMask(pGpu);
+        }
+
+        pBackRefItem = listNext(&pResourceRef->interBackRefsContext, pBackRefItem);
+    }
+
+    return gpuMask;
+}
+
 NV_STATUS
 serverResLock_Prologue
 (
     RsServer *pServer,
     LOCK_ACCESS_TYPE access,
     RS_LOCK_INFO *pLockInfo,
-    NvU32 *pReleaseFlags
+    NvU32 *pReleaseFlags,
+    NvU32 gpuMask
 )
 {
     NV_STATUS status = NV_OK;
@@ -360,12 +369,10 @@ serverResLock_Prologue
 
     if (pLockInfo->flags & RM_LOCK_FLAGS_GPU_GROUP_LOCK)
     {
-        RsResourceRef     *pParentRef;
-        GpuResource       *pGpuResource;
-        NvU32 gpuMask;
-        (void)gpuMask;
+        RsResourceRef *pParentRef   = pLockInfo->pContextRef;
+        GpuResource   *pGpuResource = NULL;
+        NvU32          gpuGroupMask = 0;
 
-        pParentRef = pLockInfo->pContextRef;
         if (pParentRef == NULL)
         {
             NV_ASSERT(0);
@@ -405,7 +412,7 @@ serverResLock_Prologue
 
         if (pLockInfo->state & RM_LOCK_STATES_GPU_GROUP_LOCK_ACQUIRED)
         {
-            if (rmGpuGroupLockIsOwner(pParentGpu->gpuInstance, GPU_LOCK_GRP_DEVICE, &gpuMask))
+            if (rmGpuGroupLockIsOwner(pParentGpu->gpuInstance, GPU_LOCK_GRP_DEVICE, &gpuGroupMask))
             {
                 goto done;
             }
@@ -417,7 +424,7 @@ serverResLock_Prologue
             }
         }
 
-        if (rmGpuGroupLockIsOwner(pParentGpu->gpuInstance, GPU_LOCK_GRP_DEVICE, &gpuMask))
+        if (rmGpuGroupLockIsOwner(pParentGpu->gpuInstance, GPU_LOCK_GRP_DEVICE, &gpuGroupMask))
         {
             if (!(pLockInfo->state & RM_LOCK_STATES_ALLOW_RECURSIVE_LOCKS))
             {
@@ -428,8 +435,15 @@ serverResLock_Prologue
         }
         else
         {
-            status = rmGpuGroupLockAcquire(pParentGpu->gpuInstance,
-                                           GPU_LOCK_GRP_DEVICE,
+            //
+            // Lock the parent GPU and if specified any GPUs that resource
+            // may backreference via mappings.
+            //
+            pLockInfo->gpuMask = gpuMask | gpumgrGetGpuMask(pParentGpu) |
+                                 _resGetBackRefGpusMask(pLockInfo->pResRefToBackRef);
+
+            status = rmGpuGroupLockAcquire(0,
+                                           GPU_LOCK_GRP_MASK,
                                            GPUS_LOCK_FLAGS_NONE,
                                            RM_LOCK_MODULES_CLIENT,
                                            &pLockInfo->gpuMask);
@@ -565,46 +579,6 @@ _rmAlloc
 
 }
 
-static
-NV_STATUS
-_fixupAllocParams
-(
-    RS_RESOURCE_DESC **ppResDesc,
-    RS_RES_ALLOC_PARAMS_INTERNAL *pRmAllocParams
-)
-{
-    RS_RESOURCE_DESC *pResDesc = *ppResDesc;
-
-    if ((pResDesc->pClassInfo != NULL) && (pResDesc->pClassInfo->classId == classId(Event)))
-    {
-        NV0005_ALLOC_PARAMETERS *pNv0005Params = pRmAllocParams->pAllocParams;
-
-        //
-        // This field isn't filled out consistently by clients. Some clients specify NV01_EVENT as the class
-        // and then override it using the subclass in the event parameters, while other clients specify the
-        // same subclass in both the RmAllocParams and event params. NV01_EVENT isn't a valid class to allocate
-        // so overwrite it with the subclass from the event params.
-        //
-        if (pRmAllocParams->externalClassId == NV01_EVENT)
-            pRmAllocParams->externalClassId = pNv0005Params->hClass;
-
-        pNv0005Params->hSrcResource = pRmAllocParams->hParent;
-
-        // No support for event and src resource that reside under different clients
-        if (pNv0005Params->hParentClient != pRmAllocParams->hClient)
-            pRmAllocParams->hParent = pRmAllocParams->hClient;
-
-        // class id may have changed so refresh the resource descriptor, but make sure it is still an Event
-        pResDesc = RsResInfoByExternalClassId(pRmAllocParams->externalClassId);
-        if (pResDesc == NULL || pResDesc->pClassInfo == NULL || pResDesc->pClassInfo->classId != classId(Event))
-            return NV_ERR_INVALID_CLASS;
-
-        *ppResDesc = pResDesc;
-    }
-
-    return NV_OK;
-}
-
 static NV_STATUS
 _serverAlloc_ValidateVgpu
 (
@@ -615,12 +589,6 @@ _serverAlloc_ValidateVgpu
     const NvU32 flags
 )
 {
-    //
-    // Get any GPU to check environmental properties
-    // Assume: In multi-vGPU systems, no mix and matching SRIOV and non-SRIOV GPUs.
-    // Assume: This POBJGPU will only used to read system properties.
-    //
-    OBJGPU *pGpu = gpumgrGetSomeGpu();
 
     // Check whether context is already sufficiently privileged
     if (flags & RS_FLAGS_ALLOC_PRIVILEGED)
@@ -629,15 +597,6 @@ _serverAlloc_ValidateVgpu
         {
             return NV_TRUE;
         }
-    }
-
-    // Check whether object is allowed in current environment
-    if
-    (
-        (IS_SRIOV_WITH_VGPU_GSP_ENABLED(pGpu) && (flags & RS_FLAGS_ALLOC_CPU_PLUGIN_FOR_VGPU_GSP))
-    )
-    {
-        return NV_TRUE;
     }
 
     return NV_FALSE;
@@ -672,7 +631,7 @@ _serverAllocValidatePrivilege
         if (!_serverAlloc_ValidateVgpu(pClient, pParams->hParent, pParams->externalClassId,
                                       pParams->pSecInfo->privLevel, pResDesc->flags))
         {
-            NV_PRINTF(LEVEL_WARNING,
+            NV_PRINTF(LEVEL_NOTICE,
                       "hClient: 0x%08x, externalClassId: 0x%08x: CPU hypervisor does not have permission to allocate object\n",
                       pParams->hClient, pParams->externalClassId);
             return NV_ERR_INSUFFICIENT_PERMISSIONS;
@@ -687,7 +646,7 @@ _serverAllocValidatePrivilege
         {
             if (privLevel < RS_PRIV_LEVEL_USER_ROOT)
             {
-                NV_PRINTF(LEVEL_WARNING,
+                NV_PRINTF(LEVEL_NOTICE,
                           "hClient: 0x%08x, externalClassId: 0x%08x: non-privileged context tried to allocate privileged object\n",
                           pParams->hClient, pParams->externalClassId);
                 return NV_ERR_INSUFFICIENT_PERMISSIONS;
@@ -698,7 +657,7 @@ _serverAllocValidatePrivilege
         {
             if (privLevel < RS_PRIV_LEVEL_KERNEL)
             {
-                NV_PRINTF(LEVEL_WARNING,
+                NV_PRINTF(LEVEL_NOTICE,
                           "hClient: 0x%08x, externalClassId: 0x%08x: non-privileged context tried to allocate kernel privileged object\n",
                           pParams->hClient, pParams->externalClassId);
                 return NV_ERR_INSUFFICIENT_PERMISSIONS;
@@ -746,7 +705,7 @@ serverAllocResourceUnderLock
         return NV_ERR_INVALID_CLASS;
     }
 
-    NV_ASSERT_OK_OR_RETURN(_fixupAllocParams(&pResDesc, pRmAllocParams));
+    NV_ASSERT_OK_OR_RETURN(rmapiFixupAllocParams(&pResDesc, pRmAllocParams));
     rmapiResourceDescToLegacyFlags(pResDesc, &pLockInfo->flags, NULL);
 
     status = _serverAllocValidatePrivilege(pServer, pResDesc, pRmAllocParams);
@@ -797,7 +756,7 @@ serverAllocResourceUnderLock
     tmpStatus = gpuGetByRef(pParentRef, NULL, &pGpu);
 
     // Override locking flags if we'll need to RPC to GSP
-    if (pGpu != NULL && IS_GSP_CLIENT(pGpu) &&
+    if (pGpu != NULL && IS_FW_CLIENT(pGpu) &&
         (pResDesc->flags & RS_FLAGS_ALLOC_RPC_TO_PHYS_RM))
     {
         resLockAccess = LOCK_ACCESS_WRITE; // always write as we're RPCing to GSP
@@ -810,7 +769,6 @@ serverAllocResourceUnderLock
         {
             NV_PRINTF(LEVEL_INFO, "Overriding flags for alloc of class %04x\n",
                 pRmAllocParams->externalClassId);
-            pLockInfo->flags &= ~RM_LOCK_FLAGS_NO_GPUS_LOCK;
             pLockInfo->flags |= RM_LOCK_FLAGS_GPU_GROUP_LOCK;
             if ((pLockInfo->state & RM_LOCK_STATES_ALLOW_RECURSIVE_LOCKS) == 0)
             {
@@ -820,7 +778,7 @@ serverAllocResourceUnderLock
         }
     }
 
-    status = serverResLock_Prologue(&g_resServ, resLockAccess, pLockInfo, &releaseFlags);
+    status = serverResLock_Prologue(&g_resServ, resLockAccess, pLockInfo, &releaseFlags, 0);
     if (status != NV_OK)
         goto done;
 
@@ -892,7 +850,7 @@ serverAllocResourceUnderLock
                 goto done;
             }
 
-            if (!IS_VIRTUAL(pGpu) && !IS_GSP_CLIENT(pGpu))
+            if (!IS_VIRTUAL(pGpu) && !IS_FW_CLIENT(pGpu))
             {
                 status = NV_OK;
                 goto done;
@@ -900,7 +858,7 @@ serverAllocResourceUnderLock
 
             // if physical RM RPC make sure we're a GSP client otherwise skip
             if (((pResDesc->flags & (RS_FLAGS_ALLOC_RPC_TO_VGPU_HOST | RS_FLAGS_ALLOC_RPC_TO_PHYS_RM)) == RS_FLAGS_ALLOC_RPC_TO_PHYS_RM) &&
-                (!IS_GSP_CLIENT(pGpu)))
+                (!IS_FW_CLIENT(pGpu)))
             {
                 status = NV_OK;
                 goto done;
@@ -921,7 +879,8 @@ serverAllocResourceUnderLock
             callContext.pLockInfo = pRmAllocParams->pLockInfo;
             callContext.secInfo = *pRmAllocParams->pSecInfo;
 
-            resservSwapTlsCallContext(&pOldContext, &callContext);
+            NV_ASSERT_OK_OR_GOTO(status,
+                resservSwapTlsCallContext(&pOldContext, &callContext), done);
             NV_RM_RPC_ALLOC_OBJECT(pGpu,
                                    pRmAllocParams->hClient,
                                    pRmAllocParams->hParent,
@@ -930,7 +889,7 @@ serverAllocResourceUnderLock
                                    pRmAllocParams->pAllocParams,
                                    pRmAllocParams->paramsSize,
                                    status);
-            resservRestoreTlsCallContext(pOldContext);
+            NV_ASSERT_OK(resservRestoreTlsCallContext(pOldContext));
 
             if (status != NV_OK)
                 goto done;
@@ -982,7 +941,7 @@ serverFreeResourceRpcUnderLock
     pRmResource = dynamicCast(pResourceRef->pResource, RmResource);
     status = gpuGetByRef(pResourceRef, &bBcResource, &pGpu);
     if ((status != NV_OK) ||
-        (!IS_VIRTUAL(pGpu) && !IS_GSP_CLIENT(pGpu)) ||
+        (!IS_VIRTUAL(pGpu) && !IS_FW_CLIENT(pGpu)) ||
         (pRmResource == NULL) ||
         (pRmResource->bRpcFree == NV_FALSE))
     {
@@ -1051,7 +1010,7 @@ serverUpdateLockFlagsForFree
     if (gpuGetByRef(pLockInfo->pContextRef, NULL, &pGpu) == NV_OK)
     {
         RmResource *pRmResource = dynamicCast(pRmFreeParams->pResourceRef->pResource, RmResource);
-        if (pGpu != NULL && IS_GSP_CLIENT(pGpu) && pRmResource != NULL && pRmResource->bRpcFree)
+        if (pGpu != NULL && IS_FW_CLIENT(pGpu) && pRmResource != NULL && pRmResource->bRpcFree)
         {
             //
             // If the resource desc says no need for GPU locks, we still need to lock
@@ -1061,7 +1020,6 @@ serverUpdateLockFlagsForFree
             {
                 NV_PRINTF(LEVEL_INFO, "Overriding flags for free of class %04x\n",
                     pRmFreeParams->pResourceRef->externalClassId);
-                pLockInfo->flags &= ~RM_LOCK_FLAGS_NO_GPUS_LOCK;
                 pLockInfo->flags |= RM_LOCK_FLAGS_GPU_GROUP_LOCK;
                 pLockInfo->state |= RM_LOCK_STATES_ALLOW_RECURSIVE_LOCKS;
             }
@@ -1104,7 +1062,7 @@ rmapiFreeResourcePrologue
         tmrapiDeregisterEvents(pTimerApi);
     }
 
-    CliDelObjectEvents(pRmFreeParams->hClient, pRmFreeParams->hResource);
+    CliDelObjectEvents(pResourceRef);
 
     return NV_OK;
 }
@@ -1181,8 +1139,11 @@ rmapiAllocWithSecInfo
 
     if (pSecInfo->paramLocation == PARAM_LOCATION_KERNEL)
     {
-        hSecondClient = serverAllocLookupSecondClient(hClass,
-            NvP64_VALUE(pAllocParams));
+        status = serverAllocLookupSecondClient(hClass,
+                                               NvP64_VALUE(pAllocParams),
+                                               &hSecondClient);
+        if (status != NV_OK)
+            goto done;
     }
 
     portMemSet(pLockInfo, 0, sizeof(*pLockInfo));
@@ -1193,10 +1154,18 @@ rmapiAllocWithSecInfo
     // RS-TODO: Fix calls that use RMAPI_GPU_LOCK_INTERNAL without holding the API lock
     if (pRmApi->bGpuLockInternal && !rmapiLockIsOwner())
     {
-        NV_PRINTF(LEVEL_ERROR, "RMAPI_GPU_LOCK_INTERNAL alloc requested without holding the RMAPI lock\n");
+        // CORERM-6052 targets fixing the API lockless path for RTD3.
+        if (!rmapiInRtd3PmPath())
+        {
+            NV_PRINTF(LEVEL_ERROR,
+                "NVRM: %s: RMAPI_GPU_LOCK_INTERNAL alloc requested without holding the RMAPI lock: client:0x%x parent:0x%x object:0x%x class:0x%x\n",
+                __FUNCTION__, hClient, hParent, *phObject, hClass);
+        }
+
         pLockInfo->flags |= RM_LOCK_FLAGS_NO_API_LOCK;
         pLockInfo->state &= ~RM_LOCK_STATES_API_LOCK_ACQUIRED;
     }
+
 
     // This flag applies to both VGPU and GSP cases
     if (flags & RMAPI_ALLOC_FLAGS_SKIP_RPC)
@@ -1231,7 +1200,6 @@ rmapiAllocWithSecInfo
                       pRightsRequested,
                       *pSecInfo);
 
-
     //
     // If hClient is allocated behind GPU locks, client is marked as internal
     //
@@ -1250,9 +1218,9 @@ rmapiAllocWithSecInfo
     }
     else
     {
-        NV_PRINTF(LEVEL_WARNING, "allocation failed; status: %s (0x%08x)\n",
+        NV_PRINTF(LEVEL_INFO, "allocation failed; status: %s (0x%08x)\n",
                   nvstatusToString(status), status);
-        NV_PRINTF(LEVEL_WARNING,
+        NV_PRINTF(LEVEL_INFO,
                   "client:0x%x parent:0x%x object:0x%x class:0x%x\n", hClient,
                   hParent, *phObject, hClass);
     }
@@ -1318,6 +1286,33 @@ resservResourceFactory
         }
     }
 
+    if (pResDesc->internalClassId == classId(Device))
+    {
+        if (pParams->pAllocParams == NULL)
+            return NV_ERR_INVALID_ARGUMENT;
+
+        NV0080_ALLOC_PARAMETERS *pNv0080AllocParams = pParams->pAllocParams;
+        NvU32 deviceInst = pNv0080AllocParams->deviceId;
+
+        if (deviceInst >= NV_MAX_DEVICES)
+            return NV_ERR_INVALID_ARGUMENT;
+
+        NvU32 gpuInst = gpumgrGetPrimaryForDevice(deviceInst);
+
+        if ((pGpu = gpumgrGetGpu(gpuInst)) == NULL)
+        {
+            return NV_ERR_INVALID_STATE;
+        }
+    }
+
+    if (pGpu != NULL &&
+        !RMCFG_FEATURE_PLATFORM_MODS &&
+        !gpuIsClassSupported(pGpu, pParams->externalClassId))
+    {
+        NV_PRINTF(LEVEL_INFO, "Skipping unsupported class 0x%x\n", pParams->externalClassId);
+        return NV_ERR_NOT_SUPPORTED;
+    }
+
     status = objCreateDynamicWithFlags(&pDynamic,
                                        (Object*)pGpu,
                                        pResDesc->pClassInfo,
@@ -1332,13 +1327,21 @@ resservResourceFactory
     if (pResource == NULL)
         return NV_ERR_INSUFFICIENT_RESOURCES;
 
-    if (pResDesc->internalClassId == classId(Subdevice) || pResDesc->internalClassId == classId(Device))
+    if (pResDesc->internalClassId == classId(Subdevice)  || pResDesc->internalClassId == classId(Device) ||
+        pResDesc->internalClassId == classId(DispCommon))
     {
-        pGpu = GPU_RES_GET_GPU(dynamicCast(pDynamic, GpuResource));
+        //
+        // DispCommon and DispSwObj's pGpu will be retrieved at the beginning of the function,
+        // since their parent is Device.
+        //
+        if (!(pResDesc->internalClassId == classId(DispCommon)) && !(pResDesc->internalClassId == classId(DispSwObj)))
+        {
+            pGpu = GPU_RES_GET_GPU(dynamicCast(pDynamic, GpuResource));
+        }
 
         if (pGpu)
         {
-            rmapiControlCacheSetGpuInstForObject(pParams->hClient, pParams->hResource, pGpu->gpuInstance);
+            rmapiControlCacheSetGpuAttrForObject(pParams->hClient, pParams->hResource, pGpu);
         }
     }
 
@@ -1425,7 +1428,12 @@ rmapiFreeWithSecInfo
     // RS-TODO: Fix calls that use RMAPI_GPU_LOCK_INTERNAL without holding the API lock
     if (pRmApi->bGpuLockInternal && !rmapiLockIsOwner())
     {
-        NV_PRINTF(LEVEL_ERROR, "RMAPI_GPU_LOCK_INTERNAL free requested without holding the RMAPI lock\n");
+        // CORERM-6052 targets fixing the API lockless path for RTD3.
+        if (!rmapiInRtd3PmPath())
+        {
+            NV_PRINTF(LEVEL_ERROR, "RMAPI_GPU_LOCK_INTERNAL free requested without holding the RMAPI lock\n");
+        }
+
         lockInfo.flags |= RM_LOCK_FLAGS_NO_API_LOCK;
         lockInfo.state &= ~RM_LOCK_STATES_API_LOCK_ACQUIRED;
     }
@@ -1449,11 +1457,12 @@ rmapiFreeWithSecInfo
     }
     else
     {
-        NV_PRINTF(LEVEL_WARNING,
-                  "Nv01Free: free failed; status: %s (0x%08x)\n",
-                  nvstatusToString(status), status);
-        NV_PRINTF(LEVEL_WARNING, "Nv01Free:  client:0x%x object:0x%x\n",
-                  hClient, hObject);
+       NV_PRINTF_COND(status == NV_ERR_GPU_IN_FULLCHIP_RESET, LEVEL_INFO, LEVEL_WARNING,
+                "Nv01Free: free failed; status: %s (0x%08x)\n",
+                nvstatusToString(status), status);
+       NV_PRINTF_COND(status == NV_ERR_GPU_IN_FULLCHIP_RESET, LEVEL_INFO, LEVEL_WARNING,
+                "Nv01Free:  client:0x%x object:0x%x\n",
+                hClient, hObject);
     }
 
     return status;
@@ -1571,17 +1580,12 @@ serverAllocResourceLookupLockFlags
     LOCK_ACCESS_TYPE *pAccess
 )
 {
+    OBJSYS *pSys = SYS_GET_INSTANCE();
     NV_ASSERT_OR_RETURN(pAccess != NULL, NV_ERR_INVALID_ARGUMENT);
 
     if (lock == RS_LOCK_TOP)
     {
         RS_RESOURCE_DESC *pResDesc;
-
-        if (!serverSupportsReadOnlyLock(&g_resServ, RS_LOCK_TOP, RS_API_ALLOC_RESOURCE))
-        {
-            *pAccess = LOCK_ACCESS_WRITE;
-            return NV_OK;
-        }
 
         pResDesc = RsResInfoByExternalClassId(pParams->externalClassId);
 
@@ -1594,6 +1598,23 @@ serverAllocResourceLookupLockFlags
             *pAccess = LOCK_ACCESS_READ;
         else
             *pAccess = LOCK_ACCESS_WRITE;
+
+        if ((pResDesc->flags & RS_FLAGS_FORCE_ACQUIRE_RO_API_LOCK_ON_ALLOC_FREE) != 0 &&
+            pSys->getProperty(pSys, PDB_PROP_SYS_ENABLE_FORCE_SHARED_LOCK))
+        {
+            //
+            // If the force acquire RO flag is set then ignore module parameter
+            // setting and always use RO.
+            //
+            *pAccess = LOCK_ACCESS_READ;
+            return NV_OK;
+        }
+
+        if (!serverSupportsReadOnlyLock(&g_resServ, RS_LOCK_TOP, RS_API_ALLOC_RESOURCE))
+        {
+            *pAccess = LOCK_ACCESS_WRITE;
+            return NV_OK;
+        }
 
         return NV_OK;
     }
@@ -1613,13 +1634,35 @@ serverFreeResourceLookupLockFlags
     RsServer *pServer,
     RS_LOCK_ENUM lock,
     RS_RES_FREE_PARAMS_INTERNAL *pParams,
-    LOCK_ACCESS_TYPE *pAccess
+    LOCK_ACCESS_TYPE *pAccess,
+    NvBool *pbSupportForceROLock
 )
 {
+    OBJSYS *pSys = SYS_GET_INSTANCE();
+    NvU32 flags;
     NV_ASSERT_OR_RETURN(pAccess != NULL, NV_ERR_INVALID_ARGUMENT);
 
     *pAccess = (serverSupportsReadOnlyLock(pServer, lock, RS_API_FREE_RESOURCE))
         ? LOCK_ACCESS_READ
         : LOCK_ACCESS_WRITE;
+
+    *pbSupportForceROLock = pSys->getProperty(pSys, PDB_PROP_SYS_ENABLE_FORCE_SHARED_LOCK);
+
+    if (pParams->pResourceRef != NULL)
+    {
+        //
+        // If pResourceRef is set, check for the explicit RO opt-in flag that
+        // some resources set as a transition before enabling RO across the
+        // board.
+        //
+        // bug 4283710 - [RM][Locking] Allow RMAPI to take API lock in reader's mode by default.
+        //
+        flags = pParams->pResourceRef->pResourceDesc->flags;
+        if ((flags & RS_FLAGS_FORCE_ACQUIRE_RO_API_LOCK_ON_ALLOC_FREE) != 0 &&
+            (*pbSupportForceROLock))
+        {
+            *pAccess = LOCK_ACCESS_READ;
+        }
+    }
     return NV_OK;
 }

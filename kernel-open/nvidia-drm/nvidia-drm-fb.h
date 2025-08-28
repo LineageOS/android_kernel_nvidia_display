@@ -31,18 +31,12 @@
 #include <drm/drmP.h>
 #endif
 
-#if defined(NV_DRM_DRM_FRAMEBUFFER_H_PRESENT)
 #include <drm/drm_framebuffer.h>
-#endif
 
-#include "nvidia-drm-gem-nvkms-memory.h"
 #include "nvkms-kapi.h"
 
 struct nv_drm_framebuffer {
     struct NvKmsKapiSurface *pSurface;
-
-    struct nv_drm_gem_object*
-        nv_gem[NVKMS_MAX_PLANES_PER_SURFACE];
 
     struct drm_framebuffer base;
 };
@@ -56,10 +50,10 @@ static inline struct nv_drm_framebuffer *to_nv_framebuffer(
     return container_of(fb, struct nv_drm_framebuffer, base);
 }
 
-struct drm_framebuffer *nv_drm_internal_framebuffer_create(
+struct drm_framebuffer *nv_drm_framebuffer_create(
     struct drm_device *dev,
     struct drm_file *file,
-    struct drm_mode_fb_cmd2 *cmd);
+    const struct drm_mode_fb_cmd2 *cmd);
 
 #endif /* NV_DRM_ATOMIC_MODESET_AVAILABLE */
 

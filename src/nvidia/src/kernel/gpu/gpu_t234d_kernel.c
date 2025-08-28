@@ -29,14 +29,6 @@
 #include "core/core.h"
 #include "gpu/gpu.h"
 
-NvU32
-gpuGetPhysAddrWidth_T234D(OBJGPU *pGpu, NV_ADDRESS_SPACE addrSp)
-{
-    // Currently we support retrieving sys mem addr width only.
-    NV_ASSERT_OR_RETURN(ADDR_SYSMEM == addrSp, 0);
-    return 39;
-}
-
 NV_STATUS
 gpuGetNameString_T234D
 (

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -31,18 +31,6 @@
 #if defined(NV_LINUX_PLATFORM_TEGRA_DCE_DCE_CLIENT_IPC_H_PRESENT)
 #include <linux/platform/tegra/dce/dce-client-ipc.h>
 
-#if (NV_IS_EXPORT_SYMBOL_PRESENT_tegra_dce_register_ipc_client && \
-    NV_IS_EXPORT_SYMBOL_PRESENT_tegra_dce_client_ipc_send_recv && \
-    NV_IS_EXPORT_SYMBOL_PRESENT_tegra_dce_unregister_ipc_client)
-#define NV_IS_EXPORT_SYMBOLS_PRESENT_TEGRA_DCE_CLIENT 1
-#else
-#define NV_IS_EXPORT_SYMBOLS_PRESENT_TEGRA_DCE_CLIENT 0
-#endif
-
-#endif
-
-#if (defined(NV_LINUX_PLATFORM_TEGRA_DCE_DCE_CLIENT_IPC_H_PRESENT) && \
-    NV_IS_EXPORT_SYMBOLS_PRESENT_TEGRA_DCE_CLIENT)
 static const NvU32 dceClientRmIpcTypeMap[DCE_CLIENT_RM_IPC_TYPE_MAX] = {
     [DCE_CLIENT_RM_IPC_TYPE_SYNC] = DCE_CLIENT_IPC_TYPE_CPU_RM,
     [DCE_CLIENT_RM_IPC_TYPE_EVENT] = DCE_CLIENT_IPC_TYPE_RM_EVENT,

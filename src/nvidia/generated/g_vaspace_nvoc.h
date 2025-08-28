@@ -1,13 +1,22 @@
+
 #ifndef _G_VASPACE_NVOC_H_
 #define _G_VASPACE_NVOC_H_
+
+// Version of generated metadata structures
+#ifdef NVOC_METADATA_VERSION
+#undef NVOC_METADATA_VERSION
+#endif
+#define NVOC_METADATA_VERSION 2
+
 #include "nvoc/runtime.h"
+#include "nvoc/rtti.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2013-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2013-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -28,6 +37,7 @@ extern "C" {
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
+#pragma once
 #include "g_vaspace_nvoc.h"
 
 #ifndef _VASPACE_H_
@@ -43,13 +53,15 @@ extern "C" {
 
 #include "core/core.h"
 #include "resserv/rs_client.h"
-#include "containers/eheap_old.h"
+#include "containers/btree.h"
 #include "gpu/mem_mgr/heap_base.h"
 #include "gpu/mem_mgr/mem_desc.h"
 
-
+typedef struct OBJEHEAP OBJEHEAP;
+typedef struct EMEMBLOCK EMEMBLOCK;
 typedef struct OBJVASPACE *POBJVASPACE;
 typedef struct VASPACE VASPACE, *PVASPACE;
+
 struct VirtMemAllocator;
 
 #ifndef __NVOC_CLASS_VirtMemAllocator_TYPEDEF__
@@ -64,6 +76,7 @@ typedef struct VirtMemAllocator VirtMemAllocator;
 
 typedef struct MMU_MAP_TARGET       MMU_MAP_TARGET;
 typedef struct NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS;
+
 struct Device;
 
 #ifndef __NVOC_CLASS_Device_TYPEDEF__
@@ -240,32 +253,67 @@ typedef enum
 /*!
  * Abstract base class of an RM-managed virtual address space.
  */
+
+// Private field names are wrapped in PRIVATE_FIELD, which does nothing for
+// the matching C source file, but causes diagnostics to be issued if another
+// source file references the field.
 #ifdef NVOC_VASPACE_H_PRIVATE_ACCESS_ALLOWED
 #define PRIVATE_FIELD(x) x
 #else
 #define PRIVATE_FIELD(x) NVOC_PRIVATE_FIELD(x)
 #endif
+
+
+// Metadata with per-class RTTI and vtable with ancestor(s)
+struct NVOC_METADATA__OBJVASPACE;
+struct NVOC_METADATA__Object;
+struct NVOC_VTABLE__OBJVASPACE;
+
+
 struct OBJVASPACE {
-    const struct NVOC_RTTI *__nvoc_rtti;
+
+    // Metadata starts with RTTI structure.
+    union {
+         const struct NVOC_METADATA__OBJVASPACE *__nvoc_metadata_ptr;
+         const struct NVOC_RTTI *__nvoc_rtti;
+    };
+
+    // Parent (i.e. superclass or base class) objects
     struct Object __nvoc_base_Object;
-    struct Object *__nvoc_pbase_Object;
-    struct OBJVASPACE *__nvoc_pbase_OBJVASPACE;
-    NV_STATUS (*__vaspaceConstruct___)(struct OBJVASPACE *, NvU32, NvU32, NvU64, NvU64, NvU64, NvU64, NvU32);
-    NV_STATUS (*__vaspaceAlloc__)(struct OBJVASPACE *, NvU64, NvU64, NvU64, NvU64, NvU64, VAS_ALLOC_FLAGS, NvU64 *);
-    NV_STATUS (*__vaspaceFree__)(struct OBJVASPACE *, NvU64);
-    NV_STATUS (*__vaspaceApplyDefaultAlignment__)(struct OBJVASPACE *, const FB_ALLOC_INFO *, NvU64 *, NvU64 *, NvU64 *);
-    NV_STATUS (*__vaspaceIncAllocRefCnt__)(struct OBJVASPACE *, NvU64);
-    NvU64 (*__vaspaceGetVaStart__)(struct OBJVASPACE *);
-    NvU64 (*__vaspaceGetVaLimit__)(struct OBJVASPACE *);
-    NV_STATUS (*__vaspaceGetVasInfo__)(struct OBJVASPACE *, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *);
-    NvU32 (*__vaspaceGetFlags__)(struct OBJVASPACE *);
-    NvBool (*__vaspaceIsInternalVaRestricted__)(struct OBJVASPACE *);
+
+    // Ancestor object pointers for `staticCast` feature
+    struct Object *__nvoc_pbase_Object;    // obj super
+    struct OBJVASPACE *__nvoc_pbase_OBJVASPACE;    // vaspace
+
+    // Data members
     NvU32 gpuMask;
     ADDRESS_TRANSLATION addressTranslation;
     NvU32 refCnt;
     NvU32 vaspaceId;
     NvU64 vasStart;
     NvU64 vasLimit;
+    NvU32 vasUniqueId;
+};
+
+
+// Vtable with 9 per-class function pointers
+struct NVOC_VTABLE__OBJVASPACE {
+    NV_STATUS (*__vaspaceConstruct___)(struct OBJVASPACE * /*this*/, NvU32, NvU32, NvU64, NvU64, NvU64, NvU64, NvU32);  // pure virtual
+    NV_STATUS (*__vaspaceAlloc__)(struct OBJVASPACE * /*this*/, NvU64, NvU64, NvU64, NvU64, NvU64, VAS_ALLOC_FLAGS, NvU64 *);  // pure virtual
+    NV_STATUS (*__vaspaceFree__)(struct OBJVASPACE * /*this*/, NvU64);  // pure virtual
+    NV_STATUS (*__vaspaceApplyDefaultAlignment__)(struct OBJVASPACE * /*this*/, const FB_ALLOC_INFO *, NvU64 *, NvU64 *, NvU64 *);  // pure virtual
+    NV_STATUS (*__vaspaceIncAllocRefCnt__)(struct OBJVASPACE * /*this*/, NvU64);  // inline virtual body
+    NvU64 (*__vaspaceGetVaStart__)(struct OBJVASPACE * /*this*/);  // virtual
+    NvU64 (*__vaspaceGetVaLimit__)(struct OBJVASPACE * /*this*/);  // virtual
+    NV_STATUS (*__vaspaceGetVasInfo__)(struct OBJVASPACE * /*this*/, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *);  // pure virtual
+    NvU32 (*__vaspaceGetFlags__)(struct OBJVASPACE * /*this*/);  // inline virtual body
+};
+
+// Metadata with per-class RTTI and vtable with ancestor(s)
+struct NVOC_METADATA__OBJVASPACE {
+    const struct NVOC_RTTI rtti;
+    const struct NVOC_METADATA__Object metadata__Object;
+    const struct NVOC_VTABLE__OBJVASPACE vtable;
 };
 
 #ifndef __NVOC_CLASS_OBJVASPACE_TYPEDEF__
@@ -277,18 +325,18 @@ typedef struct OBJVASPACE OBJVASPACE;
 #define __nvoc_class_id_OBJVASPACE 0x6c347f
 #endif /* __nvoc_class_id_OBJVASPACE */
 
+// Casting support
 extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJVASPACE;
 
 #define __staticCast_OBJVASPACE(pThis) \
     ((pThis)->__nvoc_pbase_OBJVASPACE)
 
 #ifdef __nvoc_vaspace_h_disabled
-#define __dynamicCast_OBJVASPACE(pThis) ((OBJVASPACE*)NULL)
+#define __dynamicCast_OBJVASPACE(pThis) ((OBJVASPACE*) NULL)
 #else //__nvoc_vaspace_h_disabled
 #define __dynamicCast_OBJVASPACE(pThis) \
-    ((OBJVASPACE*)__nvoc_dynamicCast(staticCast((pThis), Dynamic), classInfo(OBJVASPACE)))
+    ((OBJVASPACE*) __nvoc_dynamicCast(staticCast((pThis), Dynamic), classInfo(OBJVASPACE)))
 #endif //__nvoc_vaspace_h_disabled
-
 
 NV_STATUS __nvoc_objCreateDynamic_OBJVASPACE(OBJVASPACE**, Dynamic*, NvU32, va_list);
 
@@ -296,69 +344,75 @@ NV_STATUS __nvoc_objCreate_OBJVASPACE(OBJVASPACE**, Dynamic*, NvU32);
 #define __objCreate_OBJVASPACE(ppNewObj, pParent, createFlags) \
     __nvoc_objCreate_OBJVASPACE((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
 
+
+// Wrapper macros
+#define vaspaceConstruct__FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__vaspaceConstruct___
 #define vaspaceConstruct_(pVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags) vaspaceConstruct__DISPATCH(pVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags)
+#define vaspaceAlloc_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__vaspaceAlloc__
 #define vaspaceAlloc(pVAS, size, align, rangeLo, rangeHi, pageSizeLockMask, flags, pAddr) vaspaceAlloc_DISPATCH(pVAS, size, align, rangeLo, rangeHi, pageSizeLockMask, flags, pAddr)
+#define vaspaceFree_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__vaspaceFree__
 #define vaspaceFree(pVAS, vAddr) vaspaceFree_DISPATCH(pVAS, vAddr)
+#define vaspaceApplyDefaultAlignment_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__vaspaceApplyDefaultAlignment__
 #define vaspaceApplyDefaultAlignment(pVAS, pAllocInfo, pAlign, pSize, pPageSizeLockMask) vaspaceApplyDefaultAlignment_DISPATCH(pVAS, pAllocInfo, pAlign, pSize, pPageSizeLockMask)
+#define vaspaceIncAllocRefCnt_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__vaspaceIncAllocRefCnt__
 #define vaspaceIncAllocRefCnt(pVAS, vAddr) vaspaceIncAllocRefCnt_DISPATCH(pVAS, vAddr)
+#define vaspaceGetVaStart_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__vaspaceGetVaStart__
 #define vaspaceGetVaStart(pVAS) vaspaceGetVaStart_DISPATCH(pVAS)
+#define vaspaceGetVaLimit_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__vaspaceGetVaLimit__
 #define vaspaceGetVaLimit(pVAS) vaspaceGetVaLimit_DISPATCH(pVAS)
+#define vaspaceGetVasInfo_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__vaspaceGetVasInfo__
 #define vaspaceGetVasInfo(pVAS, pParams) vaspaceGetVasInfo_DISPATCH(pVAS, pParams)
+#define vaspaceGetFlags_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__vaspaceGetFlags__
 #define vaspaceGetFlags(pVAS) vaspaceGetFlags_DISPATCH(pVAS)
-#define vaspaceIsInternalVaRestricted(pVAS) vaspaceIsInternalVaRestricted_DISPATCH(pVAS)
+
+// Dispatch functions
 static inline NV_STATUS vaspaceConstruct__DISPATCH(struct OBJVASPACE *pVAS, NvU32 classId, NvU32 vaspaceId, NvU64 vaStart, NvU64 vaLimit, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 flags) {
-    return pVAS->__vaspaceConstruct___(pVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags);
+    return pVAS->__nvoc_metadata_ptr->vtable.__vaspaceConstruct___(pVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags);
 }
 
 static inline NV_STATUS vaspaceAlloc_DISPATCH(struct OBJVASPACE *pVAS, NvU64 size, NvU64 align, NvU64 rangeLo, NvU64 rangeHi, NvU64 pageSizeLockMask, VAS_ALLOC_FLAGS flags, NvU64 *pAddr) {
-    return pVAS->__vaspaceAlloc__(pVAS, size, align, rangeLo, rangeHi, pageSizeLockMask, flags, pAddr);
+    return pVAS->__nvoc_metadata_ptr->vtable.__vaspaceAlloc__(pVAS, size, align, rangeLo, rangeHi, pageSizeLockMask, flags, pAddr);
 }
 
 static inline NV_STATUS vaspaceFree_DISPATCH(struct OBJVASPACE *pVAS, NvU64 vAddr) {
-    return pVAS->__vaspaceFree__(pVAS, vAddr);
+    return pVAS->__nvoc_metadata_ptr->vtable.__vaspaceFree__(pVAS, vAddr);
 }
 
 static inline NV_STATUS vaspaceApplyDefaultAlignment_DISPATCH(struct OBJVASPACE *pVAS, const FB_ALLOC_INFO *pAllocInfo, NvU64 *pAlign, NvU64 *pSize, NvU64 *pPageSizeLockMask) {
-    return pVAS->__vaspaceApplyDefaultAlignment__(pVAS, pAllocInfo, pAlign, pSize, pPageSizeLockMask);
-}
-
-static inline NV_STATUS vaspaceIncAllocRefCnt_b7902c(struct OBJVASPACE *pVAS, NvU64 vAddr) {
-    NV_ASSERT_PRECOMP(((NvBool)(0 != 0)));
-    return NV_ERR_NOT_SUPPORTED;
+    return pVAS->__nvoc_metadata_ptr->vtable.__vaspaceApplyDefaultAlignment__(pVAS, pAllocInfo, pAlign, pSize, pPageSizeLockMask);
 }
 
 static inline NV_STATUS vaspaceIncAllocRefCnt_DISPATCH(struct OBJVASPACE *pVAS, NvU64 vAddr) {
-    return pVAS->__vaspaceIncAllocRefCnt__(pVAS, vAddr);
+    return pVAS->__nvoc_metadata_ptr->vtable.__vaspaceIncAllocRefCnt__(pVAS, vAddr);
+}
+
+static inline NvU64 vaspaceGetVaStart_DISPATCH(struct OBJVASPACE *pVAS) {
+    return pVAS->__nvoc_metadata_ptr->vtable.__vaspaceGetVaStart__(pVAS);
+}
+
+static inline NvU64 vaspaceGetVaLimit_DISPATCH(struct OBJVASPACE *pVAS) {
+    return pVAS->__nvoc_metadata_ptr->vtable.__vaspaceGetVaLimit__(pVAS);
+}
+
+static inline NV_STATUS vaspaceGetVasInfo_DISPATCH(struct OBJVASPACE *pVAS, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *pParams) {
+    return pVAS->__nvoc_metadata_ptr->vtable.__vaspaceGetVasInfo__(pVAS, pParams);
+}
+
+static inline NvU32 vaspaceGetFlags_DISPATCH(struct OBJVASPACE *pVAS) {
+    return pVAS->__nvoc_metadata_ptr->vtable.__vaspaceGetFlags__(pVAS);
+}
+
+static inline NV_STATUS vaspaceIncAllocRefCnt_14ee5e(struct OBJVASPACE *pVAS, NvU64 vAddr) {
+    NV_ASSERT_PRECOMP(NV_FALSE);
+    return NV_ERR_NOT_SUPPORTED;
 }
 
 NvU64 vaspaceGetVaStart_IMPL(struct OBJVASPACE *pVAS);
 
-static inline NvU64 vaspaceGetVaStart_DISPATCH(struct OBJVASPACE *pVAS) {
-    return pVAS->__vaspaceGetVaStart__(pVAS);
-}
-
 NvU64 vaspaceGetVaLimit_IMPL(struct OBJVASPACE *pVAS);
-
-static inline NvU64 vaspaceGetVaLimit_DISPATCH(struct OBJVASPACE *pVAS) {
-    return pVAS->__vaspaceGetVaLimit__(pVAS);
-}
-
-static inline NV_STATUS vaspaceGetVasInfo_DISPATCH(struct OBJVASPACE *pVAS, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *pParams) {
-    return pVAS->__vaspaceGetVasInfo__(pVAS, pParams);
-}
 
 static inline NvU32 vaspaceGetFlags_edd98b(struct OBJVASPACE *pVAS) {
     return 0U;
-}
-
-static inline NvU32 vaspaceGetFlags_DISPATCH(struct OBJVASPACE *pVAS) {
-    return pVAS->__vaspaceGetFlags__(pVAS);
-}
-
-NvBool vaspaceIsInternalVaRestricted_IMPL(struct OBJVASPACE *pVAS);
-
-static inline NvBool vaspaceIsInternalVaRestricted_DISPATCH(struct OBJVASPACE *pVAS) {
-    return pVAS->__vaspaceIsInternalVaRestricted__(pVAS);
 }
 
 void vaspaceIncRefCnt_IMPL(struct OBJVASPACE *pVAS);
@@ -398,4 +452,5 @@ NvU64 vaspaceGetVaStart_IMPL(struct OBJVASPACE *pVAS);
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
 #endif // _G_VASPACE_NVOC_H_

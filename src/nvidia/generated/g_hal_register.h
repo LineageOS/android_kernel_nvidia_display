@@ -5,7 +5,7 @@
 // Profile:  devel-soc-disp-dce-client
 // Template: templates/gt_hal_register.h
 //
-// Chips:    T234D
+// Chips:    T234D, T26XD, T25XD
 //
 
 #ifndef _G_RMCFG_HAL_REGISTER_H_
@@ -29,6 +29,32 @@ static NV_STATUS NV_INLINE REGISTER_T23XD_HALS(void)
     return NV_OK;
 }
 
+NV_STATUS registerHalModule_T264D(void);    
+
+static NV_STATUS NV_INLINE REGISTER_T26XD_HALS(void)
+{
+    NV_STATUS rmStatus;
+
+    rmStatus = registerHalModule_T264D();
+    if (rmStatus != NV_OK)
+        return rmStatus;
+
+    return NV_OK;
+}
+
+NV_STATUS registerHalModule_T256D(void);    
+
+static NV_STATUS NV_INLINE REGISTER_T25XD_HALS(void)
+{
+    NV_STATUS rmStatus;
+
+    rmStatus = registerHalModule_T256D();
+    if (rmStatus != NV_OK)
+        return rmStatus;
+
+    return NV_OK;
+}
+
 // 
 // This routine can be used by platform dependent code to
 // enable all HAL modules.
@@ -38,6 +64,18 @@ static NV_STATUS NV_INLINE REGISTER_ALL_HALS(void)
     NV_STATUS rmStatus;
 
     rmStatus = REGISTER_T23XD_HALS();
+    if (rmStatus != NV_OK)
+    {
+        return rmStatus;
+    }
+
+    rmStatus = REGISTER_T26XD_HALS();
+    if (rmStatus != NV_OK)
+    {
+        return rmStatus;
+    }
+
+    rmStatus = REGISTER_T25XD_HALS();
     if (rmStatus != NV_OK)
     {
         return rmStatus;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -28,7 +28,12 @@
  */
 
 #include "nvport/nvport.h"
+#include "nvtypes.h"
 #include <nvport/safe.h>
+
+#if NVOS_IS_LIBOS && defined(DEBUG)
+#include "gsp_error_injection.h"
+#endif
 
 #if !PORT_IS_MODULE_SUPPORTED(debug)
 #error "DEBUG module must be present for memory tracking"
@@ -36,7 +41,6 @@
 
 #if PORT_MEM_TRACK_USE_LIMIT
 #include "os/os.h"
-#define PORT_MEM_LIMIT_MAX_PIDS 32
 #endif
 
 #if NVOS_IS_LIBOS
@@ -174,8 +178,7 @@ static struct PORT_MEM_GLOBALS
     NvU32 totalAllocators;
 #if PORT_MEM_TRACK_USE_LIMIT
     NvBool bLimitEnabled;
-    NvLength limitPid[PORT_MEM_LIMIT_MAX_PIDS];
-    NvLength counterPid[PORT_MEM_LIMIT_MAX_PIDS];
+    PORT_MEM_ALLOCATOR_TRACKING *pGfidTracking[PORT_MEM_LIMIT_MAX_GFID];
 #endif
 } portMemGlobals;
 
@@ -190,16 +193,7 @@ _portMemExTrackingGetAllocUsableSizeWrapper
     void *pMem
 )
 {
-#if PORT_IS_FUNC_SUPPORTED(portMemExTrackingGetAllocUsableSize)
-    //
-    // blockSize in PORT_MEM_HEADER does not include the size of the header/
-    // footer, but the underlying malloc implementation doesn't know about
-    // those. Account for them here.
-    //
-    NvLength allocSize = portMemExTrackingGetAllocUsableSize(PORT_MEM_SUB_HEADER_PTR(pMem));
-    PORT_ASSERT_CHECKED(allocSize > PORT_MEM_STAGING_SIZE);
-    return allocSize - PORT_MEM_STAGING_SIZE;
-#elif PORT_MEM_HEADER_HAS_BLOCK_SIZE
+#if PORT_MEM_HEADER_HAS_BLOCK_SIZE
     return PORT_MEM_SUB_HEADER_PTR(pMem)->blockSize;
 #endif
 }
@@ -312,6 +306,7 @@ _portMemCounterDec
 #if PORT_MEM_TRACK_USE_FENCEPOSTS
 #define PORT_MEM_FENCE_HEAD_MAGIC 0x68656164 // 'head'
 #define PORT_MEM_FENCE_TAIL_MAGIC 0x7461696c // 'tail'
+#define PORT_MEM_FENCE_FREE_MAGIC 0x66726565 // 'free'
 
 static NV_INLINE void
 _portMemFenceInit
@@ -559,8 +554,14 @@ static void    *_portMemAllocatorAllocExistingWrapper(PORT_MEM_ALLOCATOR *pAlloc
 static void     _portMemAllocatorFreeExistingWrapper(PORT_MEM_ALLOCATOR *pAlloc, void *pMem);
 
 static void _portMemTrackingRelease(PORT_MEM_ALLOCATOR_TRACKING *pTracking, NvBool bReportLeaks);
-static void _portMemTrackAlloc(PORT_MEM_ALLOCATOR_TRACKING *pTracking, void *pMem, NvLength size, NvU32 pid PORT_MEM_CALLERINFO_COMMA_TYPE_PARAM);
-static void _portMemTrackFree(PORT_MEM_ALLOCATOR_TRACKING *pTracking, void *pMem);
+static void _portMemTrackAlloc(
+    PORT_MEM_ALLOCATOR_TRACKING *pTracking,
+    void *pMem,
+    NvLength size,
+    NvU32 gfid
+    PORT_MEM_CALLERINFO_COMMA_TYPE_PARAM
+);
+static NvBool _portMemTrackFree(PORT_MEM_ALLOCATOR_TRACKING *pTracking, void *pMem);
 
 
 
@@ -588,17 +589,36 @@ static void _portMemTrackFree(PORT_MEM_ALLOCATOR_TRACKING *pTracking, void *pMem
 // Per-process heap limiting implementation
 //
 #if PORT_MEM_TRACK_USE_LIMIT
+static inline NvBool isGfidValid(NvU32 gfid)
+{
+    return (gfid > 0) && (gfid <= PORT_MEM_LIMIT_MAX_GFID);
+}
+
+static void _portMemTrackingGfidRelease(void)
+{
+    int gfidIdx;
+
+    for (gfidIdx = 0; gfidIdx < PORT_MEM_LIMIT_MAX_GFID; ++gfidIdx)
+    {
+        if (portMemGlobals.pGfidTracking[gfidIdx] != NULL)
+        {
+            _portMemTrackingRelease(portMemGlobals.pGfidTracking[gfidIdx], NV_FALSE);
+            portMemGlobals.pGfidTracking[gfidIdx] = NULL;
+        }
+    }
+}
+
 static NV_INLINE void
-_portMemLimitInc(NvU32 pid, void *pMem, NvLength size)
+_portMemLimitInc(NvU32 gfid, void *pMem, NvLength size)
 {
     PORT_MEM_HEADER *pMemHeader = PORT_MEM_SUB_HEADER_PTR(pMem);
-    pMemHeader->pid = pid;
+    pMemHeader->gfid = gfid;
     if (portMemGlobals.bLimitEnabled)
     {
-        if ((pid > 0) && (pid <= PORT_MEM_LIMIT_MAX_PIDS))
+        if (isGfidValid(gfid))
         {
-            NvU32 pidIdx = pid - 1;
-            PORT_MEM_ATOMIC_ADD_SIZE(&portMemGlobals.counterPid[pidIdx], size);
+            NvU32 gfidIdx = gfid - 1;
+            PORT_MEM_ATOMIC_ADD_SIZE(&portMemGlobals.pGfidTracking[gfidIdx]->counterGfid, size);
         }
     }
 }
@@ -609,38 +629,44 @@ _portMemLimitDec(void *pMem, NvLength size)
     if (portMemGlobals.bLimitEnabled)
     {
         PORT_MEM_HEADER *pMemHeader = PORT_MEM_SUB_HEADER_PTR(pMem);
-        NvU32 pid = pMemHeader->pid;
+        NvU32 gfid = pMemHeader->gfid;
 
-        if ((pid > 0) && (pid <= PORT_MEM_LIMIT_MAX_PIDS))
+        if (isGfidValid(gfid))
         {
-            NvU32 pidIdx = pid - 1;
-            if (portMemGlobals.counterPid[pidIdx] < size)
+            NvU32 gfidIdx = gfid - 1;
+            if (portMemGlobals.pGfidTracking[gfidIdx]->counterGfid < size)
             {
                 PORT_MEM_PRINT_ERROR("memory free error: counter underflow\n");
                 PORT_BREAKPOINT_CHECKED();
             }
             else
             {
-                PORT_MEM_ATOMIC_SUB_SIZE(&portMemGlobals.counterPid[pidIdx], size);
+                PORT_MEM_ATOMIC_SUB_SIZE(
+                    &portMemGlobals.pGfidTracking[gfidIdx]->counterGfid,
+                    size);
             }
         }
     }
 }
 
 static NV_INLINE NvBool
-_portMemLimitExceeded(NvU32 pid, NvLength size)
+_portMemLimitExceeded(NvU32 gfid, NvLength size)
 {
     NvBool bExceeded = NV_FALSE;
 
     if (portMemGlobals.bLimitEnabled)
     {
-        if ((pid > 0) && (pid <= PORT_MEM_LIMIT_MAX_PIDS))
+        if (isGfidValid(gfid))
         {
-            NvU32 pidIdx = pid - 1;
-            if ((size + portMemGlobals.counterPid[pidIdx]) > portMemGlobals.limitPid[pidIdx])
+            NvU32 gfidIdx = gfid - 1;
+            if ((size + portMemGlobals.pGfidTracking[gfidIdx]->counterGfid) >
+                portMemGlobals.pGfidTracking[gfidIdx]->limitGfid)
             {
-                PORT_MEM_PRINT_ERROR("memory allocation denied; PID %d exceeded per-process heap limit of %"NvUPtr_fmtu"\n",
-                                      pid, portMemGlobals.limitPid[pidIdx]);
+                PORT_MEM_PRINT_ERROR(
+                    "memory allocation denied; GFID %d exceeded per-process heap limit of "
+                    "%"NvUPtr_fmtu"\n",
+                    gfid, portMemGlobals.pGfidTracking[gfidIdx]->limitGfid
+                );
                 bExceeded = NV_TRUE;
             }
         }
@@ -648,13 +674,88 @@ _portMemLimitExceeded(NvU32 pid, NvLength size)
     return bExceeded;
 }
 
-#define PORT_MEM_LIMIT_INC(pid, pMem, size) _portMemLimitInc(pid, pMem, size)
+void
+portMemLibosLimitInc(NvU32 gfid, NvLength size)
+{
+    if (portMemGlobals.bLimitEnabled)
+    {
+        if (isGfidValid(gfid))
+        {
+            NvU32 gfidIdx = gfid - 1;
+            PORT_MEM_ATOMIC_ADD_SIZE(&portMemGlobals.pGfidTracking[gfidIdx]->counterLibosGfid, size);
+        }
+    }
+}
+
+void
+portMemLibosLimitDec(NvU32 gfid, NvLength size)
+{
+    if (portMemGlobals.bLimitEnabled)
+    {
+        if (isGfidValid(gfid))
+        {
+            NvU32 gfidIdx = gfid - 1;
+            if (portMemGlobals.pGfidTracking[gfidIdx]->counterLibosGfid < size)
+            {
+                PORT_MEM_PRINT_ERROR("GFID %d memory free error: counter underflow\n"
+                                     "counter = %llu\nsize = %llu\n",
+                                     gfid,
+                                     portMemGlobals.pGfidTracking[gfidIdx]->counterLibosGfid,
+                                     size);
+                PORT_BREAKPOINT_CHECKED();
+            }
+            else
+            {
+                PORT_MEM_ATOMIC_SUB_SIZE(
+                    &portMemGlobals.pGfidTracking[gfidIdx]->counterLibosGfid,
+                    size);
+            }
+        }
+    }
+}
+
+NvBool
+portMemLibosLimitExceeded(NvU32 gfid, NvLength size)
+{
+    NvBool bExceeded = NV_FALSE;
+
+    if (portMemGlobals.bLimitEnabled)
+    {
+        if (isGfidValid(gfid))
+        {
+            NvU32 gfidIdx = gfid - 1;
+            if ((size + portMemGlobals.pGfidTracking[gfidIdx]->counterLibosGfid) >
+                portMemGlobals.pGfidTracking[gfidIdx]->limitLibosGfid)
+            {
+                PORT_MEM_PRINT_ERROR(
+                    "LibOS memory allocation denied; GFID %d exceeded per-VF LibOS heap limit of "
+                    "%"NvUPtr_fmtu"\n"
+                    "counter = %llu\nsize = %llu\n",
+                    gfid,
+                    portMemGlobals.pGfidTracking[gfidIdx]->limitLibosGfid,
+                    portMemGlobals.pGfidTracking[gfidIdx]->counterLibosGfid,
+                    size
+                );
+                bExceeded = NV_TRUE;
+            }
+        }
+        else
+        {
+            // Also fail for invalid GFID
+            PORT_MEM_PRINT_ERROR("LibOS memory allocation denied; GFID %d invalid\n", gfid);
+            bExceeded = NV_TRUE;
+        }
+    }
+    return bExceeded;
+}
+
+#define PORT_MEM_LIMIT_INC(gfid, pMem, size) _portMemLimitInc(gfid, pMem, size)
 #define PORT_MEM_LIMIT_DEC(pMem, size)      _portMemLimitDec(pMem, size)
-#define PORT_MEM_LIMIT_EXCEEDED(pid, size)  _portMemLimitExceeded(pid, size)
+#define PORT_MEM_LIMIT_EXCEEDED(gfid, size)  _portMemLimitExceeded(gfid, size)
 #else
-#define PORT_MEM_LIMIT_INC(pid, pMem, size) \
+#define PORT_MEM_LIMIT_INC(gfid, pMem, size) \
     do {                                    \
-        PORT_UNREFERENCED_VARIABLE(pid);    \
+        PORT_UNREFERENCED_VARIABLE(gfid);    \
         PORT_UNREFERENCED_VARIABLE(pMem);   \
         PORT_UNREFERENCED_VARIABLE(size);   \
     } while (0)
@@ -663,7 +764,7 @@ _portMemLimitExceeded(NvU32 pid, NvLength size)
         PORT_UNREFERENCED_VARIABLE(pMem);   \
         PORT_UNREFERENCED_VARIABLE(size);   \
     } while (0)
-#define PORT_MEM_LIMIT_EXCEEDED(pid, size)  (NV_FALSE)
+#define PORT_MEM_LIMIT_EXCEEDED(gfid, size)  (NV_FALSE)
 #endif // PORT_MEM_TRACK_USE_LIMIT
 
 static NV_INLINE PORT_MEM_ALLOCATOR_TRACKING *
@@ -698,8 +799,6 @@ portMemInitialize(void)
 #if PORT_MEM_TRACK_USE_LIMIT
     // Initialize process heap limit to max int (i.e. no limit)
     portMemGlobals.bLimitEnabled = NV_FALSE;
-    portMemSet(&portMemGlobals.limitPid, NV_U8_MAX, sizeof(portMemGlobals.limitPid));
-    portMemSet(&portMemGlobals.counterPid, 0, sizeof(portMemGlobals.counterPid));
 #endif
 
     portMemGlobals.alloc.paged._portAlloc      = _portMemAllocatorAllocPagedWrapper;
@@ -731,7 +830,7 @@ portMemInitialize(void)
         // Use the same impl for both paged and nonpaged.
         portMemGlobals.alloc.paged.pImpl    = &portMemGlobals.alloc.pagedImpl;
         portMemGlobals.alloc.nonPaged.pImpl = &portMemGlobals.alloc.pagedImpl;
-        portMemInitializeAllocatorTracking(NULL,
+        portMemInitializeAllocatorTracking(&portMemGlobals.alloc.paged,
                              &portMemGlobals.alloc.pagedImpl.tracking
                              PORT_MEM_CALLERINFO_COMMA_PARAM);
         portMemGlobals.alloc.paged.pTracking    = &portMemGlobals.alloc.pagedImpl.tracking;
@@ -763,7 +862,9 @@ portMemShutdown(NvBool bForceSilent)
     {
         _portMemTrackingRelease(&portMemGlobals.alloc.pagedImpl.tracking, NV_FALSE);
     }
-
+#if PORT_MEM_TRACK_USE_LIMIT
+    _portMemTrackingGfidRelease();
+#endif
     PORT_MEM_LOCK_DESTROY(portMemGlobals.trackingLock);
     PORT_MEM_LIST_DESTROY(&portMemGlobals.mainTracking);
     portMemSet(&portMemGlobals, 0, sizeof(portMemGlobals));
@@ -948,12 +1049,90 @@ portMemInitializeAllocatorTracking
 
 #if PORT_MEM_TRACK_USE_LIMIT
 void
-portMemInitializeAllocatorTrackingLimit(NvU32 pid, NvLength limit, NvBool bLimitEnabled)
+portMemInitializeAllocatorTrackingLimit(NvU32 gfid, NvLength limit, NvBool bLimitEnabled)
 {
-    NvU32 pidIdx = pid - 1;
-    portMemGlobals.limitPid[pidIdx] = limit;
+    if (!isGfidValid(gfid))
+        return;
+
+    NvU32 gfidIdx = gfid - 1;
+
+    portMemGlobals.pGfidTracking[gfidIdx]->limitGfid = limit;
     portMemGlobals.bLimitEnabled = bLimitEnabled;
 }
+
+void
+portMemInitializeAllocatorTrackingLibosLimit(NvU32 gfid, NvLength limit)
+{
+    if (!isGfidValid(gfid))
+        return;
+
+    NvU32 gfidIdx = gfid - 1;
+
+    if (portMemGlobals.pGfidTracking[gfidIdx] != NULL)
+        portMemGlobals.pGfidTracking[gfidIdx]->limitLibosGfid = limit;
+}
+
+void portMemGfidTrackingInit(NvU32 gfid)
+{
+    if (!isGfidValid(gfid))
+    {
+        PORT_BREAKPOINT_CHECKED();
+        return;
+    }
+
+    NvU32 gfidIdx = gfid - 1;
+
+    if (portMemGlobals.pGfidTracking[gfidIdx] != NULL)
+        return;
+
+    PORT_MEM_ALLOCATOR_TRACKING *pTracking =
+        _portMemAllocNonPagedUntracked(sizeof(PORT_MEM_ALLOCATOR_TRACKING));
+
+    if (pTracking == NULL)
+    {
+        portDbgPrintf("!!! Failed memory allocation for pTracking !!!\n");
+        PORT_BREAKPOINT_CHECKED();
+        return;
+    }
+
+    portMemSet(pTracking, 0, sizeof(*pTracking));
+    pTracking->limitGfid = NV_U64_MAX;
+    pTracking->counterGfid = 0;
+    pTracking->gfid = gfid;
+    pTracking->limitLibosGfid = NV_U64_MAX;
+    pTracking->counterLibosGfid = 0;
+    PORT_LOCKED_LIST_LINK(&portMemGlobals.mainTracking, pTracking, portMemGlobals.trackingLock);
+    PORT_MEM_COUNTER_INIT(&pTracking->counter);
+    portMemGlobals.pGfidTracking[gfidIdx] = pTracking;
+}
+
+void portMemGfidTrackingFree(NvU32 gfid)
+{
+    if (!isGfidValid(gfid))
+    {
+        PORT_BREAKPOINT_CHECKED();
+        return;
+    }
+
+    NvU32 gfidIdx = gfid - 1;
+    PORT_MEM_ALLOCATOR_TRACKING *pTracking = portMemGlobals.pGfidTracking[gfidIdx];
+
+    if (pTracking == NULL)
+    {
+        PORT_BREAKPOINT_CHECKED();
+        return;
+    }
+
+    if (pTracking->counter.activeAllocs != 0)
+    {
+        portDbgPrintf("  !!! MEMORY LEAK DETECTED (%u blocks) !!!\n",
+                      pTracking->counter.activeAllocs);
+
+    }
+
+    portMemPrintTrackingInfo(pTracking);
+}
+
 #endif
 
 void *
@@ -964,8 +1143,17 @@ _portMemAllocatorAlloc
     PORT_MEM_CALLERINFO_COMMA_TYPE_PARAM
 )
 {
-    NvU32 pid = 0;
+    NvU32 gfid = 0;
     void *pMem = NULL;
+#if NVOS_IS_LIBOS && defined(DEBUG)
+    __error_injection_probe(NV2082_CTRL_GSP_INJECT_TARGET_NVPORT_MEM_ALLOC, 0);
+    if (g_bMemoryAllocationFailure)
+    {
+        portDbgPrintf("  !!! MEMORY ALLOCATION FAILURE !!!\n");
+        g_bMemoryAllocationFailure = NV_FALSE;
+        return NULL;
+    }
+#endif
     if (pAlloc == NULL)
     {
         PORT_BREAKPOINT_CHECKED();
@@ -975,7 +1163,7 @@ _portMemAllocatorAlloc
 #if PORT_MEM_TRACK_USE_LIMIT
     if (portMemGlobals.bLimitEnabled)
     {
-        if (osGetCurrentProcessGfid(&pid) != NV_OK)
+        if (osGetCurrentProcessGfid(&gfid) != NV_OK)
         {
             PORT_BREAKPOINT_CHECKED();
             return NULL;
@@ -984,7 +1172,7 @@ _portMemAllocatorAlloc
 #endif
 
     // Check if per-process memory limit will be exhausted by this allocation
-    if (PORT_MEM_LIMIT_EXCEEDED(pid, length))
+    if (PORT_MEM_LIMIT_EXCEEDED(gfid, length))
         return NULL;
 
     if (length > 0)
@@ -1009,7 +1197,7 @@ _portMemAllocatorAlloc
     if (pMem != NULL)
     {
         pMem = PORT_MEM_ADD_HEADER_PTR(pMem);
-        _portMemTrackAlloc(_portMemGetTracking(pAlloc), pMem, length, pid
+        _portMemTrackAlloc(_portMemGetTracking(pAlloc), pMem, length, gfid
                            PORT_MEM_CALLERINFO_COMMA_PARAM);
     }
     return pMem;
@@ -1028,9 +1216,11 @@ _portMemAllocatorFree
     }
     if (pMem != NULL)
     {
-        _portMemTrackFree(_portMemGetTracking(pAlloc), pMem);
-        pMem = PORT_MEM_SUB_HEADER_PTR(pMem);
-        pAlloc->_portFree(pAlloc, pMem);
+        if (_portMemTrackFree(_portMemGetTracking(pAlloc), pMem))
+        {
+            pMem = PORT_MEM_SUB_HEADER_PTR(pMem);
+            pAlloc->_portFree(pAlloc, pMem);
+        }
     }
 }
 
@@ -1044,16 +1234,20 @@ portMemPrintTrackingInfo
         pTracking = &portMemGlobals.mainTracking;
 
     if (pTracking == &portMemGlobals.mainTracking)
-        portDbgPrintf("[NvPort] ******** Aggregate Memory Tracking ********\n");
+        portDbgPrintf("[NvPort] ======== Aggregate Memory Tracking ========\n");
     else if ((pTracking == portMemGlobals.alloc.nonPaged.pTracking) &&
              (pTracking == portMemGlobals.alloc.paged.pTracking))
-        portDbgPrintf("[NvPort] ******** Global Allocator Tracking ********\n");
+        portDbgPrintf("[NvPort] ======== Global Allocator Tracking ========\n");
     else if (pTracking == portMemGlobals.alloc.nonPaged.pTracking)
-        portDbgPrintf("[NvPort] ******** Global Non-Paged Memory Allocator Tracking ********\n");
+        portDbgPrintf("[NvPort] ======== Global Non-Paged Memory Allocator Tracking ========\n");
     else if (pTracking == portMemGlobals.alloc.paged.pTracking)
-        portDbgPrintf("[NvPort] ******** Global Paged Memory Allocator Tracking ********\n");
+        portDbgPrintf("[NvPort] ======== Global Paged Memory Allocator Tracking ========\n");
+#if PORT_MEM_TRACK_USE_LIMIT
+    else if (isGfidValid(pTracking->gfid))
+        portDbgPrintf("[NvPort] ======== GFID %u Tracking ========\n", pTracking->gfid);
+#endif
     else
-        portDbgPrintf("[NvPort] ******** Memory Allocator %p Tracking ******** \n", pTracking->pAllocator);
+        portDbgPrintf("[NvPort] ======== Memory Allocator %p Tracking ======== \n", pTracking->pAllocator);
 
     if (pTracking->counter.activeAllocs != 0)
         portDbgPrintf("  !!! MEMORY LEAK DETECTED (%u blocks) !!!\n",
@@ -1080,8 +1274,16 @@ portMemPrintTrackingInfo
         PORT_MEM_TRACK_ALLOCATOR_STATS stats;
 
         portMemSet(&stats, 0, sizeof(stats));
-
-        portMemExTrackingGetActiveStats(pTracking->pAllocator, &stats);
+#if PORT_MEM_TRACK_USE_LIMIT
+        if (isGfidValid(pTracking->gfid))
+        {
+            portMemExTrackingGetGfidActiveStats(pTracking->gfid, &stats);
+        }
+        else
+#endif
+        {
+            portMemExTrackingGetActiveStats(pTracking->pAllocator, &stats);
+        }
 
         //
         // rmtest_gsp test script (dvs_gsp_sanity.sh) depends on this print, so do not change
@@ -1100,8 +1302,16 @@ portMemPrintTrackingInfo
         PORT_MEM_TRACK_ALLOCATOR_STATS stats;
 
         portMemSet(&stats, 0, sizeof(stats));
-
-        portMemExTrackingGetTotalStats(pTracking->pAllocator, &stats);
+#if PORT_MEM_TRACK_USE_LIMIT
+        if (isGfidValid(pTracking->gfid))
+        {
+            portMemExTrackingGetGfidTotalStats(pTracking->gfid, &stats);
+        }
+        else
+#endif
+        {
+            portMemExTrackingGetTotalStats(pTracking->pAllocator, &stats);
+        }
         portDbgPrintf("  TOTAL:  %u allocations, %"NvUPtr_fmtu" bytes allocated (%"NvUPtr_fmtu" useful, %"NvUPtr_fmtu" meta)\n",
                     stats.numAllocations,
                     stats.allocatedSize,
@@ -1115,8 +1325,16 @@ portMemPrintTrackingInfo
         PORT_MEM_TRACK_ALLOCATOR_STATS stats;
 
         portMemSet(&stats, 0, sizeof(stats));
-
-        portMemExTrackingGetPeakStats(pTracking->pAllocator, &stats);
+#if PORT_MEM_TRACK_USE_LIMIT
+        if (isGfidValid(pTracking->gfid))
+        {
+            portMemExTrackingGetGfidPeakStats(pTracking->gfid, &stats);
+        }
+        else
+#endif
+        {
+            portMemExTrackingGetPeakStats(pTracking->pAllocator, &stats);
+        }
         portDbgPrintf("  PEAK:   %u allocations, %"NvUPtr_fmtu" bytes allocated (%"NvUPtr_fmtu" useful, %"NvUPtr_fmtu" meta)\n",
                     stats.numAllocations,
                     stats.allocatedSize,
@@ -1185,6 +1403,33 @@ portMemExTrackingGetActiveStats
     pStats->allocatedSize  = pStats->usefulSize + pStats->metaSize;
     return NV_OK;
 }
+#if PORT_MEM_TRACK_USE_LIMIT
+NV_STATUS
+portMemExTrackingGetGfidActiveStats
+(
+    NvU32                           gfid,
+    PORT_MEM_TRACK_ALLOCATOR_STATS *pStats
+)
+{
+    if (!isGfidValid(gfid))
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+
+    NvU32 gfidIdx = gfid - 1;
+    PORT_MEM_ALLOCATOR_TRACKING *pTracking = portMemGlobals.pGfidTracking[gfidIdx];
+
+    if (pTracking == NULL)
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+    pStats->numAllocations = pTracking->counter.activeAllocs;
+    pStats->usefulSize     = pTracking->counter.activeSize;
+    pStats->metaSize       = pStats->numAllocations * PORT_MEM_STAGING_SIZE;
+    pStats->allocatedSize  = pStats->usefulSize + pStats->metaSize;
+    return NV_OK;
+}
+#endif
 #endif
 
 #if portMemExTrackingGetTotalStats_SUPPORTED
@@ -1206,6 +1451,33 @@ portMemExTrackingGetTotalStats
     pStats->allocatedSize  = pStats->usefulSize + pStats->metaSize;
     return NV_OK;
 }
+#if PORT_MEM_TRACK_USE_LIMIT
+NV_STATUS
+portMemExTrackingGetGfidTotalStats
+(
+    NvU32                           gfid,
+    PORT_MEM_TRACK_ALLOCATOR_STATS *pStats
+)
+{
+    if (!isGfidValid(gfid))
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+
+    NvU32 gfidIdx = gfid - 1;
+    PORT_MEM_ALLOCATOR_TRACKING *pTracking = portMemGlobals.pGfidTracking[gfidIdx];
+
+    if (pTracking == NULL)
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+    pStats->numAllocations = pTracking->counter.totalAllocs;
+    pStats->usefulSize     = pTracking->counter.totalSize;
+    pStats->metaSize       = pStats->numAllocations * PORT_MEM_STAGING_SIZE;
+    pStats->allocatedSize  = pStats->usefulSize + pStats->metaSize;
+    return NV_OK;
+}
+#endif
 #endif
 
 #if portMemExTrackingGetPeakStats_SUPPORTED
@@ -1227,6 +1499,33 @@ portMemExTrackingGetPeakStats
     pStats->allocatedSize  = pStats->usefulSize + pStats->metaSize;
     return NV_OK;
 }
+#if PORT_MEM_TRACK_USE_LIMIT
+NV_STATUS
+portMemExTrackingGetGfidPeakStats
+(
+    NvU32                           gfid,
+    PORT_MEM_TRACK_ALLOCATOR_STATS *pStats
+)
+{
+    if (!isGfidValid(gfid))
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+
+    NvU32 gfidIdx = gfid - 1;
+    PORT_MEM_ALLOCATOR_TRACKING *pTracking = portMemGlobals.pGfidTracking[gfidIdx];
+
+    if (pTracking == NULL)
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+    pStats->numAllocations = pTracking->counter.peakAllocs;
+    pStats->usefulSize     = pTracking->counter.peakSize;
+    pStats->metaSize       = pStats->numAllocations * PORT_MEM_STAGING_SIZE;
+    pStats->allocatedSize  = pStats->usefulSize + pStats->metaSize;
+    return NV_OK;
+}
+#endif
 #endif
 
 #if portMemExTrackingGetNext_SUPPORTED
@@ -1295,7 +1594,16 @@ _portMemTrackingRelease
 
     PORT_LOCKED_LIST_UNLINK(&portMemGlobals.mainTracking, pTracking, portMemGlobals.trackingLock);
     PORT_MEM_LIST_DESTROY(pTracking);
-    PORT_MEM_ATOMIC_DEC_U32(&portMemGlobals.totalAllocators);
+#if PORT_MEM_TRACK_USE_LIMIT
+    if (isGfidValid(pTracking->gfid))
+    {
+        _portMemFreeUntracked(pTracking);
+    }
+    else
+#endif
+    {
+        PORT_MEM_ATOMIC_DEC_U32(&portMemGlobals.totalAllocators);
+    }
 }
 
 static void
@@ -1304,7 +1612,7 @@ _portMemTrackAlloc
     PORT_MEM_ALLOCATOR_TRACKING *pTracking,
     void                        *pMem,
     NvLength                     size,
-    NvU32                        pid
+    NvU32                        gfid
     PORT_MEM_CALLERINFO_COMMA_TYPE_PARAM
 )
 {
@@ -1325,15 +1633,23 @@ _portMemTrackAlloc
 
     PORT_MEM_COUNTER_INC(&pTracking->counter, size);
     PORT_MEM_COUNTER_INC(&portMemGlobals.mainTracking.counter, size);
-    PORT_MEM_LIMIT_INC(pid, pMem, size);
+    PORT_MEM_LIMIT_INC(gfid, pMem, size);
 
     PORT_MEM_FENCE_INIT(pTracking->pAllocator, pMem, size);
     PORT_MEM_LIST_ADD(pTracking, pMem);
     PORT_MEM_CALLERINFO_INIT_MEM(pMem);
     PORT_MEM_LOG_ALLOC(pTracking->pAllocator, pMem, size);
+#if PORT_MEM_TRACK_USE_LIMIT
+    if (isGfidValid(gfid))
+    {
+        NvU32 gfidIdx = gfid - 1;
+
+        PORT_MEM_COUNTER_INC(&portMemGlobals.pGfidTracking[gfidIdx]->counter, size);
+    }
+#endif
 }
 
-static void
+static NvBool
 _portMemTrackFree
 (
     PORT_MEM_ALLOCATOR_TRACKING *pTracking,
@@ -1341,8 +1657,20 @@ _portMemTrackFree
 )
 {
     NvLength size = 0;
+#if PORT_MEM_TRACK_USE_FENCEPOSTS
+    PORT_MEM_HEADER *pHead = (PORT_MEM_HEADER*)pMem - 1;
+#endif
 
-    if (pTracking == NULL) return;
+    if (pTracking == NULL) return NV_TRUE;
+
+#if PORT_MEM_TRACK_USE_FENCEPOSTS
+    if (pHead->fence.magic == PORT_MEM_FENCE_FREE_MAGIC)
+    {
+        PORT_MEM_PRINT_ERROR("Detected double free of block at address %p\n", pMem);
+        PORT_ASSERT_CHECKED(pHead->fence.magic == PORT_MEM_FENCE_FREE_MAGIC);
+        return NV_FALSE;
+    }
+#endif
 
 #if PORT_MEM_TRACK_ALLOC_SIZE
     size = _portMemExTrackingGetAllocUsableSizeWrapper(pMem);
@@ -1358,6 +1686,22 @@ _portMemTrackFree
     PORT_MEM_FENCE_CHECK(pTracking->pAllocator, pMem, size);
     PORT_MEM_LIST_REMOVE(pTracking, pMem);
     PORT_MEM_LOG_FREE(pTracking->pAllocator, pMem);
+#if PORT_MEM_TRACK_USE_LIMIT
+    PORT_MEM_HEADER *pMemHeader = PORT_MEM_SUB_HEADER_PTR(pMem);
+
+    if (isGfidValid(pMemHeader->gfid)) 
+    {
+        NvU32 gfidIdx = pMemHeader->gfid - 1;
+
+        PORT_MEM_COUNTER_DEC(&portMemGlobals.pGfidTracking[gfidIdx]->counter, size);
+    }
+#endif
+
+#if PORT_MEM_TRACK_USE_FENCEPOSTS
+    pHead->fence.magic = PORT_MEM_FENCE_FREE_MAGIC;
+#endif
+
+    return NV_TRUE;
 }
 
 
@@ -1444,6 +1788,14 @@ _portMemAllocatorCreateOnExistingBlock
     pAllocator->pTracking     = NULL; // No tracking for this allocator
     pAllocator->pImpl         = (PORT_MEM_ALLOCATOR_IMPL*)(pAllocator + 1);
 
+
+    //
+    // PORT_MEM_BITVECTOR (pAllocator->pImpl) and PORT_MEM_ALLOCATOR_TRACKING (pAllocator->pImpl->tracking)
+    // are mutually exclusively used.
+    // When pAllocator->pTracking = NULL the data in pAllocator->pImpl->tracking is not used and instead 
+    // pBitVector uses the same meory location. 
+    // When pAllocator->pImpl->tracking there is no usage of PORT_MEM_BITVECTOR
+    //
     pBitVector = (PORT_MEM_BITVECTOR*)(pAllocator->pImpl);
     pBitVector->pSpinlock = pSpinlock;
 
@@ -1543,6 +1895,10 @@ _portMemAllocatorAllocExistingWrapper
     if (pSpinlock != NULL)
     {
         portSyncSpinlockRelease(pSpinlock);
+    }
+    if (pMem == NULL)
+    {
+         PORT_MEM_PRINT_ERROR("Memory allocation failed.\n");
     }
     return pMem;
 }

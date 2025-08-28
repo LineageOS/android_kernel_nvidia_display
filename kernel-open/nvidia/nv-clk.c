@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -25,15 +25,21 @@
 
 #include "os-interface.h"
 #include "nv-linux.h"
+#include "nv-platform.h"
 
-#if defined(NV_SOC_TEGRA_BPMP_ABI_H_PRESENT)
 #include <soc/tegra/bpmp-abi.h>
-#endif
-
-#if defined(NV_SOC_TEGRA_BPMP_H_PRESENT)
 #include <soc/tegra/bpmp.h>
+
+// Use the CCF APIs if enabled in Kernel config and RM build
+// has Dual license define enabled.
+#if defined(CONFIG_COMMON_CLK)
+#define HAS_COMMON_CLOCK_FRAMEWORK 1
+#else
+#define HAS_COMMON_CLOCK_FRAMEWORK 0
 #endif
 
+#if HAS_COMMON_CLOCK_FRAMEWORK
+#if defined(NV_DEVM_CLK_BULK_GET_ALL_PRESENT)
 /*!
  * @brief The below defined static const array points to the
  * clock mentioned in enum defined in below file.
@@ -48,27 +54,45 @@ static const char *osMapClk[] = {
     [TEGRASOC_WHICH_CLK_NVDISPLAY_DISP]    = "nvdisplay_disp_clk",
     [TEGRASOC_WHICH_CLK_NVDISPLAY_P0]      = "nvdisplay_p0_clk",
     [TEGRASOC_WHICH_CLK_NVDISPLAY_P1]      = "nvdisplay_p1_clk",
+    [TEGRASOC_WHICH_CLK_NVDISPLAY_P2]      = "nvdisplay_p2_clk",
+    [TEGRASOC_WHICH_CLK_NVDISPLAY_P3]      = "nvdisplay_p3_clk",
+    [TEGRASOC_WHICH_CLK_NVDISPLAY_P4]      = "nvdisplay_p4_clk",
+    [TEGRASOC_WHICH_CLK_NVDISPLAY_P5]      = "nvdisplay_p5_clk",
+    [TEGRASOC_WHICH_CLK_NVDISPLAY_P6]      = "nvdisplay_p6_clk",
+    [TEGRASOC_WHICH_CLK_NVDISPLAY_P7]      = "nvdisplay_p7_clk",
     [TEGRASOC_WHICH_CLK_DPAUX0]            = "dpaux0_clk",
     [TEGRASOC_WHICH_CLK_FUSE]              = "fuse_clk",
     [TEGRASOC_WHICH_CLK_DSIPLL_VCO]        = "dsipll_vco_clk",
     [TEGRASOC_WHICH_CLK_DSIPLL_CLKOUTPN]   = "dsipll_clkoutpn_clk",
     [TEGRASOC_WHICH_CLK_DSIPLL_CLKOUTA]    = "dsipll_clkouta_clk",
     [TEGRASOC_WHICH_CLK_SPPLL0_VCO]        = "sppll0_vco_clk",
-    [TEGRASOC_WHICH_CLK_SPPLL0_CLKOUTPN]   = "sppll0_clkoutpn_clk",
     [TEGRASOC_WHICH_CLK_SPPLL0_CLKOUTA]    = "sppll0_clkouta_clk",
     [TEGRASOC_WHICH_CLK_SPPLL0_CLKOUTB]    = "sppll0_clkoutb_clk",
+    [TEGRASOC_WHICH_CLK_SPPLL0_CLKOUTPN]   = "sppll0_clkoutpn_clk",
+    [TEGRASOC_WHICH_CLK_SPPLL1_CLKOUTPN]   = "sppll1_clkoutpn_clk",
+    [TEGRASOC_WHICH_CLK_SPPLL0_DIV27]      = "sppll0_div27_clk",
+    [TEGRASOC_WHICH_CLK_SPPLL1_DIV27]      = "sppll1_div27_clk",
     [TEGRASOC_WHICH_CLK_SPPLL0_DIV10]      = "sppll0_div10_clk",
     [TEGRASOC_WHICH_CLK_SPPLL0_DIV25]      = "sppll0_div25_clk",
-    [TEGRASOC_WHICH_CLK_SPPLL0_DIV27]      = "sppll0_div27_clk",
     [TEGRASOC_WHICH_CLK_SPPLL1_VCO]        = "sppll1_vco_clk",
-    [TEGRASOC_WHICH_CLK_SPPLL1_CLKOUTPN]   = "sppll1_clkoutpn_clk",
-    [TEGRASOC_WHICH_CLK_SPPLL1_DIV27]      = "sppll1_div27_clk",
     [TEGRASOC_WHICH_CLK_VPLL0_REF]         = "vpll0_ref_clk",
     [TEGRASOC_WHICH_CLK_VPLL0]             = "vpll0_clk",
     [TEGRASOC_WHICH_CLK_VPLL1]             = "vpll1_clk",
+    [TEGRASOC_WHICH_CLK_VPLL2]             = "vpll2_clk",
+    [TEGRASOC_WHICH_CLK_VPLL3]             = "vpll3_clk",
+    [TEGRASOC_WHICH_CLK_VPLL4]             = "vpll4_clk",
+    [TEGRASOC_WHICH_CLK_VPLL5]             = "vpll5_clk",
+    [TEGRASOC_WHICH_CLK_VPLL6]             = "vpll6_clk",
+    [TEGRASOC_WHICH_CLK_VPLL7]             = "vpll7_clk",
     [TEGRASOC_WHICH_CLK_NVDISPLAY_P0_REF]  = "nvdisplay_p0_ref_clk",
     [TEGRASOC_WHICH_CLK_RG0]               = "rg0_clk",
     [TEGRASOC_WHICH_CLK_RG1]               = "rg1_clk",
+    [TEGRASOC_WHICH_CLK_RG2]               = "rg2_clk",
+    [TEGRASOC_WHICH_CLK_RG3]               = "rg3_clk",
+    [TEGRASOC_WHICH_CLK_RG4]               = "rg4_clk",
+    [TEGRASOC_WHICH_CLK_RG5]               = "rg5_clk",
+    [TEGRASOC_WHICH_CLK_RG6]               = "rg6_clk",
+    [TEGRASOC_WHICH_CLK_RG7]               = "rg7_clk",
     [TEGRASOC_WHICH_CLK_DISPPLL]           = "disppll_clk",
     [TEGRASOC_WHICH_CLK_DISPHUBPLL]        = "disphubpll_clk",
     [TEGRASOC_WHICH_CLK_DSI_LP]            = "dsi_lp_clk",
@@ -76,9 +100,20 @@ static const char *osMapClk[] = {
     [TEGRASOC_WHICH_CLK_DSI_PIXEL]         = "dsi_pixel_clk",
     [TEGRASOC_WHICH_CLK_PRE_SOR0]          = "pre_sor0_clk",
     [TEGRASOC_WHICH_CLK_PRE_SOR1]          = "pre_sor1_clk",
-    [TEGRASOC_WHICH_CLK_DP_LINK_REF]       = "dp_link_ref_clk",
+    [TEGRASOC_WHICH_CLK_PRE_SOR2]          = "pre_sor2_clk",
+    [TEGRASOC_WHICH_CLK_PRE_SOR3]          = "pre_sor3_clk",
+    [TEGRASOC_WHICH_CLK_DP_LINKA_REF]      = "dp_link_ref_clk",
+    [TEGRASOC_WHICH_CLK_DP_LINKB_REF]      = "dp_linkb_ref_clk",
+    [TEGRASOC_WHICH_CLK_DP_LINKC_REF]      = "dp_linkc_ref_clk",
+    [TEGRASOC_WHICH_CLK_DP_LINKD_REF]      = "dp_linkd_ref_clk",
     [TEGRASOC_WHICH_CLK_SOR_LINKA_INPUT]   = "sor_linka_input_clk",
+    [TEGRASOC_WHICH_CLK_SOR_LINKB_INPUT]   = "sor_linkb_input_clk",
+    [TEGRASOC_WHICH_CLK_SOR_LINKC_INPUT]   = "sor_linkc_input_clk",
+    [TEGRASOC_WHICH_CLK_SOR_LINKD_INPUT]   = "sor_linkd_input_clk",
     [TEGRASOC_WHICH_CLK_SOR_LINKA_AFIFO]   = "sor_linka_afifo_clk",
+    [TEGRASOC_WHICH_CLK_SOR_LINKB_AFIFO]   = "sor_linkb_afifo_clk",
+    [TEGRASOC_WHICH_CLK_SOR_LINKC_AFIFO]   = "sor_linkc_afifo_clk",
+    [TEGRASOC_WHICH_CLK_SOR_LINKD_AFIFO]   = "sor_linkd_afifo_clk",
     [TEGRASOC_WHICH_CLK_SOR_LINKA_AFIFO_M] = "sor_linka_afifo_m_clk",
     [TEGRASOC_WHICH_CLK_RG0_M]             = "rg0_m_clk",
     [TEGRASOC_WHICH_CLK_RG1_M]             = "rg1_m_clk",
@@ -87,17 +122,36 @@ static const char *osMapClk[] = {
     [TEGRASOC_WHICH_CLK_PLLHUB]            = "pllhub_clk",
     [TEGRASOC_WHICH_CLK_SOR0]              = "sor0_clk",
     [TEGRASOC_WHICH_CLK_SOR1]              = "sor1_clk",
-    [TEGRASOC_WHICH_CLK_SOR_PAD_INPUT]     = "sor_pad_input_clk",
+    [TEGRASOC_WHICH_CLK_SOR2]              = "sor2_clk",
+    [TEGRASOC_WHICH_CLK_SOR3]              = "sor3_clk",
+    [TEGRASOC_WHICH_CLK_SOR_PADA_INPUT]    = "sor_pad_input_clk",
+    [TEGRASOC_WHICH_CLK_SOR_PADB_INPUT]    = "sor_padb_input_clk",
+    [TEGRASOC_WHICH_CLK_SOR_PADC_INPUT]    = "sor_padc_input_clk",
+    [TEGRASOC_WHICH_CLK_SOR_PADD_INPUT]    = "sor_padd_input_clk",
+    [TEGRASOC_WHICH_CLK_SOR0_PAD]          = "sor0_pad_clk",
+    [TEGRASOC_WHICH_CLK_SOR1_PAD]          = "sor1_pad_clk",
+    [TEGRASOC_WHICH_CLK_SOR2_PAD]          = "sor2_pad_clk",
+    [TEGRASOC_WHICH_CLK_SOR3_PAD]          = "sor3_pad_clk",
     [TEGRASOC_WHICH_CLK_PRE_SF0]           = "pre_sf0_clk",
     [TEGRASOC_WHICH_CLK_SF0]               = "sf0_clk",
     [TEGRASOC_WHICH_CLK_SF1]               = "sf1_clk",
+    [TEGRASOC_WHICH_CLK_SF2]               = "sf2_clk",
+    [TEGRASOC_WHICH_CLK_SF3]               = "sf3_clk",
+    [TEGRASOC_WHICH_CLK_SF4]               = "sf4_clk",
+    [TEGRASOC_WHICH_CLK_SF5]               = "sf5_clk",
+    [TEGRASOC_WHICH_CLK_SF6]               = "sf6_clk",
+    [TEGRASOC_WHICH_CLK_SF7]               = "sf7_clk",
+    [TEGRASOC_WHICH_CLK_DSI_PAD_INPUT]     = "dsi_pad_input_clk",
     [TEGRASOC_WHICH_CLK_PRE_SOR0_REF]      = "pre_sor0_ref_clk",
     [TEGRASOC_WHICH_CLK_PRE_SOR1_REF]      = "pre_sor1_ref_clk",
     [TEGRASOC_WHICH_CLK_SOR0_PLL_REF]      = "sor0_ref_pll_clk",
     [TEGRASOC_WHICH_CLK_SOR1_PLL_REF]      = "sor1_ref_pll_clk",
+    [TEGRASOC_WHICH_CLK_SOR2_PLL_REF]      = "sor2_ref_pll_clk",
+    [TEGRASOC_WHICH_CLK_SOR3_PLL_REF]      = "sor3_ref_pll_clk",
     [TEGRASOC_WHICH_CLK_SOR0_REF]          = "sor0_ref_clk",
     [TEGRASOC_WHICH_CLK_SOR1_REF]          = "sor1_ref_clk",
-    [TEGRASOC_WHICH_CLK_DSI_PAD_INPUT]     = "dsi_pad_input_clk",
+    [TEGRASOC_WHICH_CLK_SOR2_REF]          = "sor2_ref_clk",
+    [TEGRASOC_WHICH_CLK_SOR3_REF]          = "sor3_ref_clk",
     [TEGRASOC_WHICH_CLK_OSC]               = "osc_clk",
     [TEGRASOC_WHICH_CLK_DSC]               = "dsc_clk",
     [TEGRASOC_WHICH_CLK_MAUD]              = "maud_clk",
@@ -111,7 +165,27 @@ static const char *osMapClk[] = {
     [TEGRASOC_WHICH_CLK_PLLA_DISP]         = "plla_disp",
     [TEGRASOC_WHICH_CLK_PLLA_DISPHUB]      = "plla_disphub",
     [TEGRASOC_WHICH_CLK_PLLA]              = "plla",
+    [TEGRASOC_WHICH_CLK_VPLLX_SOR0_MUXED]  = "vpllx_sor0_muxed_clk",
+    [TEGRASOC_WHICH_CLK_VPLLX_SOR1_MUXED]  = "vpllx_sor1_muxed_clk",
+    [TEGRASOC_WHICH_CLK_VPLLX_SOR2_MUXED]  = "vpllx_sor2_muxed_clk",
+    [TEGRASOC_WHICH_CLK_VPLLX_SOR3_MUXED]  = "vpllx_sor3_muxed_clk",
+    [TEGRASOC_WHICH_CLK_SF0_SOR]           = "sf0_sor_clk",
+    [TEGRASOC_WHICH_CLK_SF1_SOR]           = "sf1_sor_clk",
+    [TEGRASOC_WHICH_CLK_SF2_SOR]           = "sf2_sor_clk",
+    [TEGRASOC_WHICH_CLK_SF3_SOR]           = "sf3_sor_clk",
+    [TEGRASOC_WHICH_CLK_SF4_SOR]           = "sf4_sor_clk",
+    [TEGRASOC_WHICH_CLK_SF5_SOR]           = "sf5_sor_clk",
+    [TEGRASOC_WHICH_CLK_SF6_SOR]           = "sf6_sor_clk",
+    [TEGRASOC_WHICH_CLK_SF7_SOR]           = "sf7_sor_clk",
+    [TEGRASOC_WHICH_CLK_EMC]               = "emc_clk",
+    [TEGRASOC_WHICH_CLK_GPU_SYS]           = "sysclk",
+    [TEGRASOC_WHICH_CLK_GPU_NVD]           = "nvdclk",
+    [TEGRASOC_WHICH_CLK_GPU_UPROC]         = "uprocclk",
+    [TEGRASOC_WHICH_CLK_GPU_GPC0]          = "gpc0clk",
+    [TEGRASOC_WHICH_CLK_GPU_GPC1]          = "gpc1clk",
+    [TEGRASOC_WHICH_CLK_GPU_GPC2]          = "gpc2clk",
 };
+#endif
 
 /*!
  * @brief Get the clock handles.
@@ -134,18 +208,19 @@ static const char *osMapClk[] = {
 NV_STATUS NV_API_CALL nv_clk_get_handles(
     nv_state_t *nv)
 {
-    NV_STATUS status      = NV_OK;
-    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
-    NvU32 i, j, clk_count;
+    NV_STATUS status = NV_OK;
 #if defined(NV_DEVM_CLK_BULK_GET_ALL_PRESENT)
+    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
+    NvU32 i, j;
+    int clk_count;
     struct clk_bulk_data *clks;
 
     clk_count = devm_clk_bulk_get_all(nvl->dev, &clks);
 
-    if (clk_count == 0)
+    if (clk_count <= 0)
     {
-        nv_printf(NV_DBG_ERRORS,"NVRM: nv_clk_get_handles, failed to get clk handles from devm_clk_bulk_get_all\n");
-        return NV_ERR_OBJECT_NOT_FOUND;
+        nv_printf(NV_DBG_INFO,"NVRM: No clk handles for the dev\n");
+        status = NV_ERR_OBJECT_NOT_FOUND;
     }
 
     //
@@ -159,10 +234,10 @@ NV_STATUS NV_API_CALL nv_clk_get_handles(
         {
             if (!strcmp(osMapClk[j], clks[i].id))
             {
-                nvl->disp_clk_handles.clk[j].handles = clks[i].clk;
-                nvl->disp_clk_handles.clk[j].clkName = __clk_get_name(clks[i].clk);
+                nvl->soc_clk_handles.clk[j].handles = clks[i].clk;
+                nvl->soc_clk_handles.clk[j].clkName = __clk_get_name(clks[i].clk);
                 break;
-            }   
+            }
         }
         if (j == TEGRASOC_WHICH_CLK_MAX)
         {
@@ -171,48 +246,11 @@ NV_STATUS NV_API_CALL nv_clk_get_handles(
         }
     }
 #else
-    nv_printf(NV_DBG_ERRORS, "NVRM: devm_clk_bulk_get_all API is not present\n");
-    status = NV_ERR_OBJECT_NOT_FOUND;
+    nv_printf(NV_DBG_INFO, "NVRM: devm_clk_bulk_get_all API is not present\n");
+    status = NV_ERR_FEATURE_NOT_ENABLED;
 #endif
 
     return status;
-}
-
-/*!
- * @brief Clear the clock handles assigned by nv_clk_get_handles()
- *
- * Clear the clock handle for each display of the clocks at shutdown-time.
- * Since clock handles are obtained by devm managed devm_clk_bulk_get_all()
- * API, devm_clk_bulk_release_all() API is called on all the enumerated
- * clk handles automatically when module gets unloaded. Hence, no need
- * to explicitly free those handles.
- *
- * For more details on CCF functions, please check below file:
- *
- * In the Linux kernel: include/linux/clk.h
- * or
- * https://www.kernel.org/doc/htmldocs/kernel-api/
- *
- * @param[in]  nv      Per gpu linux state
- */
-void NV_API_CALL nv_clk_clear_handles(
-    nv_state_t *nv)
-{
-    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
-    NvU32 i;
-
-    //
-    // TEGRASOC_WHICH_CLK_MAX is maximum clock defined in below enum
-    // arch/nvalloc/unix/include/nv.h
-    // enum TEGRASOC_WHICH_CLK
-    //
-    for (i = 0U; i < TEGRASOC_WHICH_CLK_MAX; i++)
-    {
-        if (nvl->disp_clk_handles.clk[i].handles != NULL)
-        {
-            nvl->disp_clk_handles.clk[i].handles = NULL;
-        }
-    }
 }
 
 /*!
@@ -237,12 +275,12 @@ NV_STATUS NV_API_CALL nv_enable_clk(
     nv_state_t *nv, TEGRASOC_WHICH_CLK whichClkOS)
 {
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
-    NV_STATUS status      = NV_ERR_GENERIC;
+    NV_STATUS status;
     int ret;
 
-    if (nvl->disp_clk_handles.clk[whichClkOS].handles != NULL)
+    if (nvl->soc_clk_handles.clk[whichClkOS].handles != NULL)
     {
-        ret = clk_prepare_enable(nvl->disp_clk_handles.clk[whichClkOS].handles);
+        ret = clk_prepare_enable(nvl->soc_clk_handles.clk[whichClkOS].handles);
 
         if (ret == 0)
         {
@@ -260,39 +298,6 @@ NV_STATUS NV_API_CALL nv_enable_clk(
     }
 
     return status;
-}
-
-/*!
- * @brief Check if clock is enable or not.
- *
- * Checking the clock status if it is enabled or not before
- * enabling or disabling it.
- *
- * for more details on CCF functions, please check below file:
- *
- * In the Linux kernel: include/linux/clk.h
- * or
- * https://www.kernel.org/doc/htmldocs/kernel-api/
- *
- * @param[in] nv          Per gpu linux state
- * @param[in] whichClkOS  Enum value of the target clock
- *
- * @returns clock status.
- */
-NvBool NV_API_CALL nv_is_clk_enabled(
-    nv_state_t *nv, TEGRASOC_WHICH_CLK whichClkOS)
-{
-    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
-    bool ret;
-
-    if (nvl->disp_clk_handles.clk[whichClkOS].handles == NULL)
-    {
-        nv_printf(NV_DBG_ERRORS, "NVRM: clock handle requested not found.\n");
-        return NV_FALSE;
-    }
-
-    ret = __clk_is_enabled(nvl->disp_clk_handles.clk[whichClkOS].handles);
-    return ret == true;
 }
 
 /*!
@@ -319,7 +324,7 @@ void NV_API_CALL nv_disable_clk(
 {
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
 
-    clk_disable_unprepare(nvl->disp_clk_handles.clk[whichClkOS].handles);
+    clk_disable_unprepare(nvl->soc_clk_handles.clk[whichClkOS].handles);
 }
 
 /*!
@@ -342,12 +347,12 @@ NV_STATUS NV_API_CALL nv_get_curr_freq(
     nv_state_t *nv, TEGRASOC_WHICH_CLK whichClkOS, NvU32 *pCurrFreqKHz)
 {
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
-    NV_STATUS status      = NV_ERR_GENERIC;
+    NV_STATUS status;
     unsigned long currFreqHz;
 
-    if (nvl->disp_clk_handles.clk[whichClkOS].handles != NULL)
+    if (nvl->soc_clk_handles.clk[whichClkOS].handles != NULL)
     {
-        currFreqHz = clk_get_rate(nvl->disp_clk_handles.clk[whichClkOS].handles);
+        currFreqHz = clk_get_rate(nvl->soc_clk_handles.clk[whichClkOS].handles);
         *pCurrFreqKHz = currFreqHz / 1000U;
 
         if (*pCurrFreqKHz > 0U)
@@ -387,10 +392,10 @@ NV_STATUS NV_API_CALL nv_get_max_freq(
     nv_state_t *nv, TEGRASOC_WHICH_CLK whichClkOS, NvU32 *pMaxFreqKHz)
 {
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
-    NV_STATUS status      = NV_ERR_GENERIC;
+    NV_STATUS status;
     long ret;
 
-    if (nvl->disp_clk_handles.clk[whichClkOS].handles != NULL)
+    if (nvl->soc_clk_handles.clk[whichClkOS].handles != NULL)
     {
         //
         // clk_round_rate(struct clk *clk, rate);
@@ -404,7 +409,7 @@ NV_STATUS NV_API_CALL nv_get_max_freq(
         // nearest freq what a clock can provide.
         // sending NV_S64_MAX will return maxFreq.
         //
-        ret = clk_round_rate(nvl->disp_clk_handles.clk[whichClkOS].handles, NV_U32_MAX);
+        ret = clk_round_rate(nvl->soc_clk_handles.clk[whichClkOS].handles, NV_U32_MAX);
 
         if (ret >= 0)
         {
@@ -445,10 +450,10 @@ NV_STATUS NV_API_CALL nv_get_min_freq(
     nv_state_t *nv, TEGRASOC_WHICH_CLK whichClkOS, NvU32 *pMinFreqKHz)
 {
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
-    NV_STATUS status      = NV_ERR_GENERIC;
+    NV_STATUS status;
     long ret;
 
-    if (nvl->disp_clk_handles.clk[whichClkOS].handles != NULL)
+    if (nvl->soc_clk_handles.clk[whichClkOS].handles != NULL)
     {
         //
         // clk_round_rate(struct clk *clk, rate);
@@ -462,7 +467,7 @@ NV_STATUS NV_API_CALL nv_get_min_freq(
         // nearest freq what a clock can provide.
         // sending 0 will return minFreq.
         //
-        ret = clk_round_rate(nvl->disp_clk_handles.clk[whichClkOS].handles, 0);
+        ret = clk_round_rate(nvl->soc_clk_handles.clk[whichClkOS].handles, 0);
 
         if (ret >= 0)
         {
@@ -504,12 +509,12 @@ NV_STATUS NV_API_CALL nv_set_freq(
     nv_state_t *nv, TEGRASOC_WHICH_CLK whichClkOS, NvU32 reqFreqKHz)
 {
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
-    NV_STATUS status      = NV_ERR_GENERIC;
+    NV_STATUS status;
     int ret;
 
-    if (nvl->disp_clk_handles.clk[whichClkOS].handles != NULL)
+    if (nvl->soc_clk_handles.clk[whichClkOS].handles != NULL)
     {
-        ret = clk_set_rate(nvl->disp_clk_handles.clk[whichClkOS].handles,
+        ret = clk_set_rate(nvl->soc_clk_handles.clk[whichClkOS].handles,
                            reqFreqKHz * 1000U);
         if (ret == 0)
         {
@@ -528,7 +533,112 @@ NV_STATUS NV_API_CALL nv_set_freq(
 
     return status;
 }
+#else
+NV_STATUS NV_API_CALL nv_clk_get_handles
+(
+    nv_state_t *nv
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
 
+NV_STATUS NV_API_CALL nv_enable_clk
+(
+    nv_state_t *nv,
+    TEGRASOC_WHICH_CLK whichClkOS
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+void NV_API_CALL nv_disable_clk
+(
+    nv_state_t *nv,
+    TEGRASOC_WHICH_CLK whichClkOS
+)
+{
+    return;
+}
+
+NV_STATUS NV_API_CALL nv_get_curr_freq
+(
+    nv_state_t *nv,
+    TEGRASOC_WHICH_CLK whichClkOS,
+    NvU32 *pCurrFreqKHz
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS NV_API_CALL nv_get_max_freq
+(
+    nv_state_t *nv,
+    TEGRASOC_WHICH_CLK whichClkOS,
+    NvU32 *pMaxFreqKHz
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS NV_API_CALL nv_get_min_freq
+(
+    nv_state_t *nv,
+    TEGRASOC_WHICH_CLK whichClkOS,
+    NvU32 *pMinFreqKHz
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS NV_API_CALL nv_set_freq
+(
+    nv_state_t *nv,
+    TEGRASOC_WHICH_CLK whichClkOS,
+    NvU32 freqKHz
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+#endif
+
+/*!
+ * @brief Clear the clock handles assigned by nv_clk_get_handles()
+ *
+ * Clear the clock handle for each display of the clocks at shutdown-time.
+ * Since clock handles are obtained by devm managed devm_clk_bulk_get_all()
+ * API, devm_clk_bulk_release_all() API is called on all the enumerated
+ * clk handles automatically when module gets unloaded. Hence, no need
+ * to explicitly free those handles.
+ *
+ * For more details on CCF functions, please check below file:
+ *
+ * In the Linux kernel: include/linux/clk.h
+ * or
+ * https://www.kernel.org/doc/htmldocs/kernel-api/
+ *
+ * @param[in]  nv      Per gpu linux state
+ */
+void NV_API_CALL nv_clk_clear_handles(
+    nv_state_t *nv)
+{
+    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
+    NvU32 i;
+
+    //
+    // TEGRASOC_WHICH_CLK_MAX is maximum clock defined in below enum
+    // arch/nvalloc/unix/include/nv.h
+    // enum TEGRASOC_WHICH_CLK
+    //
+    for (i = 0U; i < TEGRASOC_WHICH_CLK_MAX; i++)
+    {
+        if (nvl->soc_clk_handles.clk[i].handles != NULL)
+        {
+            nvl->soc_clk_handles.clk[i].handles = NULL;
+        }
+    }
+}
+
+#if NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
 /*!
  * @brief set parent clock.
  *
@@ -554,14 +664,14 @@ NV_STATUS NV_API_CALL nv_set_parent
 )
 {
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
-    NV_STATUS status      = NV_ERR_GENERIC;
+    NV_STATUS status;
     int ret;
 
-    if ((nvl->disp_clk_handles.clk[whichClkOSsource].handles != NULL) &&
-        (nvl->disp_clk_handles.clk[whichClkOSparent].handles != NULL))
+    if ((nvl->soc_clk_handles.clk[whichClkOSsource].handles != NULL) &&
+        (nvl->soc_clk_handles.clk[whichClkOSparent].handles != NULL))
     {
-        ret = clk_set_parent(nvl->disp_clk_handles.clk[whichClkOSsource].handles,
-                             nvl->disp_clk_handles.clk[whichClkOSparent].handles);
+        ret = clk_set_parent(nvl->soc_clk_handles.clk[whichClkOSsource].handles,
+                             nvl->soc_clk_handles.clk[whichClkOSparent].handles);
         if (ret == 0)
         {
             status = NV_OK;
@@ -605,14 +715,13 @@ NV_STATUS NV_API_CALL nv_get_parent
 )
 {
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
-    NV_STATUS status;
-    struct clk *ret;;
+    struct clk *ret;
     NvU32 i;
 
-    if (nvl->disp_clk_handles.clk[whichClkOSsource].handles != NULL)
+    if (nvl->soc_clk_handles.clk[whichClkOSsource].handles != NULL)
     {
-        ret = clk_get_parent(nvl->disp_clk_handles.clk[whichClkOSsource].handles);
-        if (!IS_ERR(ret))
+        ret = clk_get_parent(nvl->soc_clk_handles.clk[whichClkOSsource].handles);
+        if (!IS_ERR_OR_NULL(ret))
         {
             const char *parentClkName = __clk_get_name(ret);
             //
@@ -622,7 +731,16 @@ NV_STATUS NV_API_CALL nv_get_parent
             //
             for (i = 0U; i < TEGRASOC_WHICH_CLK_MAX; i++)
             {
-                if (!strcmp(nvl->disp_clk_handles.clk[i].clkName, parentClkName))
+                //
+                // soc_clk_handles has array of clks supported on all chips.
+                // So depending on the chip, some clks may not be present.
+                //
+                if (nvl->soc_clk_handles.clk[i].clkName == NULL)
+                {
+                    continue;
+                }
+
+                if (!strcmp(nvl->soc_clk_handles.clk[i].clkName, parentClkName))
                 {
                     *pWhichClkOSparent = i;
                     return NV_OK;
@@ -642,6 +760,39 @@ NV_STATUS NV_API_CALL nv_get_parent
     return NV_ERR_OBJECT_NOT_FOUND;
 }
 
+/*!
+ * @brief Check if clock is enable or not.
+ *
+ * Checking the clock status if it is enabled or not before
+ * enabling or disabling it.
+ *
+ * for more details on CCF functions, please check below file:
+ *
+ * In the Linux kernel: include/linux/clk.h
+ * or
+ * https://www.kernel.org/doc/htmldocs/kernel-api/
+ *
+ * @param[in] nv          Per gpu linux state
+ * @param[in] whichClkOS  Enum value of the target clock
+ *
+ * @returns clock status.
+ */
+NvBool NV_API_CALL nv_is_clk_enabled(
+    nv_state_t *nv, TEGRASOC_WHICH_CLK whichClkOS)
+{
+    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
+    bool ret = false;
+
+    if (nvl->soc_clk_handles.clk[whichClkOS].handles == NULL)
+    {
+        nv_printf(NV_DBG_ERRORS, "NVRM: clock handle requested not found.\n");
+        return NV_FALSE;
+    }
+
+    ret = __clk_is_enabled(nvl->soc_clk_handles.clk[whichClkOS].handles);
+    return ret == true;
+}
+
 NV_STATUS NV_API_CALL nv_dp_uphy_pll_init
 (
     nv_state_t *nv,
@@ -649,7 +800,7 @@ NV_STATUS NV_API_CALL nv_dp_uphy_pll_init
     NvU32 lanes_bitmap
 )
 {
-#if defined(NV_SOC_TEGRA_BPMP_ABI_H_PRESENT) && defined(NV_CMD_UPHY_DISPLAY_PORT_INIT_PRESENT)
+#if defined(NV_CMD_UPHY_DISPLAY_PORT_INIT_PRESENT)
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     struct tegra_bpmp *bpmp;
     struct tegra_bpmp_message msg;
@@ -695,7 +846,7 @@ NV_STATUS NV_API_CALL nv_dp_uphy_pll_init
 
 NV_STATUS NV_API_CALL nv_dp_uphy_pll_deinit(nv_state_t *nv)
 {
-#if defined(NV_SOC_TEGRA_BPMP_ABI_H_PRESENT) && defined(NV_CMD_UPHY_DISPLAY_PORT_OFF_PRESENT)
+#if defined(NV_CMD_UPHY_DISPLAY_PORT_OFF_PRESENT)
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     struct tegra_bpmp *bpmp;
     struct tegra_bpmp_message msg;
@@ -736,3 +887,46 @@ NV_STATUS NV_API_CALL nv_dp_uphy_pll_deinit(nv_state_t *nv)
     return NV_ERR_NOT_SUPPORTED;
 #endif
 }
+#else
+NV_STATUS NV_API_CALL nv_set_parent
+(
+    nv_state_t *nv,
+    TEGRASOC_WHICH_CLK whichClkOSsource,
+    TEGRASOC_WHICH_CLK whichClkOSparent
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+
+NvBool NV_API_CALL nv_is_clk_enabled(
+    nv_state_t *nv, TEGRASOC_WHICH_CLK whichClkOS)
+{
+    return NV_FALSE;
+}
+
+NV_STATUS NV_API_CALL nv_dp_uphy_pll_deinit(nv_state_t *nv)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS NV_API_CALL nv_get_parent
+(
+    nv_state_t          *nv,
+    TEGRASOC_WHICH_CLK  whichClkOSsource,
+    TEGRASOC_WHICH_CLK  *pWhichClkOSparent
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS NV_API_CALL nv_dp_uphy_pll_init
+(
+    nv_state_t *nv,
+    NvU32 link_rate,
+    NvU32 lanes_bitmap
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+#endif

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -26,7 +26,6 @@
 #include "vgpu/rpc.h"
 #include "rmapi/client.h"
 #include "gpu/mem_mgr/mem_mgr.h"
-#include "gpu/device/device.h"
 #include "virtualization/hypervisor/hypervisor.h"
 #include "resserv/rs_server.h"
 #include "rmapi/rs_utils.h"
@@ -34,15 +33,14 @@
 NV_STATUS stdmemValidateParams
 (
     OBJGPU                      *pGpu,
-    NvHandle                     hClient,
+    RmClient                    *pRmClient,
     NV_MEMORY_ALLOCATION_PARAMS *pAllocData
 )
 {
-    NvBool         bIso;
     RS_PRIV_LEVEL  privLevel;
     CALL_CONTEXT  *pCallContext = resservGetTlsCallContext();
 
-    NV_ASSERT_OR_RETURN(RMCFG_FEATURE_KERNEL_RM, NV_ERR_NOT_SUPPORTED);
+    NV_ASSERT_OR_RETURN(RMCFG_FEATURE_KERNEL_RM || RMCFG_FEATURE_PLATFORM_GSP, NV_ERR_NOT_SUPPORTED);
 
     NV_ASSERT_OR_RETURN(pCallContext != NULL, NV_ERR_INVALID_STATE);
     privLevel = pCallContext->secInfo.privLevel;
@@ -57,7 +55,7 @@ NV_STATUS stdmemValidateParams
         return NV_ERR_INVALID_ARGUMENT;
     }
 
-    //
+   //
     // These flags don't do anything in this path. No mapping on alloc and
     // kernel map is controlled by TYPE
     //
@@ -66,39 +64,17 @@ NV_STATUS stdmemValidateParams
 
     pAllocData->address = NvP64_NULL;
 
-    bIso = (pAllocData->type == NVOS32_TYPE_PRIMARY) ||
-           (pAllocData->type == NVOS32_TYPE_VIDEO) ||
-           (pAllocData->type == NVOS32_TYPE_CURSOR);
-
-    //
-    // MM-TODO: If surface requires ISO guarantees, ensure it's of the proper
-    // NVOS32_TYPE. Eventually, we should decouple NVOS32_TYPE from conveying
-    // ISO behavior; RM needs to audit NVOS32_TYPE uses wrt ISO determination.
-    //
-    if (!bIso && FLD_TEST_DRF(OS32, _ATTR2, _ISO, _YES, pAllocData->attr2))
-    {
-        NV_PRINTF(LEVEL_INFO, "type is non-ISO but attributes request ISO!\n");
-        return NV_ERR_INVALID_ARGUMENT;
-    }
-
     //
     // check PAGE_OFFLINING flag for client
     // If the client is not a ROOT client, then turning PAGE_OFFLINIG OFF is invalid
     //
     if (FLD_TEST_DRF(OS32, _ATTR2, _PAGE_OFFLINING, _OFF, pAllocData->attr2))
     {
-        if (hypervisorIsVgxHyper())
-        {
-            if (!(rmclientIsAdminByHandle(hClient, privLevel) || hypervisorCheckForObjectAccess(hClient)))
-            {
-                return NV_ERR_INSUFFICIENT_PERMISSIONS;
-            }
-        }
-        else
+        if (!hypervisorIsVgxHyper())
         {
             // if the client requesting is not kernel mode, return early
 #if defined(DEBUG) || defined(DEVELOP) || defined(NV_VERIF_FEATURES)
-            if (!rmclientIsAdminByHandle(hClient, privLevel))
+            if (!rmclientIsAdmin(pRmClient, privLevel))
 #else
             if (privLevel < RS_PRIV_LEVEL_KERNEL)
 #endif
@@ -109,11 +85,13 @@ NV_STATUS stdmemValidateParams
     }
 
     //
-    // If NVOS32_TYPE indicates ISO requirements, set
-    // NVOS32_ATTR2_NISO_DISPLAY_YES so it can be used within RM instead of
-    // NVOS32_TYPE for ISO determination.
+    // Check if type implies ISO requirement and set _ISO attribute.
+    // MM-TODO: Eventually, we should decouple NVOS32_TYPE from conveying
+    // ISO behavior (Bug 1896562).
     //
-    if (bIso)
+    if ((pAllocData->type == NVOS32_TYPE_PRIMARY) ||
+        (pAllocData->type == NVOS32_TYPE_VIDEO) ||
+        (pAllocData->type == NVOS32_TYPE_CURSOR))
     {
         pAllocData->attr2 = FLD_SET_DRF(OS32, _ATTR2, _ISO, _YES,
                                         pAllocData->attr2);
@@ -141,6 +119,18 @@ NV_STATUS stdmemValidateParams
         NV_CHECK_OR_RETURN(LEVEL_ERROR, FLD_TEST_DRF(OS32, _ATTR, _LOCATION, _VIDMEM, pAllocData->attr),
                            NV_ERR_INVALID_ARGUMENT);
         return NV_ERR_INVALID_ARGUMENT;
+    }
+
+    //
+    // When a sparsified VA range is requested by the client, RM constructs
+    // the page tables during the VirtMem construct call causing the lazy
+    // flag to skip memory reservation. This can cause RM to OOM if the 
+    // memPool reserved memory is exhausted.
+    //
+    if ((pAllocData->flags & NVOS32_ALLOC_FLAGS_SPARSE) && 
+        (pAllocData->flags & NVOS32_ALLOC_FLAGS_VIRTUAL))
+    {
+        pAllocData->flags = pAllocData->flags &~ NVOS32_ALLOC_FLAGS_LAZY;
     }
 
     return NV_OK;
@@ -238,10 +228,6 @@ stdmemQueryPageSize
     return memmgrDeterminePageSize(pMemoryManager, hClient, pAllocData->size,
                                    pAllocData->format, pAllocData->flags, &retAttr, &retAttr2);
 }
-
-//
-// Control calls for system memory objects maintained outside the heap.
-//
 
 NvU64 stdmemGetSysmemPageSize_IMPL(OBJGPU * pGpu, StandardMemory *pStdMemory)
 {

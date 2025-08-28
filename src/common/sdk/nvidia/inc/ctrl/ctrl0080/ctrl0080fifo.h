@@ -91,54 +91,7 @@ typedef struct NV0080_CTRL_FIFO_GET_CAPS_PARAMS {
 #define NV0080_CTRL_FIFO_CAPS_SUPPORT_WDDM_INTERLEAVING              1:0x40
 
 /* size in bytes of fifo caps table */
-#define NV0080_CTRL_FIFO_CAPS_TBL_SIZE 2
-
-/*
- * NV0080_CTRL_CMD_FIFO_START_SELECTED_CHANNELS
- *
- * This command allows the caller to request that a set of channels
- * be added to the runlist.
- *
- *   fifoStartChannelListSize
- *     Size of the fifoStartChannelList.  The units are in entries, not
- *     bytes.
- *   fifoStartChannelList
- *     This will be a list of NV0080_CTRL_FIFO_CHANNEL data structures, 
- *     one for each channel that is to be started.
- *   channelHandle
- *     deprecated
- *
- * Possible status values returned are:
- *   NV_OK
- *   NV_ERR_INVALID_PARAM_STRUCT
- *   NV_ERR_INVALID_ARGUMENT
- */
-
-/*
- *   hChannel
- *     This is the handle to the channel that is scheduled to be started.
- */
-typedef struct NV0080_CTRL_FIFO_CHANNEL {
-    NvHandle hChannel;
-} NV0080_CTRL_FIFO_CHANNEL;
-
-#define NV0080_CTRL_CMD_FIFO_START_SELECTED_CHANNELS (0x801705) /* finn: Evaluated from "(FINN_NV01_DEVICE_0_FIFO_INTERFACE_ID << 8) | NV0080_CTRL_FIFO_START_SELECTED_CHANNELS_PARAMS_MESSAGE_ID" */
-
-#define NV0080_CTRL_FIFO_START_SELECTED_CHANNELS_PARAMS_MESSAGE_ID (0x5U)
-
-typedef struct NV0080_CTRL_FIFO_START_SELECTED_CHANNELS_PARAMS {
-    NvU32    fifoStartChannelListCount;
-    NvHandle channelHandle[8];
-    NV_DECLARE_ALIGNED(NvP64 fifoStartChannelList, 8);
-} NV0080_CTRL_FIFO_START_SELECTED_CHANNELS_PARAMS;
-
-#define NV0080_CTRL_FIFO_ENGINE_ID_GRAPHICS                                               (0x00000000)
-#define NV0080_CTRL_FIFO_ENGINE_ID_MPEG                                                   (0x00000001)
-#define NV0080_CTRL_FIFO_ENGINE_ID_MOTION_ESTIMATION                                      (0x00000002)
-#define NV0080_CTRL_FIFO_ENGINE_ID_VIDEO                                                  (0x00000003)
-#define NV0080_CTRL_FIFO_ENGINE_ID_BITSTREAM                                              (0x00000004)
-#define NV0080_CTRL_FIFO_ENGINE_ID_ENCRYPTION                                             (0x00000005)
-#define NV0080_CTRL_FIFO_ENGINE_ID_FGT                                                    (0x00000006)
+#define NV0080_CTRL_FIFO_CAPS_TBL_SIZE                                                    2
 
 /*
  * NV0080_CTRL_CMD_FIFO_GET_ENGINE_CONTEXT_PROPERTIES
@@ -190,7 +143,8 @@ typedef struct NV0080_CTRL_FIFO_START_SELECTED_CHANNELS_PARAMS {
 #define NV0080_CTRL_FIFO_GET_ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_GRAPHICS_GFXP_CTRL_BLK   (0x00000016)
 #define NV0080_CTRL_FIFO_GET_ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_GRAPHICS_FECS_EVENT      (0x00000017)
 #define NV0080_CTRL_FIFO_GET_ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_GRAPHICS_PRIV_ACCESS_MAP (0x00000018)
-#define NV0080_CTRL_FIFO_GET_ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT                    (0x00000019)
+#define NV0080_CTRL_FIFO_GET_ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_GRAPHICS_SETUP           (0x00000019)
+#define NV0080_CTRL_FIFO_GET_ENGINE_CONTEXT_PROPERTIES_ENGINE_ID_COUNT                    (0x0000001a)
 #define NV0080_CTRL_FIFO_GET_ENGINE_CONTEXT_PROPERTIES_PARAMS_MESSAGE_ID (0x7U)
 
 typedef struct NV0080_CTRL_FIFO_GET_ENGINE_CONTEXT_PROPERTIES_PARAMS {
@@ -198,114 +152,6 @@ typedef struct NV0080_CTRL_FIFO_GET_ENGINE_CONTEXT_PROPERTIES_PARAMS {
     NvU32 alignment;
     NvU32 size;
 } NV0080_CTRL_FIFO_GET_ENGINE_CONTEXT_PROPERTIES_PARAMS;
-
-/*
- * NV0080_CTRL_CMD_FIFO_RUNLIST_GROUP_CHANNELS      <Deprecated since Fermi+>
- *
- * This command allows the caller to group two sets of channels.  A channel 
- * set includes one or more channels.  After grouping, the grouped channel IDs 
- * are set to next to each other in the runlist.  This command can be used 
- * several times to group more than two channels. 
- *
- * Using a NV0080_CTRL_CMD_FIFO_RUNLIST_DIVIDE_TIMESLICE after 
- * NV0080_CTRL_CMD_FIFO_RUNLIST_GROUP_CHANNELS is the general usage.  A 
- * NV0080_CTRL_CMD_FIFO_RUNLIST_GROUP_CHANNELS after a 
- * NV0080_CTRL_CMD_FIFO_RUNLIST_DIVIDE_TIMESLICE for a channel handle is not 
- * allowed.
- *
- * NV0080_CTRL_FIFO_RUNLIST_GROUP_MAX_CHANNELS defines the max channels in a 
- * group.
- *
- *   hChannel1
- *     This parameter specifies the handle of the channel that belongs to the 
- *     base set of channels.
- *   hChannel2
- *     This parameter specifies the handle of the channel that belongs to the 
- *     additional set of channels.
-
- * Possible status values returned are:
- *   NV_OK
- *   NV_ERR_NOT_SUPPORTED
- *   NV_ERR_INVALID_DEVICE
- *   NV_ERR_INVALID_CHANNEL
- *   NV_ERR_INVALID_ARGUMENT
- */
-
-#define NV0080_CTRL_CMD_FIFO_RUNLIST_GROUP_CHANNELS (0x801709) /* finn: Evaluated from "(FINN_NV01_DEVICE_0_FIFO_INTERFACE_ID << 8) | 0x9" */
-
-typedef struct NV0080_CTRL_FIFO_RUNLIST_GROUP_CHANNELS_PARAM {
-    NvHandle hChannel1;
-    NvHandle hChannel2;
-} NV0080_CTRL_FIFO_RUNLIST_GROUP_CHANNELS_PARAM;
-
-#define NV0080_CTRL_FIFO_RUNLIST_GROUP_MAX_CHANNELS   (8)
-
-/*
- * NV0080_CTRL_CMD_FIFO_RUNLIST_DIVIDE_TIMESLICE        <Deprecated since Fermi+>
- *
- * This command allows the caller to divide the timeslice (DMA_TIMESLICE) of a 
- * channel between the channels in the group in which the channel resides.  
- * After applying this command, a timeslice divided channel (group) has a
- * short timeslice and repeats more than once in the runlist.  The total
- * available execution time is not changed.
- *
- * Using this command after NV0080_CTRL_CMD_FIFO_RUNLIST_GROUP_CHANNELS is the 
- * general usage.  A NV0080_CTRL_CMD_FIFO_RUNLIST_GROUP_CHANNELS after a 
- * NV0080_CTRL_CMD_FIFO_RUNLIST_DIVIDE_TIMESLICE for a channel handle is not 
- * allowed.
- *
- *   hChannel
- *     This parameter specifies the handle of the channel for the channel
- *     group to which the divided timeslice operation will apply.
- *   tsDivisor
- *     This parameter specifies the timeslice divisor value.  This value
- *     should not exceed NV0080_CTRL_FIFO_RUNLIST_MAX_TIMESLICE_DIVISOR
- *
- * Possible status values returned are:
- *   NV_OK
- *   NV_ERR_NOT_SUPPORTED
- *   NV_ERR_INVALID_DEVICE
- *   NV_ERR_INVALID_CHANNEL
- *   NV_ERR_INVALID_ARGUMENT
- *   NV_ERR_INSUFFICIENT_RESOURCES
- */
-#define NV0080_CTRL_CMD_FIFO_RUNLIST_DIVIDE_TIMESLICE (0x80170b) /* finn: Evaluated from "(FINN_NV01_DEVICE_0_FIFO_INTERFACE_ID << 8) | 0xB" */
-
-typedef struct NV0080_CTRL_FIFO_RUNLIST_DIVIDE_TIMESLICE_PARAM {
-    NvHandle hChannel;
-    NvU32    tsDivisor;
-} NV0080_CTRL_FIFO_RUNLIST_DIVIDE_TIMESLICE_PARAM;
-
-#define NV0080_CTRL_FIFO_RUNLIST_MAX_TIMESLICE_DIVISOR (12)
-
-/*
- * NV0080_CTRL_CMD_FIFO_PREEMPT_RUNLIST                 <Deprecated since Fermi+>
- *
- * This command preepmts the engine represented by the specified runlist.
- * 
- *   hRunlist
- *     This parameter specifies the per engine runlist handle. This
- *     parameter is being retained to maintain backwards compatibility
- *     with clients that have not transitioned over to using runlists
- *     on a per subdevice basis.
- *
- *   engineID
- *     This parameter specifies the engine to be preempted. Engine defines
- *     can be found in cl2080.h. 
- *
- * Possible status values returned are:
- *   NV_OK
- *   NV_ERR_INVALID_PARAM_STRUCT
- *   NV_ERR_INVALID_OBJECT_HANDLE
- *   NV_ERR_INVALID_ARGUMENT
- */
-#define NV0080_CTRL_CMD_FIFO_PREEMPT_RUNLIST           (0x80170c) /* finn: Evaluated from "(FINN_NV01_DEVICE_0_FIFO_INTERFACE_ID << 8) | 0xC" */
-
-typedef struct NV0080_CTRL_FIFO_PREEMPT_RUNLIST_PARAMS {
-    NvHandle hRunlist;
-    NvU32    engineID;
-} NV0080_CTRL_FIFO_PREEMPT_RUNLIST_PARAMS;
-
 
 /*
  * NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST

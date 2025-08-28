@@ -137,7 +137,7 @@ typedef struct
                                             newArbBwValues.minRequiredIsoBandwidthKBPS,
                                             newArbBwValues.minRequiredFloorBandwidthKBPS);
         NV_PRINTF(LEVEL_INFO, "Allocation request returns:  %s (0x%08X)\n",
-                  nvAssertStatusToString(status), status);
+                  nvstatusToString(status), status);
         if (status == NV_OK)
         {
             oldArbBwValues = newArbBwValues;

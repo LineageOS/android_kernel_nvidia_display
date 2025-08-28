@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -31,10 +31,24 @@
 #include "gpu/gpu.h"
 #include "gpu/eng_desc.h"
 #include "gpu/gpu_child_class_defs.h"
-#include "g_allclasses.h"
-#include <nv_arch.h>
+#include <published/nv_arch.h>
 
 #include "swref/published/t23x/t234/dev_fuse.h"
+
+#include "class/cl0080.h"
+#include "class/cl2080.h"
+
+#include "ctrl/ctrl0080/ctrl0080dma.h"
+#include "ctrl/ctrl0080/ctrl0080fb.h"
+#include "ctrl/ctrl0080/ctrl0080gpu.h"
+#include "ctrl/ctrl0080/ctrl0080unix.h"
+
+#include "ctrl/ctrl2080/ctrl2080bus.h"
+#include "ctrl/ctrl2080/ctrl2080event.h"
+#include "ctrl/ctrl2080/ctrl2080fb.h"
+#include "ctrl/ctrl2080/ctrl2080gpu.h"
+#include "ctrl/ctrl2080/ctrl2080internal.h"
+#include "ctrl/ctrl2080/ctrl2080unix.h"
 
 /*!
  * @brief fill in the GPU ID information
@@ -88,6 +102,106 @@ const GPUCHILDPRESENT *
 gpuGetChildrenPresent_T234D(OBJGPU *pGpu, NvU32 *pNumEntries)
 {
     *pNumEntries = NV_ARRAY_ELEMENTS(gpuChildrenPresent_T234D);
-     return gpuChildrenPresent_T234D;
+    return gpuChildrenPresent_T234D;
 }
 
+// list of valid NV01_DEVICE (0x0080) rmctrl commands for SOC Display GPUs
+static const NvU32
+gpuDeviceRmctrlAllowlist_T234D[] =
+{
+    NV0080_CTRL_CMD_GPU_GET_CLASSLIST,
+    NV0080_CTRL_CMD_GPU_GET_NUM_SUBDEVICES,
+    NV0080_CTRL_CMD_GPU_GET_CLASSLIST_V2,
+    NV0080_CTRL_CMD_FB_GET_CAPS_V2,
+    NV0080_CTRL_CMD_DMA_GET_CAPS,
+    NV0080_CTRL_CMD_OS_UNIX_VT_SWITCH,
+    NV0080_CTRL_CMD_OS_UNIX_VT_GET_FB_INFO,
+};
+
+// list of valid NV20_SUBDEVICE (0x2080) rmctrl commands for SOC Display GPUs
+static const NvU32
+gpuSubdeviceRmctrlAllowlist_T234D[] =
+{
+    NV2080_CTRL_CMD_GPU_GET_NAME_STRING,
+    NV2080_CTRL_CMD_GPU_GET_SHORT_NAME_STRING,
+    NV2080_CTRL_CMD_GPU_GET_SIMULATION_INFO,
+    NV2080_CTRL_CMD_GPU_GET_ID,
+    NV2080_CTRL_CMD_GPU_GET_GID_INFO,
+    NV2080_CTRL_CMD_GPU_GET_ENGINES_V2,
+    NV2080_CTRL_CMD_GPU_GET_CONSTRUCTED_FALCON_INFO,
+    NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
+    NV2080_CTRL_CMD_INTERNAL_DISPLAY_GET_STATIC_INFO,
+    NV2080_CTRL_CMD_INTERNAL_GPU_GET_CHIP_INFO,
+    NV2080_CTRL_CMD_INTERNAL_DISPLAY_GET_IP_VERSION,
+    NV2080_CTRL_CMD_INTERNAL_DISPLAY_WRITE_INST_MEM,
+    NV2080_CTRL_CMD_INTERNAL_DISPLAY_SET_IMP_INIT_INFO,
+    NV2080_CTRL_CMD_INTERNAL_DISPLAY_CHANNEL_PUSHBUFFER,
+    NV2080_CTRL_INTERNAL_GPU_CLIENT_LOW_POWER_MODE_ENTER,
+    NV2080_CTRL_CMD_BUS_GET_INFO_V2,
+    NV2080_CTRL_CMD_OS_UNIX_GC6_BLOCKER_REFCNT,
+    NV2080_CTRL_CMD_OS_UNIX_ALLOW_DISALLOW_GCOFF,
+    NV2080_CTRL_CMD_OS_UNIX_AUDIO_DYNAMIC_POWER,
+};
+
+static NV_STATUS
+gpuCheckRmctrlAllowList(const NvU32 *pAllowList, NvU32 allowListSize, NvU32 cmd)
+{
+    NvU32 i;
+    NV_STATUS status = NV_ERR_NOT_SUPPORTED;
+
+    for (i = 0; i < allowListSize; i++)
+    {
+        if (pAllowList[i] == cmd)
+        {
+            status = NV_OK;
+            break;
+        }
+    }
+
+    return status;
+}
+
+NV_STATUS
+gpuValidateRmctrlCmd_T234D(OBJGPU *pGpu, NvU32 cmd)
+{
+    NV_STATUS status = NV_OK;
+
+    // only validate device/subdevice rmctrls currently
+    switch (DRF_VAL(XXXX, _CTRL_CMD, _CLASS, cmd))
+    {
+        case NV01_DEVICE_0:
+            status = gpuCheckRmctrlAllowList(gpuDeviceRmctrlAllowlist_T234D,
+                                             NV_ARRAY_ELEMENTS(gpuDeviceRmctrlAllowlist_T234D),
+                                             cmd);
+            break;
+        case NV20_SUBDEVICE_0:
+            status = gpuCheckRmctrlAllowList(gpuSubdeviceRmctrlAllowlist_T234D,
+                                             NV_ARRAY_ELEMENTS(gpuSubdeviceRmctrlAllowlist_T234D),
+                                             cmd);
+            break;
+        default:
+            status = NV_OK;
+            break;
+    }
+
+    return status;
+}
+
+NV_STATUS
+gpuValidateBusInfoIndex_T234D(OBJGPU *pGpu, NvU32 index)
+{
+    NV_STATUS status = NV_ERR_NOT_SUPPORTED;
+
+    switch (index)
+    {
+        case NV2080_CTRL_BUS_INFO_INDEX_TYPE:
+        case NV2080_CTRL_BUS_INFO_INDEX_COHERENT_DMA_FLAGS:
+        case NV2080_CTRL_BUS_INFO_INDEX_NONCOHERENT_DMA_FLAGS:
+            status = NV_OK;
+            break;
+        default:
+            break;
+    }
+
+    return status;
+}

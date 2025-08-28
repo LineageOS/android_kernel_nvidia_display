@@ -26,7 +26,6 @@
 #include "mem_mgr/syncpoint_mem.h"
 #include "gpu/mem_mgr/mem_desc.h"
 #include "os/os.h"
-#include "gpu/device/device.h"
 #include "rmapi/client.h"
 
 #include "class/cl00c3.h" // NV01_MEMORY_SYNCPOINT

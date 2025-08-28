@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2005-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2005-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -86,6 +86,8 @@
  *       NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE
  *         This specifies whether the displayId is capable of sending
  *         YCBCR444 color format out from the board.
+ *       NV0073_CTRL_DFP_FLAGS_TYPE_C_TO_DP_CONNECTOR
+ *         This specifies whether the displayId is a DP connector routed to an USB-TYPE-C port.
  *       NV0073_CTRL_DFP_FLAGS_DP_LINK_BANDWIDTH
  *         This specifies max link rate supported by the displayId, if the DFP is
  *         display port.
@@ -106,7 +108,7 @@
  *       NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID
  *         This indicates whether this SOR uses DSI-A, DSI-B or both (ganged mode).
  *       NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE
- *         This indicates whether this DFP supports Dynamic MUX
+ *         This indicates whether this DFP supports DDS (NV dynamic display mux).
  *   UHBRSupportedByDfp
  *     Bitmask to specify the UHBR link rates supported by this dfp.
  *
@@ -161,6 +163,9 @@ typedef struct NV0073_CTRL_DFP_GET_INFO_PARAMS {
 #define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE                    12:12
 #define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE_FALSE     (0x00000000U)
 #define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE_TRUE      (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_TYPE_C_TO_DP_CONNECTOR                    13:13
+#define NV0073_CTRL_DFP_FLAGS_TYPE_C_TO_DP_CONNECTOR_FALSE      (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_TYPE_C_TO_DP_CONNECTOR_TRUE       (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED                               14:14
 #define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED_FALSE                (0x00000000U)
 #define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED_TRUE                 (0x00000001U)
@@ -270,8 +275,6 @@ typedef struct NV0073_CTRL_DFP_GET_DISPLAYPORT_DONGLE_INFO_PARAMS {
 #define NV0073_CTRL_DFP_GET_DISPLAYPORT_DONGLE_INFO_FLAGS_DP2TMDS_DONGLE_TYPE_1 (0x00000000U)
 #define NV0073_CTRL_DFP_GET_DISPLAYPORT_DONGLE_INFO_FLAGS_DP2TMDS_DONGLE_TYPE_2 (0x00000001U)
 
-
-
 /*
  * NV0073_CTRL_CMD_DFP_SET_ELD_AUDIO_CAPS
  *
@@ -334,9 +337,9 @@ typedef struct NV0073_CTRL_DFP_GET_DISPLAYPORT_DONGLE_INFO_PARAMS {
  *   NV_ERR_INVALID_PARAM_STRUCT
  *   NV_ERR_INVALID_ARGUMENT
  */
-#define NV0073_CTRL_CMD_DFP_SET_ELD_AUDIO_CAPS                         (0x731144U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_DFP_SET_ELD_AUDIO_CAP_PARAMS_MESSAGE_ID" */
+#define NV0073_CTRL_CMD_DFP_SET_ELD_AUDIO_CAPS                                  (0x731144U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_DFP_SET_ELD_AUDIO_CAP_PARAMS_MESSAGE_ID" */
 
-#define NV0073_CTRL_DFP_ELD_AUDIO_CAPS_ELD_BUFFER                      96U
+#define NV0073_CTRL_DFP_ELD_AUDIO_CAPS_ELD_BUFFER                               96U
 
 #define NV0073_CTRL_DFP_SET_ELD_AUDIO_CAP_PARAMS_MESSAGE_ID (0x44U)
 
@@ -464,7 +467,6 @@ typedef struct NV0073_CTRL_DFP_SET_AUDIO_ENABLE_PARAMS {
     NvU32  displayId;
     NvBool enable;
 } NV0073_CTRL_DFP_SET_AUDIO_ENABLE_PARAMS;
-
 
 
 /*
@@ -942,6 +944,9 @@ typedef struct NV0073_CTRL_CMD_DFP_RUN_PRE_DISP_MUX_OPERATIONS_PARAMS {
 #define NV0073_CTRL_DFP_DISP_MUX_FLAGS_MUX_SWITCH_IGPU_POWER_TIMING  2:2
 #define NV0073_CTRL_DFP_DISP_MUX_FLAGS_MUX_SWITCH_IGPU_POWER_TIMING_KNOWN   0x00000000
 #define NV0073_CTRL_DFP_DISP_MUX_FLAGS_MUX_SWITCH_IGPU_POWER_TIMING_UNKNOWN 0x00000001
+#define NV0073_CTRL_DFP_DISP_MUX_FLAGS_SKIP_BACKLIGHT_ENABLE         3:3
+#define NV0073_CTRL_DFP_DISP_MUX_FLAGS_SKIP_BACKLIGHT_ENABLE_NO             0x00000000U
+#define NV0073_CTRL_DFP_DISP_MUX_FLAGS_SKIP_BACKLIGHT_ENABLE_YES            0x00000001U
 
 #define NV0073_CTRL_DISP_MUX_BACKLIGHT_BRIGHTNESS_MIN                       0U
 #define NV0073_CTRL_DISP_MUX_BACKLIGHT_BRIGHTNESS_MAX                       100U
@@ -1283,5 +1288,378 @@ typedef struct NV0073_CTRL_DFP_GET_FIXED_MODE_TIMING_PARAMS {
 } NV0073_CTRL_DFP_GET_FIXED_MODE_TIMING_PARAMS;
 
 
+
+/*
+ * NV0073_CTRL_DFP_ENTER_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA
+ *
+ * This structure describes diagnostic information about display power
+ * gating entry sequence
+ *
+ *   totalRmEntryLatencyUs
+ *     Duration in microseconds that RM took to service 'Enter
+ *     Display Power Gating' command. This includes time for all
+ *     steps that RM performs as part of display power gating entry
+ *     sequence including the below parameters.
+ *   hwOkToGateLatencyUs
+ *     Duration in microseconds that HW took to assert ok_to_gate.
+ *     Only valid when displayId is not equal to 0xFFFFFFFF
+ *   carApiLatencyUs
+ *     Duration in microseconds that CAR (Clock and Reset) block took to
+ *     service 'Enter Display Power Gating' command
+ *
+ */
+
+typedef struct NV0073_CTRL_DFP_ENTER_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA {
+    NvU32 totalRmEntryLatencyUs;
+    NvU32 hwOkToGateLatencyUs;
+    NvU32 carEntryApiLatencyUs;
+} NV0073_CTRL_DFP_ENTER_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA;
+
+/*
+ *  NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING
+ *
+ * This command can be used to enter display power gating with an option to
+ * save-restore settings for the specified displayId.
+ *
+ *   subDeviceInstance
+ *     This parameter specifies the subdevice instance within the
+ *     NV04_DISPLAY_COMMON parent device to which the operation should be
+ *     directed. This parameter must specify a value between zero and the
+ *     total number of subdevices within the parent device. This parameter
+ *     should be set to zero for default behavior.
+ *   displayId
+ *     This parameter specifies the ID of the display for which the state
+ *     needs to be saved-restored during exit of Display Power Gating.
+ *     The display ID must be a dfp display as determined with the
+ *     NV0073_CTRL_CMD_SPECIFIC_GET_TYPE command. If more than one
+ *     displayId bit is set or the displayId is not a dfp, this call will
+ *     return NV_ERR_INVALID_ARGUMENT. For the case where no save-restore
+ *     is needed, displayId should be set to 0xFFFFFFFF.
+ *   flags
+ *     This parameter specifies special request from client for RM(for future use)
+ *   diagnosticData
+ *     This parameter provides diagnostic information about display power
+ *     gating entry sequence
+ *
+ * Possible status values returned are:
+ *   NV_OK - If Display Power Gating Entry was successful
+ *   NV_ERR_GENERIC - If Display Power Gating Entry failed
+ *   NV_ERR_INVALID_ARGUMENT - If incorrect parameters are sent
+ */
+#define NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING (0x731174U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING_PARAMS_MESSAGE_ID" */
+
+#define NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING_PARAMS_MESSAGE_ID (0x74U)
+
+typedef struct NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING_PARAMS {
+    NvU32                                                      subDeviceInstance;
+    NvU32                                                      displayId;
+    NvU32                                                      flag;
+    NV0073_CTRL_DFP_ENTER_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA diagnosticData;
+} NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING_PARAMS;
+
+#define NV0073_CTRL_DFP_ENTER_DISPLAY_POWER_GATING_FLAGS_RESERVED       31:0
+#define NV0073_CTRL_DFP_ENTER_DISPLAY_POWER_GATING_FLAGS_RESERVED_INIT (0x00000000U)
+
+/*
+ * NV0073_CTRL_DFP_EXIT_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA
+ *
+ * This structure describes diagnostic information about display power
+ * gating exit sequence
+ *
+ *   totalRmExitLatencyUs
+ *     Duration in microseconds that RM took to service 'Exit
+ *     Display Power Gating' command. This includes time for all
+ *     steps that RM performs as part of display power gating exit
+ *     sequence including the below parameters.
+ *   riscvBootupLatencyUs
+ *     Duration in microseconds that LTM RISCV took to bootup.
+ *   carExitApiLatencyUs
+ *     Duration in microseconds that CAR (Clock and Reset) block took
+ *     to service 'Exit Display Power Gating' command
+ *
+ */
+typedef struct NV0073_CTRL_DFP_EXIT_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA {
+    NvU32 totalRmExitLatencyUs;
+    NvU32 riscvBootupLatencyUs;
+    NvU32 carExitApiLatencyUs;
+} NV0073_CTRL_DFP_EXIT_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA;
+
+/*
+ * NV0073_CTRL_CMD_DFP_EXIT_DISPLAY_POWER_GATING
+ *
+ * This command can be used to exit display power gating. If preceding
+ * NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING command requested for
+ * save-restore of settings for a particular displayId then this command
+ * will restore settings for that displayId.
+ *
+ *   subDeviceInstance
+ *     This parameter specifies the subdevice instance within the
+ *     NV04_DISPLAY_COMMON parent device to which the operation should be
+ *     directed. This parameter must specify a value between zero and the
+ *     total number of subdevices within the parent device. This parameter
+ *     should be set to zero for default behavior.
+ *   flags
+ *     This parameter specifies special request from client for RM(for future use)
+ *   diagnosticData
+ *     This parameter provides diagnostic information about display power
+ *     gating exit sequence
+ *
+ * Possible status values returned are:
+ *   NV_OK - When Display Power Gating Exit was successful
+ *   NV_ERR_GENERIC - When Display Power Gating Exit failed
+ *   NV_ERR_INVALID_ARGUMENT - When incorrect parameters are sent
+ */
+
+#define NV0073_CTRL_CMD_DFP_EXIT_DISPLAY_POWER_GATING (0x731175U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_CMD_DFP_EXIT_DISPLAY_POWER_GATING_PARAMS_MESSAGE_ID" */
+
+#define NV0073_CTRL_CMD_DFP_EXIT_DISPLAY_POWER_GATING_PARAMS_MESSAGE_ID (0x75U)
+
+typedef struct NV0073_CTRL_CMD_DFP_EXIT_DISPLAY_POWER_GATING_PARAMS {
+    NvU32                                                     subDeviceInstance;
+    NvU32                                                     flag;
+    NV0073_CTRL_DFP_EXIT_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA diagnosticData;
+} NV0073_CTRL_CMD_DFP_EXIT_DISPLAY_POWER_GATING_PARAMS;
+
+#define NV0073_CTRL_DFP_EXIT_DISPLAY_POWER_GATING_FLAGS_RESERVED       31:0
+#define NV0073_CTRL_DFP_EXIT_DISPLAY_POWER_GATING_FLAGS_RESERVED_INIT (0x00000000U)
+
+/*
+ * NV0073_CTRL_CMD_DFP_EDP_DRIVER_UNLOAD
+ *
+ * This command is called when we want to inform RM of driver
+ * unload.
+ *
+ *    subDeviceInstance (in)
+ *        This parameter specifies the subdevice instance within the
+ *        NV04_DISPLAY_COMMON parent device to which the operation
+ *        should be directed.
+ *    displayId (in)
+ *        This parameter inputs the displayId of the active display. A value
+ *        of zero indicates no display is active.
+ *
+ * Possible status values returned are:
+ *    NV_OK
+ *    NV_ERR_INVALID_PARAM_STRUCT
+ *    NV_ERR_INVALID_ARGUMENT
+ *    NV_ERR_NOT_SUPPORTED
+ */
+#define NV0073_CTRL_CMD_DFP_EDP_DRIVER_UNLOAD                         (0x731176U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_DFP_EDP_DRIVER_UNLOAD_PARAMS_MESSAGE_ID" */
+
+#define NV0073_CTRL_DFP_EDP_DRIVER_UNLOAD_PARAMS_MESSAGE_ID (0x76U)
+
+typedef struct NV0073_CTRL_DFP_EDP_DRIVER_UNLOAD_PARAMS {
+    NvU32 subDeviceInstance;
+    NvU32 displayId;
+} NV0073_CTRL_DFP_EDP_DRIVER_UNLOAD_PARAMS;
+
+/*
+ * NV0073_CTRL_CMD_SYSTEM_SET_REGION_RAM_RECTANGLES
+ *
+ * @brief
+ * This command can be used to program the Rectangle regions info into
+ * Region RAM. These Rectangle regions are then used as regions of interest
+ * for Tell Tale and Frozen Frame detection.
+ *
+ * Some NVDisplay hardware has an internal RAM to support TellTale(TT)
+ * and Frozen Frame(FF) features. Each entry in this RAM is simply defined
+ * as a rectangle (x/y position, width and height). RM will load the region
+ * RAM with rectangle entries using PDISP registers.
+ *
+ * Several new Core/Window methods have been added. These methods can be
+ * programmed to specify which rectangle resources would be enabled and inform
+ * hw to start using for TT/FF checking. There are also methods that can be used
+ * to configure the manner of checking (e.g., for frozen frame detection, how
+ * many regions need to be frozen for how many frames before it's considered as
+ * a fault). As part of these methods, need to specify the index of the region
+ * RAM entry (rectangle) that needs to be checked. This ID is already specified
+ * for each rectangle as part of the info that was programmed by RM to Region RAM.
+ *
+ * The rectangles loaded onto Region RAM are not specifically tied to the current
+ * mode, and do not have to be coupled with only one single mode. Based on the
+ * current raster size, it is expected that the RM clients would choose the
+ * Rectangles that are within the raster size. Once TT/FF checking is enabled,
+ * Display HW continuously checks and will raise an interrupt event if detects an
+ * error case. If a rectangle resource is chosen that "doesn't fit" the current
+ * raster size, overlaps with another rectangle resource, etc, then HW will
+ * generate an exception for these invalid states.
+ *
+ * @params
+ *   subDeviceInstance
+ *     This parameter specifies the subdevice instance within the
+ *     NV04_DISPLAY_COMMON parent device to which the operation should be
+ *     directed. This parameter must specify a value between zero and the
+ *     total number of subdevices within the parent device. This parameter
+ *     should be set to zero for default behavior.
+ *   numRectangles
+ *     This parameter specifies the number of rectangles whose region info
+ *     has been passed as part of this control call
+ *   rectanglesInfo::rectangleID
+ *     This parameter provides the ID of the rectangle which will be used
+ *     to identify the rectangle during methods programming for TellTale
+ *     or Frozen Frame detection.
+ *   rectanglesInfo::xCoordinate
+ *     This parameter specifies the x-coordinate of the top left corner of
+ *     the rectangle in the viewport.
+ *   rectanglesInfo::yCoordinate
+ *     This parameter specifies the y-coordinate of the top left corner of
+ *     the rectangle in the viewport.
+ *   rectanglesInfo::width
+ *     This parameter specifies the width of the rectangle.
+ *   rectanglesInfo::height
+ *     This parameter specifies the height of the rectangle.
+ *
+ * Possible status values returned are:
+ *   NV_OK - Upon successfully programming Rectangles info to Region RAM
+ *   NV_ERR_INVALID_ARGUMENT - When incorrect values are passed in arguments
+ */
+#define NV0073_CTRL_CMD_SYSTEM_SET_REGION_RAM_RECTANGLES (0x731177U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_CMD_SYSTEM_SET_REGION_RAM_RECTANGLES_PARAMS_MESSAGE_ID" */
+
+#define NV0073_CTRL_CMD_SYSTEM_MAX_REGION_RAM_RECTANGLES 16U
+
+#define NV0073_CTRL_CMD_SYSTEM_SET_REGION_RAM_RECTANGLES_PARAMS_MESSAGE_ID (0x77U)
+
+typedef struct NV0073_CTRL_CMD_SYSTEM_SET_REGION_RAM_RECTANGLES_PARAMS {
+    NvU32 subDeviceInstance;
+    NvU8  numRectangles;
+
+    struct {
+        NvU8  rectangleID;
+        NvU16 xCoordinate;
+        NvU16 yCoordinate;
+        NvU16 width;
+        NvU16 height;
+    } rectanglesInfo[NV0073_CTRL_CMD_SYSTEM_MAX_REGION_RAM_RECTANGLES];
+} NV0073_CTRL_CMD_SYSTEM_SET_REGION_RAM_RECTANGLES_PARAMS;
+
+/*
+ * NV0073_CTRL_CMD_SYSTEM_CONFIGURE_SAFETY_INTERRUPTS
+ *
+ * This command can be used to set the interrupt handling mechanism (One-time
+ * or Continuous) of TellTale and FrozenFrame/Overlap events. Also, this command
+ * can be used to Enable/Disable the safety interrupts.
+ *
+ *   subDeviceInstance
+ *     This parameter specifies the subdevice instance within the
+ *     NV04_DISPLAY_COMMON parent device to which the operation should be
+ *     directed. This parameter must specify a value between zero and the
+ *     total number of subdevices within the parent device. This parameter
+ *     should be set to zero for default behavior.
+ *   tellTaleEvents
+ *     The 'mode' variable holds the interrupt configuration values for
+ *     TellTale events. Clients can specify whether the interrupt needs to
+ *     be Disabled or Enabled Continuously or Enabled Only Once using the
+ *     NV0073_CTRL_CMD_SYSTEM_SAFETY_INTERRUPT_MODE_* macros. ENABLE_ONLY_ONCE
+ *     helps avoid interrupt storm by disabling the interrupt after the first
+ *     event since Safety Interrupts are generated per frame.
+ *     The 'specified' field should be used to specify if the 'mode' value at
+ *     that index should be programmed as part of the control call handling
+ *     function. This helps if Clients don't want to update the TellTale
+ *     interrupt configuration of a particular tile in this instance of the
+ *     control call invocation. If it is set to NV_TRUE, the 'mode' value
+ *     will be programmed. If NV_FALSE, 'mode' value will not be programmed.
+ *   frozenFrameEvents
+ *     The 'mode' variable holds the interrupt configuration values for
+ *     FrozenFrame events. Clients can specify whether the interrupt needs to
+ *     be Disabled or Enabled Continuously or Enabled Only Once using the
+ *     NV0073_CTRL_CMD_SYSTEM_SAFETY_INTERRUPT_MODE_* macros. ENABLE_ONLY_ONCE
+ *     helps avoid interrupt storm by disabling the interrupt after the first
+ *     event since Safety Interrupts are generated per frame.
+ *     The 'specified' field should be used to specify if the 'mode' value at
+ *     that index should be programmed as part of the control call handling
+ *     function. This helps if Clients don't want to update the Frozen Frame
+ *     interrupt configuration of a particular head in this instance of the
+ *     control call invocation. If it is set to NV_TRUE, the 'mode' value
+ *     will be programmed. If NV_FALSE, 'mode' value will not be programmed.
+ *   overlapEvents
+ *     The 'mode' variable holds the interrupt configuration values for
+ *     Overlap events. Clients can specify whether the interrupt needs to
+ *     be Disabled or Enabled Continuously or Enabled Only Once using the
+ *     NV0073_CTRL_CMD_SYSTEM_SAFETY_INTERRUPT_MODE_* macros. ENABLE_ONLY_ONCE
+ *     helps avoid interrupt storm by disabling the interrupt after the first
+ *     event since Safety Interrupts are generated per frame.
+ *     The 'specified' field should be used to specify if the 'mode' value at
+ *     that index should be programmed as part of the control call handling
+ *     function. This helps if Clients don't want to update the Overlap
+ *     interrupt configuration of a particular tile in this instance of the
+ *     control call invocation. If it is set to NV_TRUE, the 'mode' value
+ *     will be programmed. If NV_FALSE, 'mode' value will not be programmed.
+ */
+/*
+ * NOTE: Though we have created tellTaleEvents, frozenFrameEvents and overlapEvents structs as
+ *       arrays holding interrupt 'mode' for each Head/Tile, RM currently does not support
+ *       configuring these interrupts per Head/Tile. This support is planned to be added in RM
+ *       sometime later, but having the structures per Head/Tile helps in future-proofing the
+ *       control call interface.
+ *       Expectation from the clients is to set the same 'mode' value at all the indexes (for
+ *       all Heads/Tiles). This specified 'mode' value will be globally applied for all
+         Heads/Tiles for now.
+ */
+#define NV0073_CTRL_CMD_SYSTEM_CONFIGURE_SAFETY_INTERRUPTS             (0x731178U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_CMD_SYSTEM_CONFIGURE_SAFETY_INTERRUPTS_PARAMS_MESSAGE_ID" */
+
+/*
+ * Interrupt configuration values for Safety events
+ */
+#define NV0073_CTRL_CMD_SYSTEM_SAFETY_INTERRUPT_MODE_DISABLE           0U
+#define NV0073_CTRL_CMD_SYSTEM_SAFETY_INTERRUPT_MODE_ENABLE_CONTINUOUS 1U
+#define NV0073_CTRL_CMD_SYSTEM_SAFETY_INTERRUPT_MODE_ENABLE_ONLY_ONCE  2U
+#define NV0073_CTRL_CMD_SYSTEM_SAFETY_INTERRUPT_MODE_RESERVED          3U
+
+/*
+ * Head and Tile count used to specify Safety interrupt configuration for each head/tile.
+ */
+#define NV0073_CTRL_CMD_SYSTEM_MAX_SAFETY_HEAD_COUNT                   8U
+#define NV0073_CTRL_CMD_SYSTEM_MAX_SAFETY_TILE_COUNT                   8U
+
+#define NV0073_CTRL_CMD_SYSTEM_CONFIGURE_SAFETY_INTERRUPTS_PARAMS_MESSAGE_ID (0x78U)
+
+typedef struct NV0073_CTRL_CMD_SYSTEM_CONFIGURE_SAFETY_INTERRUPTS_PARAMS {
+    NvU32 subDeviceInstance;
+
+    struct {
+        NvU8   mode;
+        NvBool specified;
+    } tellTaleEvents[NV0073_CTRL_CMD_SYSTEM_MAX_SAFETY_TILE_COUNT];
+
+    struct {
+        NvU8   mode;
+        NvBool specified;
+    } frozenFrameEvents[NV0073_CTRL_CMD_SYSTEM_MAX_SAFETY_HEAD_COUNT];
+
+    struct {
+        NvU8   mode;
+        NvBool specified;
+    } overlapEvents[NV0073_CTRL_CMD_SYSTEM_MAX_SAFETY_TILE_COUNT];
+} NV0073_CTRL_CMD_SYSTEM_CONFIGURE_SAFETY_INTERRUPTS_PARAMS;
+
+/*
+ * NV0073_CTRL_CMD_DFP_SET_FORCE_BLACK_PIXELS
+ *
+ * This command is used to force black pixels from postcomp.
+ *
+ *   subDeviceInstance
+ *     This parameter specifies the subdevice instance within the
+ *     NV04_DISPLAY_COMMON parent device to which the operation should be
+ *     directed. This parameter must specify a value between zero and the
+ *     total number of subdevices within the parent device.  This parameter
+ *     should be set to zero for default behavior.
+ *
+ *   bForceBlackPixels
+ *     To enable or disable black pixel generation.
+ *
+ * Possible status values returned are:
+ *      NV_OK
+ *      NV_ERR_INVALID_ARGUMENT
+ *      NV_ERR_NOT_SUPPORTED
+ *
+ */
+#define NV0073_CTRL_CMD_DFP_SET_FORCE_BLACK_PIXELS (0x731179U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_DFP_SET_FORCE_BLACK_PIXELS_PARAMS_MESSAGE_ID" */
+
+#define NV0073_CTRL_DFP_SET_FORCE_BLACK_PIXELS_PARAMS_MESSAGE_ID (0x79U)
+
+typedef struct NV0073_CTRL_DFP_SET_FORCE_BLACK_PIXELS_PARAMS {
+    NvU32  subDeviceInstance;
+    NvU32  head;
+    NvBool bForceBlack;
+} NV0073_CTRL_DFP_SET_FORCE_BLACK_PIXELS_PARAMS;
 
 /* _ctrl0073dfp_h_ */

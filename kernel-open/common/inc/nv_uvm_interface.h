@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2013-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2013-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -29,7 +29,7 @@
 #define _NV_UVM_INTERFACE_H_
 
 // Forward references, to break circular header file dependencies:
-struct UvmOpsUvmEvents;
+struct UvmEventsLinux;
 
 #if defined(NVIDIA_UVM_ENABLED)
 
@@ -46,6 +46,7 @@ struct UvmOpsUvmEvents;
 #include "nvgputypes.h"
 #include "nvstatus.h"
 #include "nv_uvm_types.h"
+#include "nv_uvm_user_types.h"
 
 
 // Define the type here as it's Linux specific, used only by the Linux specific
@@ -62,10 +63,10 @@ typedef struct
 /*******************************************************************************
     nvUvmInterfaceRegisterGpu
 
-    Registers the GPU with the provided UUID for use. A GPU must be registered
-    before its UUID can be used with any other API. This call is ref-counted so
-    every nvUvmInterfaceRegisterGpu must be paired with a corresponding
-    nvUvmInterfaceUnregisterGpu.
+    Registers the GPU with the provided physical UUID for use. A GPU must be
+    registered before its UUID can be used with any other API. This call is
+    ref-counted so every nvUvmInterfaceRegisterGpu must be paired with a
+    corresponding nvUvmInterfaceUnregisterGpu.
 
     You don't need to call nvUvmInterfaceSessionCreate before calling this.
 
@@ -79,12 +80,13 @@ NV_STATUS nvUvmInterfaceRegisterGpu(const NvProcessorUuid *gpuUuid, UvmGpuPlatfo
 /*******************************************************************************
     nvUvmInterfaceUnregisterGpu
 
-    Unregisters the GPU with the provided UUID. This drops the ref count from
-    nvUvmInterfaceRegisterGpu. Once the reference count goes to 0 the device may
-    no longer be accessible until the next nvUvmInterfaceRegisterGpu call. No
-    automatic resource freeing is performed, so only make the last unregister
-    call after destroying all your allocations associated with that UUID (such
-    as those from nvUvmInterfaceAddressSpaceCreate).
+    Unregisters the GPU with the provided physical UUID. This drops the ref
+    count from nvUvmInterfaceRegisterGpu. Once the reference count goes to 0
+    the device may no longer be accessible until the next
+    nvUvmInterfaceRegisterGpu call. No automatic resource freeing is performed,
+    so only make the last unregister call after destroying all your allocations
+    associated with that UUID (such as those from
+    nvUvmInterfaceAddressSpaceCreate).
 
     If the UUID is not found, no operation is performed.
 */
@@ -121,10 +123,10 @@ NV_STATUS nvUvmInterfaceSessionDestroy(uvmGpuSessionHandle session);
     nvUvmInterfaceDeviceCreate
 
     Creates a device object under the given session for the GPU with the given
-    UUID. Also creates a partition object for the device iff bCreateSmcPartition
-    is true and pGpuInfo->smcEnabled is true. pGpuInfo->smcUserClientInfo will
-    be used to determine the SMC partition in this case. A device handle is
-    returned in the device output parameter.
+    physical UUID. Also creates a partition object for the device iff
+    bCreateSmcPartition is true and pGpuInfo->smcEnabled is true.
+    pGpuInfo->smcUserClientInfo will be used to determine the SMC partition in
+    this case. A device handle is returned in the device output parameter.
 
     Error codes:
       NV_ERR_GENERIC
@@ -161,6 +163,7 @@ void nvUvmInterfaceDeviceDestroy(uvmGpuDeviceHandle device);
 NV_STATUS nvUvmInterfaceAddressSpaceCreate(uvmGpuDeviceHandle device,
                                            unsigned long long vaBase,
                                            unsigned long long vaSize,
+                                           NvBool enableAts,
                                            uvmGpuAddressSpaceHandle *vaSpace,
                                            UvmGpuAddressSpaceInfo *vaSpaceInfo);
 
@@ -423,33 +426,6 @@ NV_STATUS nvUvmInterfacePmaPinPages(void *pPma,
                                     NvU32 flags);
 
 /*******************************************************************************
-    nvUvmInterfacePmaUnpinPages
-
-    This function will unpin the physical memory allocated using PMA. The pages
-    passed as input must be already pinned, else this function will return an
-    error and rollback any change if any page is not previously marked "pinned".
-    Behaviour is undefined if any blacklisted pages are unpinned.
-
-    Arguments:
-        pPma[IN]             - Pointer to PMA object.
-        pPages[IN]           - Array of pointers, containing the PA base
-                               address of each page to be unpinned.
-        pageCount [IN]       - Number of pages required to be unpinned.
-        pageSize [IN]        - Page size of each page to be unpinned.
-
-    Error codes:
-        NV_ERR_INVALID_ARGUMENT       - Invalid input arguments.
-        NV_ERR_GENERIC                - Unexpected error. We try hard to avoid
-                                        returning this error code as is not very
-                                        informative.
-        NV_ERR_NOT_SUPPORTED          - Operation not supported on broken FB
-*/
-NV_STATUS nvUvmInterfacePmaUnpinPages(void *pPma,
-                                      NvU64 *pPages,
-                                      NvLength pageCount,
-                                      NvU64 pageSize);
-
-/*******************************************************************************
     nvUvmInterfaceMemoryFree
 
     Free up a GPU allocation
@@ -617,6 +593,14 @@ void nvUvmInterfaceChannelDestroy(uvmGpuChannelHandle channel);
     Error codes:
       NV_ERR_GENERIC
       NV_ERR_NO_MEMORY
+      NV_ERR_INVALID_STATE
+      NV_ERR_NOT_SUPPORTED
+      NV_ERR_NOT_READY
+      NV_ERR_INVALID_LOCK_STATE
+      NV_ERR_INVALID_STATE
+      NV_ERR_NVLINK_FABRIC_NOT_READY
+      NV_ERR_NVLINK_FABRIC_FAILURE
+      NV_ERR_GPU_MEMORY_ONLINING_FAILURE
 */
 NV_STATUS nvUvmInterfaceQueryCaps(uvmGpuDeviceHandle device,
                                   UvmGpuCaps *caps);
@@ -638,6 +622,8 @@ NV_STATUS nvUvmInterfaceQueryCopyEnginesCaps(uvmGpuDeviceHandle device,
     nvUvmInterfaceGetGpuInfo
 
     Return various gpu info, refer to the UvmGpuInfo struct for details.
+    The input UUID is for the physical GPU and the pGpuClientInfo identifies
+    the SMC partition if SMC is enabled and the partition exists.
     If no gpu matching the uuid is found, an error will be returned.
 
     On Ampere+ GPUs, pGpuClientInfo contains SMC information provided by the
@@ -645,6 +631,9 @@ NV_STATUS nvUvmInterfaceQueryCopyEnginesCaps(uvmGpuDeviceHandle device,
 
     Error codes:
       NV_ERR_GENERIC
+      NV_ERR_NO_MEMORY
+      NV_ERR_GPU_UUID_NOT_FOUND
+      NV_ERR_INSUFFICIENT_PERMISSIONS
       NV_ERR_INSUFFICIENT_RESOURCES
 */
 NV_STATUS nvUvmInterfaceGetGpuInfo(const NvProcessorUuid *gpuUuid,
@@ -672,14 +661,20 @@ NV_STATUS nvUvmInterfaceServiceDeviceInterruptsRM(uvmGpuDeviceHandle device);
     RM will propagate the update to all channels using the provided VA space.
     All channels must be idle when this call is made.
 
+    If the pageDirectory is in system memory then a CPU physical address must be
+    provided. RM will establish and manage the DMA mapping for the
+    pageDirectory.
+
     Arguments:
       vaSpace[IN}         - VASpace Object
-      physAddress[IN]     - Physical address of new page directory
+      physAddress[IN]     - Physical address of new page directory. If
+                            !bVidMemAperture this is a CPU physical address.
       numEntries[IN]      - Number of entries including previous PDE which will be copied
       bVidMemAperture[IN] - If set pageDirectory will reside in VidMem aperture else sysmem
       pasid[IN]           - PASID (Process Address Space IDentifier) of the process
                             corresponding to the VA space. Ignored unless the VA space
                             object has ATS enabled.
+      dmaAddress[OUT]     - DMA mapping created for physAddress.
 
     Error codes:
       NV_ERR_GENERIC
@@ -687,7 +682,8 @@ NV_STATUS nvUvmInterfaceServiceDeviceInterruptsRM(uvmGpuDeviceHandle device);
 */
 NV_STATUS nvUvmInterfaceSetPageDirectory(uvmGpuAddressSpaceHandle vaSpace,
                                          NvU64 physAddress, unsigned numEntries,
-                                         NvBool bVidMemAperture, NvU32 pasid);
+                                         NvBool bVidMemAperture, NvU32 pasid,
+                                         NvU64 *dmaAddress);
 
 /*******************************************************************************
     nvUvmInterfaceUnsetPageDirectory
@@ -857,7 +853,7 @@ NV_STATUS nvUvmInterfaceGetEccInfo(uvmGpuDeviceHandle device,
         UVM GPU UNLOCK
 
     Arguments:
-        gpuUuid[IN]          - UUID of the GPU to operate on
+        device[IN]           - Device handle associated with the gpu
         bOwnInterrupts       - Set to NV_TRUE for UVM to take ownership of the
                                replayable page fault interrupts. Set to NV_FALSE
                                to return ownership of the page fault interrupts
@@ -973,14 +969,45 @@ NV_STATUS nvUvmInterfaceGetNonReplayableFaults(UvmGpuFaultInfo *pFaultInfo,
     NOTES:
     - This function DOES NOT acquire the RM API or GPU locks. That is because
     it is called during fault servicing, which could produce deadlocks.
+    - This function should not be called when interrupts are disabled.
 
     Arguments:
-        device[IN]        - Device handle associated with the gpu
+        pFaultInfo[IN]        - information provided by RM for fault handling.
+                                used for obtaining the device handle without locks.
+        bCopyAndFlush[IN]     - Instructs RM to perform the flush in the Copy+Flush mode.
+                                In this mode, RM will perform a copy of the packets from
+                                the HW buffer to UVM's SW buffer as part of performing
+                                the flush. This mode gives UVM the opportunity to observe
+                                the packets contained within the HW buffer at the time
+                                of issuing the call.
 
     Error codes:
       NV_ERR_INVALID_ARGUMENT
 */
-NV_STATUS nvUvmInterfaceFlushReplayableFaultBuffer(uvmGpuDeviceHandle device);
+NV_STATUS nvUvmInterfaceFlushReplayableFaultBuffer(UvmGpuFaultInfo *pFaultInfo,
+                                                   NvBool bCopyAndFlush);
+
+/*******************************************************************************
+    nvUvmInterfaceTogglePrefetchFaults
+
+    This function sends an RPC to GSP in order to toggle the prefetch fault PRI.
+
+    NOTES:
+    - This function DOES NOT acquire the RM API or GPU locks. That is because
+    it is called during fault servicing, which could produce deadlocks.
+    - This function should not be called when interrupts are disabled.
+
+    Arguments:
+        pFaultInfo[IN]        - Information provided by RM for fault handling.
+                                Used for obtaining the device handle without locks.
+        bEnable[IN]           - Instructs RM whether to toggle generating faults on
+                                prefetch on/off.
+
+    Error codes:
+      NV_ERR_INVALID_ARGUMENT
+*/
+NV_STATUS nvUvmInterfaceTogglePrefetchFaults(UvmGpuFaultInfo *pFaultInfo,
+                                             NvBool bEnable);
 
 /*******************************************************************************
     nvUvmInterfaceInitAccessCntrInfo
@@ -1037,7 +1064,7 @@ NV_STATUS nvUvmInterfaceDestroyAccessCntrInfo(uvmGpuDeviceHandle device,
 */
 NV_STATUS nvUvmInterfaceEnableAccessCntr(uvmGpuDeviceHandle device,
                                          UvmGpuAccessCntrInfo *pAccessCntrInfo,
-                                         UvmGpuAccessCntrConfig *pAccessCntrConfig);
+                                         const UvmGpuAccessCntrConfig *pAccessCntrConfig);
 
 /*******************************************************************************
     nvUvmInterfaceDisableAccessCntr
@@ -1059,20 +1086,36 @@ NV_STATUS nvUvmInterfaceDisableAccessCntr(uvmGpuDeviceHandle device,
                                           UvmGpuAccessCntrInfo *pAccessCntrInfo);
 
 //
-// Called by the UVM driver to register operations with RM. Only one set of
+// Called by the UVM driver to register event callbacks with RM. Only one set of
 // callbacks can be registered by any driver at a time. If another set of
 // callbacks was already registered, NV_ERR_IN_USE is returned.
 //
-NV_STATUS nvUvmInterfaceRegisterUvmCallbacks(struct UvmOpsUvmEvents *importedUvmOps);
+NV_STATUS nvUvmInterfaceRegisterUvmEvents(struct UvmEventsLinux *importedEvents);
 
 //
-// Counterpart to nvUvmInterfaceRegisterUvmCallbacks. This must only be called
-// if nvUvmInterfaceRegisterUvmCallbacks returned NV_OK.
+// Counterpart to nvUvmInterfaceRegisterUvmEvents. This must only be called if
+// nvUvmInterfaceRegisterUvmEvents returned NV_OK.
 //
 // Upon return, the caller is guaranteed that any outstanding callbacks are done
 // and no new ones will be invoked.
 //
-void nvUvmInterfaceDeRegisterUvmOps(void);
+void nvUvmInterfaceDeRegisterUvmEvents(void);
+
+/*******************************************************************************
+    nvUvmInterfaceGetNvlinkInfo
+
+    Gets NVLINK information from RM.
+
+    Arguments:
+        device[IN]        - GPU device handle
+        nvlinkInfo [OUT]     - Pointer to NvlinkInfo structure
+
+    Error codes:
+      NV_ERROR
+      NV_ERR_INVALID_ARGUMENT
+*/
+NV_STATUS nvUvmInterfaceGetNvlinkInfo(uvmGpuDeviceHandle device,
+                                      UvmGpuNvlinkInfo *nvlinkInfo);
 
 /*******************************************************************************
     nvUvmInterfaceP2pObjectCreate
@@ -1087,7 +1130,8 @@ void nvUvmInterfaceDeRegisterUvmOps(void);
 
     Error codes:
       NV_ERR_INVALID_ARGUMENT
-      NV_ERR_OBJECT_NOT_FOUND : If device object associated with the uuids aren't found.
+      NV_ERR_OBJECT_NOT_FOUND : If device object associated with the device
+                                handles isn't found.
 */
 NV_STATUS nvUvmInterfaceP2pObjectCreate(uvmGpuDeviceHandle device1,
                                         uvmGpuDeviceHandle device2,
@@ -1146,6 +1190,46 @@ NV_STATUS nvUvmInterfaceGetExternalAllocPtes(uvmGpuAddressSpaceHandle vaSpace,
                                              NvU64 offset,
                                              NvU64 size,
                                              UvmGpuExternalMappingInfo *gpuExternalMappingInfo);
+
+/*******************************************************************************
+    nvUvmInterfaceGetExternalAllocPhysAddrs
+
+    The interface builds the RM physical addrs using the provided input parameters.
+
+    Arguments:
+        vaSpace[IN]                     -  vaSpace handle.
+        hMemory[IN]                     -  Memory handle.
+        offset [IN]                     -  Offset from the beginning of the allocation
+                                           where PTE mappings should begin.
+                                           Should be aligned with mappingPagesize
+                                           in gpuExternalMappingInfo associated
+                                           with the allocation.
+        size [IN]                       -  Length of the allocation for which PhysAddrs
+                                           should be built.
+                                           Should be aligned with mappingPagesize
+                                           in gpuExternalMappingInfo associated
+                                           with the allocation.
+                                           size = 0 will be interpreted as the total size
+                                           of the allocation.
+        gpuExternalMappingInfo[IN/OUT]  -  See nv_uvm_types.h for more information.
+
+   Error codes:
+        NV_ERR_INVALID_ARGUMENT         - Invalid parameter/s is passed.
+        NV_ERR_INVALID_OBJECT_HANDLE    - Invalid memory handle is passed.
+        NV_ERR_NOT_SUPPORTED            - Functionality is not supported (see comments in nv_gpu_ops.c)
+        NV_ERR_INVALID_BASE             - offset is beyond the allocation size
+        NV_ERR_INVALID_LIMIT            - (offset + size) is beyond the allocation size.
+        NV_ERR_BUFFER_TOO_SMALL         - gpuExternalMappingInfo.physAddrBufferSize is insufficient to
+                                          store single physAddr.
+        NV_ERR_NOT_READY                - Returned when querying the physAddrs requires a deferred setup
+                                          which has not yet completed. It is expected that the caller
+                                          will reattempt the call until a different code is returned.
+*/
+NV_STATUS nvUvmInterfaceGetExternalAllocPhysAddrs(uvmGpuAddressSpaceHandle vaSpace,
+                                                  NvHandle hMemory,
+                                                  NvU64 offset,
+                                                  NvU64 size,
+                                                  UvmGpuExternalPhysAddrInfo *gpuExternalPhysAddrsInfo);
 
 /*******************************************************************************
     nvUvmInterfaceRetainChannel
@@ -1449,18 +1533,17 @@ NV_STATUS nvUvmInterfacePagingChannelPushStream(UvmGpuPagingChannelHandle channe
                                                 NvU32 methodStreamSize);
 
 /*******************************************************************************
-    CSL Interface and Locking
+    nvUvmInterfaceReportFatalError
 
-    The following functions do not acquire the RM API or GPU locks and must not be called
-    concurrently with the same UvmCslContext parameter in different threads. The caller must
-    guarantee this exclusion.
+    Reports a global fatal error so RM can inform the clients that a node reboot
+    is necessary to recover from this error. This function can be called from
+    any lock environment, bottom half or non-interrupt context.
 
-    * nvUvmInterfaceCslRotateIv
-    * nvUvmInterfaceCslEncrypt
-    * nvUvmInterfaceCslDecrypt
-    * nvUvmInterfaceCslSign
-    * nvUvmInterfaceCslQueryMessagePool
-    * nvUvmInterfaceCslIncrementIv
+*/
+void nvUvmInterfaceReportFatalError(NV_STATUS error);
+
+/*******************************************************************************
+    Cryptography Services Library (CSL) Interface
 */
 
 /*******************************************************************************
@@ -1471,8 +1554,11 @@ NV_STATUS nvUvmInterfacePagingChannelPushStream(UvmGpuPagingChannelHandle channe
     The lifetime of the context is the same as the lifetime of the secure channel
     it is paired with.
 
+    Locking: This function acquires an API lock.
+    Memory : This function dynamically allocates memory.
+
     Arguments:
-        uvmCslContext[IN/OUT] - The CSL context.
+        uvmCslContext[IN/OUT] - The CSL context associated with a channel.
         channel[IN]           - Handle to a secure channel.
 
     Error codes:
@@ -1490,10 +1576,44 @@ NV_STATUS nvUvmInterfaceCslInitContext(UvmCslContext *uvmCslContext,
 
     If context is already deinitialized then function returns immediately.
 
+    Locking: This function does not acquire an API or GPU lock.
+    Memory : This function may free memory.
+
     Arguments:
-        uvmCslContext[IN] - The CSL context.
+        uvmCslContext[IN] - The CSL context associated with a channel.
 */
 void nvUvmInterfaceDeinitCslContext(UvmCslContext *uvmCslContext);
+
+/*******************************************************************************
+    nvUvmInterfaceCslRotateKey
+
+    Disables channels and rotates keys.
+
+    This function disables channels and rotates associated keys. The channels
+    associated with the given CSL contexts must be idled before this function is
+    called. To trigger key rotation all allocated channels for a given key must
+    be present in the list. If the function returns successfully then the CSL
+    contexts have been updated with the new key.
+
+    Locking: This function attempts to acquire the GPU lock. In case of failure
+             to acquire the return code is NV_ERR_STATE_IN_USE. The caller must
+             guarantee that no CSL function, including this one, is invoked
+             concurrently with the CSL contexts in contextList.
+    Memory : This function dynamically allocates memory.
+
+    Arguments:
+        contextList[IN/OUT]  - An array of pointers to CSL contexts.
+        contextListCount[IN] - Number of CSL contexts in contextList. Its value
+                               must be greater than 0.
+    Error codes:
+        NV_ERR_INVALID_ARGUMENT - contextList is NULL or contextListCount is 0.
+        NV_ERR_STATE_IN_USE     - Unable to acquire lock / resource. Caller
+                                  can retry at a later time.
+        NV_ERR_GENERIC          - A failure other than _STATE_IN_USE occurred
+                                  when attempting to acquire a lock.
+*/
+NV_STATUS nvUvmInterfaceCslRotateKey(UvmCslContext *contextList[],
+                                     NvU32 contextListCount);
 
 /*******************************************************************************
     nvUvmInterfaceCslRotateIv
@@ -1501,19 +1621,17 @@ void nvUvmInterfaceDeinitCslContext(UvmCslContext *uvmCslContext);
     Rotates the IV for a given channel and operation.
 
     This function will rotate the IV on both the CPU and the GPU.
-    Outstanding messages that have been encrypted by the GPU should first be
-    decrypted before calling this function with operation equal to
-    UVM_CSL_OPERATION_DECRYPT. Similarly, outstanding messages that have been
-    encrypted by the CPU should first be decrypted before calling this function
-    with operation equal to UVM_CSL_OPERATION_ENCRYPT. For a given operation
-    the channel must be idle before calling this function. This function can be
-    called regardless of the value of the IV's message counter.
+    For a given operation the channel must be idle before calling this function.
+    This function can be called regardless of the value of the IV's message counter.
 
-    See "CSL Interface and Locking" for locking requirements.
-    This function does not perform dynamic memory allocation.
+    Locking: This function attempts to acquire the GPU lock. In case of failure to
+             acquire the return code is NV_ERR_STATE_IN_USE. The caller must guarantee
+             that no CSL function, including this one, is invoked concurrently with
+             the same CSL context.
+    Memory : This function does not dynamically allocate memory.
 
 Arguments:
-        uvmCslContext[IN/OUT] - The CSL context.
+        uvmCslContext[IN/OUT] - The CSL context associated with a channel.
         operation[IN]         - Either
                                 - UVM_CSL_OPERATION_ENCRYPT
                                 - UVM_CSL_OPERATION_DECRYPT
@@ -1521,7 +1639,11 @@ Arguments:
     Error codes:
       NV_ERR_INSUFFICIENT_RESOURCES - The rotate operation would cause a counter
                                       to overflow.
+      NV_ERR_STATE_IN_USE           - Unable to acquire lock / resource. Caller
+                                      can retry at a later time.
       NV_ERR_INVALID_ARGUMENT       - Invalid value for operation.
+      NV_ERR_GENERIC                - A failure other than _STATE_IN_USE occurred
+                                      when attempting to acquire a lock.
 */
 NV_STATUS nvUvmInterfaceCslRotateIv(UvmCslContext *uvmCslContext,
                                     UvmCslOperation operation);
@@ -1538,11 +1660,13 @@ NV_STATUS nvUvmInterfaceCslRotateIv(UvmCslContext *uvmCslContext,
     The encryptIV can be obtained from nvUvmInterfaceCslIncrementIv.
     However, it is optional. If it is NULL, the next IV in line will be used.
 
-    See "CSL Interface and Locking" for locking requirements.
-    This function does not perform dynamic memory allocation.
+    Locking: This function does not acquire an API or GPU lock.
+             The caller must guarantee that no CSL function, including this one,
+             is invoked concurrently with the same CSL context.
+    Memory : This function does not dynamically allocate memory.
 
 Arguments:
-        uvmCslContext[IN/OUT] - The CSL context.
+        uvmCslContext[IN/OUT] - The CSL context associated with a channel.
         bufferSize[IN]        - Size of the input and output buffers in
                                 units of bytes. Value can range from 1 byte
                                 to (2^32) - 1 bytes.
@@ -1553,8 +1677,9 @@ Arguments:
                                 Its size is UVM_CSL_CRYPT_AUTH_TAG_SIZE_BYTES.
 
     Error codes:
-      NV_ERR_INVALID_ARGUMENT       - The size of the data is 0 bytes.
-                                    - The encryptIv has already been used.
+      NV_ERR_INVALID_ARGUMENT - The CSL context is not associated with a channel.
+                              - The size of the data is 0 bytes.
+                              - The encryptIv has already been used.
 */
 NV_STATUS nvUvmInterfaceCslEncrypt(UvmCslContext *uvmCslContext,
                                    NvU32 bufferSize,
@@ -1573,8 +1698,15 @@ NV_STATUS nvUvmInterfaceCslEncrypt(UvmCslContext *uvmCslContext,
     maximized when the input and output buffers are 16-byte aligned. This is
     natural alignment for AES block.
 
-    See "CSL Interface and Locking" for locking requirements.
-    This function does not perform dynamic memory allocation.
+    During a key rotation event the previous key is stored in the CSL context.
+    This allows data encrypted by the GPU to be decrypted with the previous key.
+    The keyRotationId parameter identifies which key is used. The first key rotation
+    ID has a value of 0 that increments by one for each key rotation event.
+
+    Locking: This function does not acquire an API or GPU lock.
+             The caller must guarantee that no CSL function, including this one,
+             is invoked concurrently with the same CSL context.
+    Memory : This function does not dynamically allocate memory.
 
     Arguments:
         uvmCslContext[IN/OUT] - The CSL context.
@@ -1583,6 +1715,8 @@ NV_STATUS nvUvmInterfaceCslEncrypt(UvmCslContext *uvmCslContext,
         decryptIv[IN]         - IV used to decrypt the ciphertext. Its value can either be given by
                                 nvUvmInterfaceCslIncrementIv, or, if NULL, the CSL context's
                                 internal counter is used.
+        keyRotationId[IN]     - Specifies the key that is used for decryption.
+                                A value of NV_U32_MAX specifies the current key.
         inputBuffer[IN]       - Address of ciphertext input buffer.
         outputBuffer[OUT]     - Address of plaintext output buffer.
         addAuthData[IN]       - Address of the plaintext additional authenticated data used to
@@ -1603,6 +1737,7 @@ NV_STATUS nvUvmInterfaceCslDecrypt(UvmCslContext *uvmCslContext,
                                    NvU32 bufferSize,
                                    NvU8 const *inputBuffer,
                                    UvmCslIv const *decryptIv,
+                                   NvU32 keyRotationId,
                                    NvU8 *outputBuffer,
                                    NvU8 const *addAuthData,
                                    NvU32 addAuthDataSize,
@@ -1616,11 +1751,13 @@ NV_STATUS nvUvmInterfaceCslDecrypt(UvmCslContext *uvmCslContext,
     Auth and input buffers must not overlap. If they do then calling this function produces
     undefined behavior.
 
-    See "CSL Interface and Locking" for locking requirements.
-    This function does not perform dynamic memory allocation.
+    Locking: This function does not acquire an API or GPU lock.
+             The caller must guarantee that no CSL function, including this one,
+             is invoked concurrently with the same CSL context.
+    Memory : This function does not dynamically allocate memory.
 
     Arguments:
-        uvmCslContext[IN/OUT] - The CSL context.
+        uvmCslContext[IN/OUT] - The CSL context associated with a channel.
         bufferSize[IN]        - Size of the input buffer in units of bytes.
                                 Value can range from 1 byte to (2^32) - 1 bytes.
         inputBuffer[IN]       - Address of plaintext input buffer.
@@ -1629,7 +1766,8 @@ NV_STATUS nvUvmInterfaceCslDecrypt(UvmCslContext *uvmCslContext,
 
     Error codes:
       NV_ERR_INSUFFICIENT_RESOURCES - The signing operation would cause a counter overflow to occur.
-      NV_ERR_INVALID_ARGUMENT       - The size of the data is 0 bytes.
+      NV_ERR_INVALID_ARGUMENT       - The CSL context is not associated with a channel.
+                                    - The size of the data is 0 bytes.
 */
 NV_STATUS nvUvmInterfaceCslSign(UvmCslContext *uvmCslContext,
                                 NvU32 bufferSize,
@@ -1641,8 +1779,10 @@ NV_STATUS nvUvmInterfaceCslSign(UvmCslContext *uvmCslContext,
 
     Returns the number of messages that can be encrypted before the message counter will overflow.
 
-    See "CSL Interface and Locking" for locking requirements.
-    This function does not perform dynamic memory allocation.
+    Locking: This function does not acquire an API or GPU lock.
+    Memory : This function does not dynamically allocate memory.
+             The caller must guarantee that no CSL function, including this one,
+             is invoked concurrently with the same CSL context.
 
     Arguments:
         uvmCslContext[IN/OUT] - The CSL context.
@@ -1666,8 +1806,10 @@ NV_STATUS nvUvmInterfaceCslQueryMessagePool(UvmCslContext *uvmCslContext,
     can be used in nvUvmInterfaceCslEncrypt. If operation is UVM_CSL_OPERATION_DECRYPT then
     the returned IV can be used in nvUvmInterfaceCslDecrypt.
 
-    See "CSL Interface and Locking" for locking requirements.
-    This function does not perform dynamic memory allocation.
+    Locking: This function does not acquire an API or GPU lock.
+             The caller must guarantee that no CSL function, including this one,
+             is invoked concurrently with the same CSL context.
+    Memory : This function does not dynamically allocate memory.
 
 Arguments:
         uvmCslContext[IN/OUT] - The CSL context.
@@ -1675,7 +1817,7 @@ Arguments:
                                 - UVM_CSL_OPERATION_ENCRYPT
                                 - UVM_CSL_OPERATION_DECRYPT
         increment[IN]         - The amount by which the IV is incremented. Can be 0.
-        iv[out]               - If non-NULL, a buffer to store the incremented IV.
+        iv[OUT]               - If non-NULL, a buffer to store the incremented IV.
 
     Error codes:
       NV_ERR_INVALID_ARGUMENT       - The value of the operation parameter is illegal.
@@ -1687,4 +1829,41 @@ NV_STATUS nvUvmInterfaceCslIncrementIv(UvmCslContext *uvmCslContext,
                                        NvU64 increment,
                                        UvmCslIv *iv);
 
+/*******************************************************************************
+    nvUvmInterfaceCslLogEncryption
+
+    Checks and logs information about encryptions associated with the given
+    CSL context.
+
+    For contexts associated with channels, this function does not modify elements of
+    the UvmCslContext, and must be called for every CPU/GPU encryption.
+
+    For the context associated with fault buffers, bufferSize can encompass multiple
+    encryption invocations, and the UvmCslContext will be updated following a key
+    rotation event.
+
+    In either case the IV remains unmodified after this function is called.
+
+    Locking: This function does not acquire an API or GPU lock.
+    Memory : This function does not dynamically allocate memory.
+             The caller must guarantee that no CSL function, including this one,
+             is invoked concurrently with the same CSL context.
+
+    Arguments:
+        uvmCslContext[IN/OUT] - The CSL context.
+        operation[IN]         - If the CSL context is associated with a fault
+                                buffer, this argument is ignored. If it is
+                                associated with a channel, it must be either
+                                - UVM_CSL_OPERATION_ENCRYPT
+                                - UVM_CSL_OPERATION_DECRYPT
+        bufferSize[IN]        - The size of the buffer(s) encrypted by the
+                                external entity in units of bytes.
+
+    Error codes:
+      NV_ERR_INSUFFICIENT_RESOURCES - The encryption would cause a counter
+                                      to overflow.
+*/
+NV_STATUS nvUvmInterfaceCslLogEncryption(UvmCslContext *uvmCslContext,
+                                         UvmCslOperation operation,
+                                         NvU32 bufferSize);
 #endif // _NV_UVM_INTERFACE_H_

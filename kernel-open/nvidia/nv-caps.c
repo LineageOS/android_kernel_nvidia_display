@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -26,6 +26,8 @@
 #include "nv-procfs.h"
 #include "nv-hash.h"
 
+#include "nvmisc.h"
+
 extern int NVreg_ModifyDeviceFiles;
 
 /* sys_close() or __close_fd() */
@@ -49,7 +51,7 @@ typedef struct nv_cap_table_entry
     struct hlist_node hlist;
 } nv_cap_table_entry_t;
 
-#define NV_CAP_NUM_ENTRIES(_table) (sizeof(_table) / sizeof(_table[0]))
+#define NV_CAP_NUM_ENTRIES(_table) (NV_ARRAY_ELEMENTS(_table))
 
 static nv_cap_table_entry_t g_nv_cap_nvlink_table[] =
 {
@@ -266,7 +268,7 @@ static void nv_cap_procfs_exit(void)
     nv_cap_procfs_dir = NULL;
 }
 
-int nv_cap_procfs_init(void)
+static int nv_cap_procfs_init(void)
 {
     static struct proc_dir_entry *file_entry;
 
@@ -360,18 +362,28 @@ static ssize_t nv_cap_procfs_write(struct file *file,
     nv_cap_file_private_t *private = NULL;
     unsigned long bytes_left;
     char *proc_buffer;
+    int status;
+
+    status = nv_down_read_interruptible(&nv_system_pm_lock);
+    if (status < 0)
+    {
+        nv_printf(NV_DBG_ERRORS, "nv-caps: failed to lock the nv_system_pm_lock!\n");
+        return status;
+    }
 
     private = ((struct seq_file *)file->private_data)->private;
     bytes_left = (sizeof(private->buffer) - private->offset - 1);
 
     if (count == 0)
     {
-        return -EINVAL;
+        count = -EINVAL;
+        goto done;
     }
 
     if ((bytes_left == 0) || (count > bytes_left))
     {
-        return -ENOSPC;
+        count = -ENOSPC;
+        goto done;
     }
 
     proc_buffer = &private->buffer[private->offset];
@@ -379,7 +391,8 @@ static ssize_t nv_cap_procfs_write(struct file *file,
     if (copy_from_user(proc_buffer, buffer, count))
     {
         nv_printf(NV_DBG_ERRORS, "nv-caps: failed to copy in proc data!\n");
-        return -EFAULT;
+        count = -EFAULT;
+        goto done;
     }
 
     private->offset += count;
@@ -387,17 +400,28 @@ static ssize_t nv_cap_procfs_write(struct file *file,
 
     *pos = private->offset;
 
+done:
+    up_read(&nv_system_pm_lock);
+
     return count;
 }
 
 static int nv_cap_procfs_read(struct seq_file *s, void *v)
 {
+    int status;
     nv_cap_file_private_t *private = s->private;
+
+    status = nv_down_read_interruptible(&nv_system_pm_lock);
+    if (status < 0)
+    {
+        return status;
+    }
 
     seq_printf(s, "%s: %d\n", "DeviceFileMinor", private->minor);
     seq_printf(s, "%s: %d\n", "DeviceFileMode", private->permissions);
     seq_printf(s, "%s: %d\n", "DeviceFileModify", private->modify);
 
+    up_read(&nv_system_pm_lock);
     return 0;
 }
 
@@ -422,14 +446,6 @@ static int nv_cap_procfs_open(struct inode *inode, struct file *file)
     if (rc < 0)
     {
         NV_KFREE(private, sizeof(nv_cap_file_private_t));
-        return rc;
-    }
-
-    rc = nv_down_read_interruptible(&nv_system_pm_lock);
-    if (rc < 0)
-    {
-        single_release(inode, file);
-        NV_KFREE(private, sizeof(nv_cap_file_private_t));
     }
 
     return rc;
@@ -447,8 +463,6 @@ static int nv_cap_procfs_release(struct inode *inode, struct file *file)
     {
         private = s->private;
     }
-
-    up_read(&nv_system_pm_lock);
 
     single_release(inode, file);
 
@@ -490,12 +504,11 @@ static struct file_operations g_nv_cap_drv_fops;
 
 int NV_API_CALL nv_cap_validate_and_dup_fd(const nv_cap_t *cap, int fd)
 {
+#if NV_FILESYSTEM_ACCESS_AVAILABLE
     struct file *file;
     int dup_fd;
     struct inode *inode = NULL;
     dev_t rdev = 0;
-    struct files_struct *files = current->files;
-    struct fdtable *fdt;
 
     if (cap == NULL)
     {
@@ -527,29 +540,10 @@ int NV_API_CALL nv_cap_validate_and_dup_fd(const nv_cap_t *cap, int fd)
         goto err;
     }
 
-    dup_fd = NV_GET_UNUSED_FD_FLAGS(O_CLOEXEC);
+    dup_fd = get_unused_fd_flags(O_CLOEXEC);
     if (dup_fd < 0)
     {
-        dup_fd = NV_GET_UNUSED_FD();
-        if (dup_fd < 0)
-        {
-            goto err;
-        }
-
-        /*
-         * Set CLOEXEC before installing the FD.
-         *
-         * If fork() happens in between, the opened unused FD will have
-         * a NULL struct file associated with it, which is okay.
-         *
-         * The only well known bug here is the race with dup(2), which is
-         * already documented in the kernel, see fd_install()'s description.
-         */
-
-        spin_lock(&files->file_lock);
-        fdt = files_fdtable(files);
-        __set_bit(dup_fd, fdt->close_on_exec);
-        spin_unlock(&files->file_lock);
+        goto err;
     }
 
     fd_install(dup_fd, file);
@@ -558,10 +552,17 @@ int NV_API_CALL nv_cap_validate_and_dup_fd(const nv_cap_t *cap, int fd)
 err:
     fput(file);
     return -1;
+#else
+    return -1;
+#endif
 }
 
 void NV_API_CALL nv_cap_close_fd(int fd)
 {
+#if NV_FILESYSTEM_ACCESS_AVAILABLE
+    struct file *file;
+    NvBool is_nv_cap_fd;
+
     if (fd == -1)
     {
         return;
@@ -575,6 +576,30 @@ void NV_API_CALL nv_cap_close_fd(int fd)
 
     /* Nothing to do, we are in exit path */
     if (current->files == NULL)
+    {
+        task_unlock(current);
+        return;
+    }
+
+    file = fget(fd);
+    if (file == NULL)
+    {
+        task_unlock(current);
+        return;
+    }
+
+    /* Make sure the fd belongs to the nv-cap-drv */
+    is_nv_cap_fd = (file->f_op == &g_nv_cap_drv_fops);
+
+    fput(file);
+
+    /*
+     * In some cases, we may be in shutdown path and execute
+     * in context of unrelated process. In that case we should
+     * not access any 'current' state, but instead let kernel
+     * clean up capability files on its own.
+     */
+    if (!is_nv_cap_fd)
     {
         task_unlock(current);
         return;
@@ -599,6 +624,7 @@ void NV_API_CALL nv_cap_close_fd(int fd)
 #endif
 
     task_unlock(current);
+#endif
 }
 
 static nv_cap_t* nv_cap_alloc(nv_cap_t *parent_cap, const char *name)

@@ -360,7 +360,11 @@ static void populateDscCaps(HDMI_SRC_CAPS         const * const pSrcCaps,
     pDscInfo->sinkCaps.algorithmRevision.versionMajor = 1;
     pDscInfo->sinkCaps.algorithmRevision.versionMinor = 2;
     pDscInfo->sinkCaps.peakThroughputMode0 = peakThroughput;
-    pDscInfo->sinkCaps.peakThroughputMode1 = peakThroughput * 2;
+
+    // Per DSC v1.2 spec, native 422/420 per-slice peak throughput is approximately twice of RGB/444 peak throughput
+    // HDMI has only one throughput cap reporting, no separate 422/420 throughput cap unlike for DP, so just double 444's value here.
+    pDscInfo->sinkCaps.peakThroughputMode1 = (peakThroughput == DSC_DECODER_PEAK_THROUGHPUT_MODE0_340) ? 
+                                                 DSC_DECODER_PEAK_THROUGHPUT_MODE1_680 : DSC_DECODER_PEAK_THROUGHPUT_MODE1_800;
 }
 
 // Fill in mode related info for DSC lib
@@ -580,6 +584,13 @@ static void calcBppMinMax(HDMI_SRC_CAPS               const *pSrcCaps,
     {
         bppMaxX16 = (bppMaxX16 > 12*16) ? 12*16 : bppMaxX16;
     }
+    
+    // DSC_GeneratePPS : Multi-tile configs (NVD 5.0 and later), 
+    // because of architectural limitation we can't use bits_per_pixel more than 16.
+    if (pSrcCaps->dscCaps.maxNumHztSlices > 4U)
+    {
+        bppMaxX16 = (bppMaxX16 > 16*16) ? 16*16 : bppMaxX16;
+    }
 
     if (pVidTransInfo->bDualHeadMode && (bppMaxX16 > pSrcCaps->dscCaps.dualHeadBppTargetMaxX16))
     {
@@ -777,16 +788,20 @@ hdmiQueryFRLConfigC671(NVHDMIPKT_CLASS                         *pThis,
 
     calcBppMinMax(pSrcCaps, pSinkCaps, pVidTransInfo, &bppMinX16, &bppMaxX16);
     bCanUseDSC = evaluateIsDSCPossible(pThis, pSrcCaps, pSinkCaps, pVidTransInfo, &frlParams);
+    const NvU32 numHeadsDrivingSink = pVidTransInfo->bDualHeadMode ? 2 : 1;
 
     // Input validation
+    // Note, maxNumHztSlices src cap is per head. account for total number of heads driving the sink
     if ((pClientCtrl->forceFRLRate    && (pClientCtrl->frlRate > pSinkCaps->linkMaxFRLRate)) ||
         (pClientCtrl->enableDSC       && !bCanUseDSC) ||
-        (pClientCtrl->forceSliceCount && (pClientCtrl->sliceCount > (NvU32)(NV_MIN(pSrcCaps->dscCaps.maxNumHztSlices, pSinkCaps->pHdmiForumInfo->dsc_MaxSlices)))) ||
+        (pClientCtrl->forceSliceCount && (pClientCtrl->sliceCount > 
+                                          (NvU32)(NV_MIN(pSrcCaps->dscCaps.maxNumHztSlices * numHeadsDrivingSink,
+                                                         pSinkCaps->pHdmiForumInfo->dsc_MaxSlices)))) ||
         (pClientCtrl->forceSliceWidth && (pClientCtrl->sliceWidth > NV_MIN(pSrcCaps->dscCaps.maxWidthPerSlice, MAX_RECONSTRUCTED_HACTIVE_PIXELS))) ||
         (pClientCtrl->forceBppx16     && ((pClientCtrl->bitsPerPixelX16 < bppMinX16) || (pClientCtrl->bitsPerPixelX16 > bppMaxX16)))  ||
         (pClientCtrl->forceBppx16     && !pSinkCaps->pHdmiForumInfo->dsc_All_bpp))
     {
-        return NVHDMIPKT_FAIL;
+        return NVHDMIPKT_INVALID_ARG;
     }
 
     bTryUncompressedMode = (bCanUseDSC && (pClientCtrl->enableDSC ||
@@ -1168,16 +1183,26 @@ frlQuery_Success:
         NvU64 availableLinkBw = (NvU64)(frlBitRateGbps) * (NvU64)(numLanes) * MULTIPLIER_1G;
         warData.connectorType = DSC_HDMI;
 
+        DSC_GENERATE_PPS_OPAQUE_WORKAREA *pDscScratchBuffer = NULL;
+        pDscScratchBuffer = (DSC_GENERATE_PPS_OPAQUE_WORKAREA*)pThis->callback.malloc(pThis->cbHandle, 
+                                                                      sizeof(DSC_GENERATE_PPS_OPAQUE_WORKAREA));
         if ((DSC_GeneratePPS(&dscInfo,
                              &dscModesetInfo,
                              &warData,
                              availableLinkBw,
+                             pDscScratchBuffer,
                              pFRLConfig->dscInfo.pps,
                              &bitsPerPixelX16)) != NVT_STATUS_SUCCESS)
         {
             NvHdmiPkt_Print(pThis, "ERROR - DSC PPS calculation failed.");
             NvHdmiPkt_Assert(0);
-            result = NVHDMIPKT_FAIL;
+            result = NVHDMIPKT_DSC_PPS_ERROR;
+        }
+
+        if (pDscScratchBuffer != NULL)
+        {
+            pThis->callback.free(pThis->cbHandle, pDscScratchBuffer);
+            pDscScratchBuffer = NULL;
         }
 
         // DSC lib should honor the bpp setting passed from client, assert here just in case

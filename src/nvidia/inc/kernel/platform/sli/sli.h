@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2000-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2000-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -31,7 +31,7 @@
 
 #include "core/core.h"
 #include "nvlimits.h"
-#include "gpu_mgr/gpu_mgr.h"
+#include "nvmisc.h"
 
 #define IsDeviceDestroyed(p) (gpuGetDeviceInstance(p) == NV_MAX_DEVICES)
 
@@ -59,7 +59,7 @@ void RmInitScalability(OBJGPU *pGpu);
 do {                                                                        \
     if (sizeof(arr) > sizeof(void *))                                       \
     {                                                                       \
-        NV_ASSERT(SLI_LOOP_ARRAY_SIZE == (sizeof(arr) / sizeof(arr[0])));   \
+        NV_ASSERT(SLI_LOOP_ARRAY_SIZE == NV_ARRAY_ELEMENTS(arr));   	    \
     }                                                                       \
 } while (0)
 

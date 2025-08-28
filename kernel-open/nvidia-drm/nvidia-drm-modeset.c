@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015 - 2025, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2015, 2025, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,6 @@
 
 #include "nvidia-drm-priv.h"
 #include "nvidia-drm-modeset.h"
-#include "nvidia-drm-connector.h"
 #include "nvidia-drm-crtc.h"
 #include "nvidia-drm-os-interface.h"
 #include "nvidia-drm-helper.h"
@@ -35,13 +34,18 @@
 #include <drm/drmP.h>
 #endif
 
-#if defined(NV_DRM_DRM_VBLANK_H_PRESENT)
 #include <drm/drm_vblank.h>
-#endif
-
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc.h>
+
+#if defined(NV_LINUX_NVHOST_H_PRESENT) && defined(CONFIG_TEGRA_GRHOST)
+#include <linux/nvhost.h>
+#elif defined(NV_LINUX_HOST1X_NEXT_H_PRESENT)            
+#include <linux/host1x-next.h>
+#endif
+
+#include <linux/dma-fence.h>
 
 struct nv_drm_atomic_state {
     struct NvKmsKapiRequestedModeSetConfig config;
@@ -86,32 +90,28 @@ void nv_drm_atomic_state_free(struct drm_atomic_state *state)
  * function is called after drm_atomic_helper_swap_state(), therefore new state
  * is swapped into current state.
  */
-static void __get_events_plane_mask(struct drm_crtc *crtc,
-                                    struct drm_crtc_state *old_crtc_state,
-                                    unsigned int *plane_mask,
-                                    unsigned int *pending_events_plane_mask)
+static bool __will_generate_flip_event(struct drm_crtc *crtc,
+                                       struct drm_crtc_state *old_crtc_state)
 {
     struct drm_crtc_state *new_crtc_state = crtc->state;
+    struct nv_drm_crtc_state *nv_new_crtc_state =
+        to_nv_crtc_state(new_crtc_state);
     struct drm_plane_state *old_plane_state = NULL;
     struct drm_plane *plane = NULL;
     int i;
-
-    *plane_mask = 0x0;
-    *pending_events_plane_mask = 0x0;
 
     if (!old_crtc_state->active  && !new_crtc_state->active) {
         /*
          * crtc is not active in old and new states therefore all planes are
          * disabled, hardware can not generate flip events.
          */
-        return;
+        return false;
     }
 
     /* Find out whether primary & overlay flip done events will be generated. */
     nv_drm_for_each_plane_in_state(old_crtc_state->state,
         plane, old_plane_state, i) {
-        if ((old_plane_state->crtc != crtc) &&
-                (plane->state->crtc != crtc)) {
+        if (old_plane_state->crtc != crtc) {
            continue;
         }
 
@@ -119,16 +119,16 @@ static void __get_events_plane_mask(struct drm_crtc *crtc,
             continue;
         }
 
-        *plane_mask |= NVBIT(plane->index);
-
         /*
          * Hardware generates flip event for only those
          * planes which were active previously.
          */
         if (old_crtc_state->active && old_plane_state->fb != NULL) {
-            *pending_events_plane_mask |= NVBIT(plane->index);
+            nv_new_crtc_state->nv_flip->pending_events++;
         }
     }
+
+    return nv_new_crtc_state->nv_flip->pending_events != 0;
 }
 
 static int __nv_drm_put_back_post_fence_fd(
@@ -149,6 +149,163 @@ static int __nv_drm_put_back_post_fence_fd(
     }
 
     return ret;
+}
+
+struct nv_drm_plane_fence_cb_data {
+    struct dma_fence_cb dma_fence_cb;
+    struct nv_drm_device *nv_dev;
+    NvU32 semaphore_index;
+};
+
+static void
+__nv_drm_plane_fence_cb(
+    struct dma_fence *fence,
+    struct dma_fence_cb *cb_data
+)
+{
+    struct nv_drm_plane_fence_cb_data *fence_data =
+        container_of(cb_data, typeof(*fence_data), dma_fence_cb);
+    struct nv_drm_device *nv_dev = fence_data->nv_dev;
+
+    dma_fence_put(fence);
+    nvKms->signalDisplaySemaphore(nv_dev->pDevice, fence_data->semaphore_index);
+    nv_drm_free(fence_data);
+}
+
+static int __nv_drm_convert_in_fences(
+    struct nv_drm_device *nv_dev,
+    struct drm_atomic_state *state,
+    struct drm_crtc *crtc,
+    struct drm_crtc_state *crtc_state)
+{
+    struct drm_plane *plane = NULL;
+    struct drm_plane_state *plane_state = NULL;
+    struct nv_drm_plane *nv_plane = NULL;
+    struct NvKmsKapiLayerRequestedConfig *plane_req_config = NULL;
+    struct NvKmsKapiHeadRequestedConfig *head_req_config =
+        &to_nv_crtc_state(crtc_state)->req_config;
+    struct nv_drm_plane_fence_cb_data *fence_data;
+    uint32_t semaphore_index;
+    uint32_t idx_count;
+    int ret, i;
+
+    if (!crtc_state->active) {
+        return 0;
+    }
+
+    nv_drm_for_each_new_plane_in_state(state, plane, plane_state, i) {
+        if ((plane->type == DRM_PLANE_TYPE_CURSOR) ||
+            (plane_state->crtc != crtc) ||
+            (plane_state->fence == NULL)) {
+            continue;
+        }
+
+        nv_plane = to_nv_plane(plane);
+        plane_req_config =
+            &head_req_config->layerRequestedConfig[nv_plane->layer_idx];
+
+        if (nv_dev->supportsSyncpts) {
+#if defined(NV_LINUX_NVHOST_H_PRESENT) && defined(CONFIG_TEGRA_GRHOST)
+#if defined(NV_NVHOST_DMA_FENCE_UNPACK_PRESENT)
+            int ret =
+                nvhost_dma_fence_unpack(
+                    plane_state->fence,
+                    &plane_req_config->config.syncParams.u.syncpt.preSyncptId,
+                    &plane_req_config->config.syncParams.u.syncpt.preSyncptValue);
+            if (ret == 0) {
+                plane_req_config->config.syncParams.preSyncptSpecified = true;
+                continue;
+            }
+#endif
+#elif defined(NV_LINUX_HOST1X_NEXT_H_PRESENT)
+            int ret =
+                host1x_fence_extract(
+                    plane_state->fence,
+                    &plane_req_config->config.syncParams.u.syncpt.preSyncptId,
+                    &plane_req_config->config.syncParams.u.syncpt.preSyncptValue);
+            if (ret == 0) {
+                plane_req_config->config.syncParams.preSyncptSpecified = true;
+                continue;
+            }
+#endif
+        }
+
+        /*
+         * Syncpt extraction failed, or syncpts are not supported.
+         * Use general DRM fence support with semaphores instead.
+         */
+        if (plane_req_config->config.syncParams.postSyncptRequested) {
+            // Can't mix Syncpts and semaphores in a given request.
+            return -EINVAL;
+        }
+
+        for (idx_count = 0; idx_count < nv_dev->display_semaphores.count; idx_count++) {
+            semaphore_index = nv_drm_next_display_semaphore(nv_dev);
+            if (nvKms->tryInitDisplaySemaphore(nv_dev->pDevice, semaphore_index)) {
+                break;
+            }
+        }
+
+        if (idx_count == nv_dev->display_semaphores.count) {
+            NV_DRM_DEV_LOG_ERR(
+                nv_dev,
+                "Failed to initialize semaphore for plane fence");
+            /*
+             * This should only happen if the semaphore pool was somehow
+             * exhausted. Waiting a bit and retrying may help in that case.
+             */
+            return -EAGAIN;
+        }
+
+        plane_req_config->config.syncParams.semaphoreSpecified = true;
+        plane_req_config->config.syncParams.u.semaphore.index = semaphore_index;
+
+        fence_data = nv_drm_calloc(1, sizeof(*fence_data));
+
+        if (!fence_data) {
+            NV_DRM_DEV_LOG_ERR(
+                nv_dev,
+                "Failed to allocate callback data for plane fence");
+            nvKms->cancelDisplaySemaphore(nv_dev->pDevice, semaphore_index);
+            return -ENOMEM;
+        }
+
+        fence_data->nv_dev = nv_dev;
+        fence_data->semaphore_index = semaphore_index;
+
+        ret = dma_fence_add_callback(plane_state->fence,
+                                     &fence_data->dma_fence_cb,
+                                     __nv_drm_plane_fence_cb);
+
+        switch (ret) {
+        case -ENOENT:
+            /* The fence is already signaled */
+            __nv_drm_plane_fence_cb(plane_state->fence,
+                                    &fence_data->dma_fence_cb);
+#if defined(fallthrough)
+            fallthrough;
+#else
+            /* Fallthrough */
+#endif
+        case 0:
+            /*
+             * The plane state's fence reference has either been consumed or
+             * belongs to the outstanding callback now.
+             */
+            plane_state->fence = NULL;
+            break;
+        default:
+            NV_DRM_DEV_LOG_ERR(
+                nv_dev,
+                "Failed plane fence callback registration");
+            /* Fence callback registration failed */
+            nvKms->cancelDisplaySemaphore(nv_dev->pDevice, semaphore_index);
+            nv_drm_free(fence_data);
+            return ret;
+        }
+    }
+
+    return 0;
 }
 
 static int __nv_drm_get_syncpt_data(
@@ -250,6 +407,25 @@ nv_drm_atomic_apply_modeset_config(struct drm_device *dev,
         return -EINVAL;
     }
 
+    if (commit) {
+        /*
+         * This function does what is necessary to prepare the framebuffers
+         * attached to each new plane in the state for scan out, mostly by
+         * calling back into driver callbacks the NVIDIA driver does not
+         * provide. The end result is that all it does on the NVIDIA driver
+         * is populate the plane state's dma fence pointers with any implicit
+         * sync fences attached to the GEM objects associated with those planes
+         * in the new state, prefering explicit sync fences when appropriate.
+         * This must be done prior to converting the per-plane fences to
+         * semaphore waits below.
+         */
+        ret = drm_atomic_helper_prepare_planes(dev, state);
+
+        if (ret) {
+            return ret;
+        }
+    }
+
     memset(requested_config, 0, sizeof(*requested_config));
 
     /* Loop over affected crtcs and construct NvKmsKapiRequestedModeSetConfig */
@@ -263,46 +439,44 @@ nv_drm_atomic_apply_modeset_config(struct drm_device *dev,
                                commit ? crtc->state : crtc_state;
         struct nv_drm_crtc *nv_crtc = to_nv_crtc(crtc);
 
-        requested_config->headRequestedConfig[nv_crtc->head] =
-            to_nv_crtc_state(new_crtc_state)->req_config;
-
-        requested_config->headsMask |= 1 << nv_crtc->head;
-
         if (commit) {
             struct drm_crtc_state *old_crtc_state = crtc_state;
             struct nv_drm_crtc_state *nv_new_crtc_state =
                 to_nv_crtc_state(new_crtc_state);
 
-            if (!old_crtc_state->active  && new_crtc_state->active) {
-                drm_crtc_vblank_on(crtc);
-            }
-
             nv_new_crtc_state->nv_flip->event = new_crtc_state->event;
+            nv_new_crtc_state->nv_flip->pending_events = 0;
             new_crtc_state->event = NULL;
 
-            __get_events_plane_mask(crtc, old_crtc_state,
-                &nv_new_crtc_state->nv_flip->plane_mask,
-                &nv_new_crtc_state->nv_flip->pending_events_plane_mask);
+            /*
+             * If flip event will be generated by hardware
+             * then defer flip object processing to flip event from hardware.
+             */
+            if (__will_generate_flip_event(crtc, old_crtc_state)) {
+                nv_drm_crtc_enqueue_flip(nv_crtc,
+                                         nv_new_crtc_state->nv_flip);
 
-            if (nv_new_crtc_state->nv_flip->event != NULL) {
-                drm_crtc_vblank_get(crtc);
+                nv_new_crtc_state->nv_flip = NULL;
             }
-            nv_drm_crtc_enqueue_flip(nv_crtc,
-                                     nv_new_crtc_state->nv_flip);
-            nv_new_crtc_state->nv_flip = NULL;
 
-#if defined(NV_DRM_CRTC_STATE_HAS_VRR_ENABLED)
-            requested_config->headRequestedConfig[nv_crtc->head].modeSetConfig.vrrEnabled = new_crtc_state->vrr_enabled;
-#endif
+            ret = __nv_drm_convert_in_fences(nv_dev,
+                                             state,
+                                             crtc,
+                                             new_crtc_state);
 
-            if (new_crtc_state->mode_changed) {
-                struct drm_vblank_crtc *vblank = &dev->vblank[drm_crtc_index(crtc)];
-
-                spin_lock_irq(&dev->vbl_lock);
-                vblank->inmodeset = 0x2;
-                spin_unlock_irq(&dev->vbl_lock);
+            if (ret != 0) {
+                return ret;
             }
         }
+
+        /*
+         * Do this deep copy after calling __nv_drm_convert_in_fences,
+         * which modifies the new CRTC state's req_config member
+         */
+        requested_config->headRequestedConfig[nv_crtc->head] =
+            to_nv_crtc_state(new_crtc_state)->req_config;
+
+        requested_config->headsMask |= 1 << nv_crtc->head;
     }
 
     if (commit && nvKms->systemInfo.bAllowWriteCombining) {
@@ -311,42 +485,14 @@ nv_drm_atomic_apply_modeset_config(struct drm_device *dev,
          * to be presented.
          */
          nv_drm_write_combine_flush();
-
-         nv_kthread_q_flush(&nv_dev->nv_kthread_q);
     }
 
     if (!nvKms->applyModeSetConfig(nv_dev->pDevice,
                                    requested_config,
                                    &reply_config,
                                    commit)) {
-        return -EINVAL;
-    }
-
-    if (commit) {
-        nv_drm_for_each_crtc_in_state(state, crtc, crtc_state, i) {
-            struct drm_crtc_state *new_crtc_state = crtc->state;
-            struct drm_crtc_state *old_crtc_state = crtc_state;
-
-            if (new_crtc_state->mode_changed) {
-                struct drm_vblank_crtc *vblank = &dev->vblank[drm_crtc_index(crtc)];
-
-                spin_lock_irq(&dev->vbl_lock);
-                vblank->inmodeset = 0x0;
-                spin_unlock_irq(&dev->vbl_lock);
-            }
-
-            if (old_crtc_state->active  && !new_crtc_state->active) {
-                drm_crtc_vblank_off(crtc);
-            }
-
-        }
-        struct drm_connector *connector;
-        struct drm_connector_state *connector_state;
-        int j;
-        nv_drm_for_each_connector_in_state(state, connector, connector_state, j) {
-            if (connector->state->content_protection == DRM_MODE_CONTENT_PROTECTION_DESIRED) {
-                nv_drm_connector_update_content_protection(to_nv_connector(connector));
-            }
+        if (commit || reply_config.flipResult != NV_KMS_FLIP_RESULT_IN_PROGRESS) {
+            return -EINVAL;
         }
     }
 
@@ -361,6 +507,10 @@ nv_drm_atomic_apply_modeset_config(struct drm_device *dev,
         }
     }
 
+    if (commit && nv_dev->requiresVrrSemaphores && reply_config.vrrFlip) {
+        nvKms->signalVrrSemaphore(nv_dev->pDevice, reply_config.vrrSemaphoreIndex);
+    }
+
     return 0;
 }
 
@@ -369,23 +519,47 @@ int nv_drm_atomic_check(struct drm_device *dev,
 {
     int ret = 0;
 
-#if defined(NV_DRM_COLOR_MGMT_AVAILABLE)
     struct drm_crtc *crtc;
     struct drm_crtc_state *crtc_state;
     int i;
 
+    struct drm_plane *plane;
+    struct drm_plane_state *plane_state;
+    int j;
+    bool cursor_surface_changed;
+    bool cursor_only_commit;
+
     nv_drm_for_each_crtc_in_state(state, crtc, crtc_state, i) {
+
+        /*
+         * Committing cursor surface change without any other plane change can
+         * cause cursor surface in use by HW to be freed prematurely. Add all
+         * planes to the commit to avoid this. This is a workaround for bug 4966645.
+         */
+        cursor_surface_changed = false;
+        cursor_only_commit = true;
+        nv_drm_for_each_plane_in_state(crtc_state->state, plane, plane_state, j) {
+            if (plane->type == DRM_PLANE_TYPE_CURSOR) {
+                if (plane_state->fb != plane->state->fb) {
+                    cursor_surface_changed = true;
+                }
+            } else {
+                cursor_only_commit = false;
+                break;
+            }
+        }
+
         /*
          * if the color management changed on the crtc, we need to update the
          * crtc's plane's CSC matrices, so add the crtc's planes to the commit
          */
-        if (crtc_state->color_mgmt_changed) {
+        if (crtc_state->color_mgmt_changed ||
+            (cursor_surface_changed && cursor_only_commit)) {
             if ((ret = drm_atomic_add_affected_planes(state, crtc)) != 0) {
                 goto done;
             }
         }
     }
-#endif /* NV_DRM_COLOR_MGMT_AVAILABLE */
 
     if ((ret = drm_atomic_helper_check(dev, state)) != 0) {
         goto done;
@@ -398,43 +572,6 @@ done:
     return ret;
 }
 
-static void nv_drm_update_vblank_timestamp(struct nv_drm_crtc *nv_crtc)
-{
-    /* If high-precision query is unsupported, DRM core resets vblank
-     * timestamp to 0 to mark it invalid in drm_crtc_vblank_on. It's
-     * possible that the initial event sending to userspace with 0
-     * timestamp before 1st valid vblank timestamp updated by
-     * drm_handle_vblank. Update timestamp for such case only.
-     */
-    struct drm_crtc *crtc = &nv_crtc->base;
-    if (!crtc->funcs->get_vblank_timestamp) {
-        ktime_t t_vblank = 0;
-        drm_crtc_vblank_count_and_time(crtc, &t_vblank);
-        if (t_vblank == 0) {
-            struct drm_vblank_crtc *vblank = &crtc->dev->vblank[drm_crtc_index(crtc)];
-
-            write_seqlock(&vblank->seqlock);
-            vblank->time = ktime_get();
-            write_sequnlock(&vblank->seqlock);
-        }
-    }
-}
-
-static void nv_drm_send_completion_event(struct nv_drm_crtc *nv_crtc,
-                                         struct nv_drm_flip  *nv_flip_pos)
-{
-    WARN_ON(nv_flip_pos->pending_events_plane_mask);
-
-    if (nv_flip_pos->event != NULL) {
-        nv_drm_update_vblank_timestamp(nv_crtc);
-        drm_crtc_send_vblank_event(&nv_crtc->base, nv_flip_pos->event);
-        drm_crtc_vblank_put(&nv_crtc->base);
-    }
-
-    list_del(&nv_flip_pos->list_entry);
-    nv_drm_free(nv_flip_pos);
-}
-
 /**
  * __nv_drm_handle_flip_event - handle flip occurred event
  * @nv_crtc: crtc on which flip has been occurred
@@ -442,71 +579,48 @@ static void nv_drm_send_completion_event(struct nv_drm_crtc *nv_crtc,
  * This handler dequeues the first nv_drm_flip from the crtc's flip_list,
  * generates an event if requested at flip time, and frees the nv_drm_flip.
  */
-void nv_drm_handle_flip_event(struct nv_drm_device *nv_dev, NvU32 head, NvU32 layer, bool process_pending)
+static void __nv_drm_handle_flip_event(struct nv_drm_crtc *nv_crtc)
 {
-    struct nv_drm_crtc *nv_crtc = nv_drm_crtc_lookup(nv_dev, head);
-    struct nv_drm_plane *nv_plane = nv_drm_plane_lookup(nv_dev, head, layer);
     struct drm_device *dev = nv_crtc->base.dev;
-    struct nv_drm_flip  *nv_flip_pos, *nv_flip_n;
-    const uint32_t plane_mask = NVBIT(nv_plane->base.index);
-    bool process_pending_crtc = true;
+    struct nv_drm_device *nv_dev = to_nv_device(dev);
+    struct nv_drm_flip *nv_flip;
 
+    /*
+     * Acquire event_lock before nv_flip object dequeue, otherwise immediate
+     * flip event delivery from nv_drm_atomic_commit() races ahead and
+     * messes up with event delivery order.
+     */
     spin_lock(&dev->event_lock);
-    list_for_each_entry_safe(nv_flip_pos, nv_flip_n, &nv_crtc->flip_list, list_entry) {
+    nv_flip = nv_drm_crtc_dequeue_flip(nv_crtc);
+    if (likely(nv_flip != NULL)) {
+        struct nv_drm_flip *nv_deferred_flip, *nv_next_deferred_flip;
 
-        if (!(nv_flip_pos->plane_mask & plane_mask)) {
-            if (nv_flip_pos->plane_mask) {
-                process_pending_crtc = false;
+        if (nv_flip->event != NULL) {
+            drm_crtc_send_vblank_event(&nv_crtc->base, nv_flip->event);
+        }
+
+        /*
+         * Process flips that were deferred until processing of this nv_flip
+         * object.
+         */
+        list_for_each_entry_safe(nv_deferred_flip,
+                                 nv_next_deferred_flip,
+                                 &nv_flip->deferred_flip_list, list_entry) {
+
+            if (nv_deferred_flip->event != NULL) {
+                drm_crtc_send_vblank_event(&nv_crtc->base,
+                                           nv_deferred_flip->event);
             }
+            list_del(&nv_deferred_flip->list_entry);
 
-            if (process_pending_crtc && !nv_flip_pos->plane_mask) {
-                nv_drm_send_completion_event(nv_crtc, nv_flip_pos);
-            }
-
-            continue;
-        }
-
-        if (!process_pending && (nv_flip_pos->pending_events_plane_mask &
-                plane_mask)) {
-            break;
-        }
-
-        if (nv_flip_pos->pending_events_plane_mask & plane_mask) {
-            process_pending = false;
-        }
-
-        nv_flip_pos->pending_events_plane_mask &= ~plane_mask;
-        nv_flip_pos->plane_mask &= ~plane_mask;
-
-        if (!nv_flip_pos->plane_mask) {
-            nv_drm_send_completion_event(nv_crtc, nv_flip_pos);
-        } else {
-            process_pending_crtc = false;
+            nv_drm_free(nv_deferred_flip);
         }
     }
     spin_unlock(&dev->event_lock);
 
-    wake_up(&nv_dev->flip_event_wq);
+    wake_up_all(&nv_dev->flip_event_wq);
 
-    WARN_ON(process_pending);
-}
-
-static void nv_drm_crtc_handle_completion_event(struct nv_drm_device *nv_dev, struct nv_drm_crtc *nv_crtc)
-{
-    struct drm_device *dev =  nv_crtc->base.dev;
-    struct nv_drm_flip  *nv_flip_pos, *nv_flip_n;
-
-    spin_lock(&dev->event_lock);
-    list_for_each_entry_safe(nv_flip_pos, nv_flip_n, &nv_crtc->flip_list, list_entry) {
-        if (nv_flip_pos->plane_mask) {
-            break;
-        } else {
-            nv_drm_send_completion_event(nv_crtc, nv_flip_pos);
-        }
-    }
-    spin_unlock(&dev->event_lock);
-
-    wake_up(&nv_dev->flip_event_wq);
+    nv_drm_free(nv_flip);
 }
 
 int nv_drm_atomic_commit(struct drm_device *dev,
@@ -518,8 +632,6 @@ int nv_drm_atomic_commit(struct drm_device *dev,
     int i;
     struct drm_crtc *crtc = NULL;
     struct drm_crtc_state *crtc_state = NULL;
-    struct drm_plane *plane = NULL;
-    struct drm_plane_state *plane_state = NULL;
     struct nv_drm_device *nv_dev = to_nv_device(dev);
 
     /*
@@ -574,9 +686,32 @@ int nv_drm_atomic_commit(struct drm_device *dev,
                     "Flip event timeout on head %u", nv_crtc->head);
             }
         }
-    }
 
-#if defined(NV_DRM_ATOMIC_HELPER_SWAP_STATE_HAS_STALL_ARG)
+        /*
+         * If the legacy LUT needs to be updated, ensure that the previous LUT
+         * update is complete first.
+         */
+        if (crtc_state->color_mgmt_changed) {
+            NvBool complete = nvKms->checkLutNotifier(nv_dev->pDevice,
+                                                      nv_crtc->head,
+                                                      !nonblock /* waitForCompletion */);
+
+            /* If checking the LUT notifier failed, assume no LUT notifier is set. */
+            if (!complete) {
+                if (nonblock) {
+                    return -EBUSY;
+                } else {
+                    /*
+                     * checkLutNotifier should wait on the notifier in this
+                     * case, so we should only get here if the wait timed out.
+                     */
+                    NV_DRM_DEV_LOG_ERR(
+                        nv_dev,
+                        "LUT notifier timeout on head %u", nv_crtc->head);
+                }
+            }
+        }
+    }
 
     /*
      * nv_drm_atomic_commit_internal()
@@ -588,18 +723,10 @@ int nv_drm_atomic_commit(struct drm_device *dev,
      * expected.
      */
 
-#if defined(NV_DRM_ATOMIC_HELPER_SWAP_STATE_RETURN_INT)
     ret = drm_atomic_helper_swap_state(state, false /* stall */);
     if (WARN_ON(ret != 0)) {
         return ret;
     }
-#else
-    drm_atomic_helper_swap_state(state, false /* stall */);
-#endif
-
-#else
-    drm_atomic_helper_swap_state(dev, state);
-#endif
 
     /*
      * nv_drm_atomic_commit_internal() must not return failure after
@@ -617,22 +744,52 @@ int nv_drm_atomic_commit(struct drm_device *dev,
         goto done;
     }
 
-    nv_drm_for_each_plane_in_state(state, plane, plane_state, i) {
-        struct nv_drm_plane *nv_plane = to_nv_plane(plane);
-        if (plane->type == DRM_PLANE_TYPE_CURSOR) {
-            continue;
+    nv_drm_for_each_crtc_in_state(state, crtc, crtc_state, i) {
+        struct nv_drm_crtc *nv_crtc = to_nv_crtc(crtc);
+        struct nv_drm_crtc_state *nv_new_crtc_state =
+            to_nv_crtc_state(crtc->state);
+
+        /*
+         * If nv_drm_atomic_apply_modeset_config() hasn't consumed the flip
+         * object, no event will be generated for this flip, and we need process
+         * it:
+         */
+
+        if (nv_new_crtc_state->nv_flip != NULL) {
+            /*
+             * First, defer processing of all pending flips for this crtc until
+             * last flip in the queue has been processed. This is to ensure a
+             * correct order in event delivery.
+             */
+            spin_lock(&nv_crtc->flip_list_lock);
+            if (!list_empty(&nv_crtc->flip_list)) {
+                struct nv_drm_flip *nv_last_flip =
+                    list_last_entry(&nv_crtc->flip_list,
+                                    struct nv_drm_flip, list_entry);
+
+                list_add(&nv_new_crtc_state->nv_flip->list_entry,
+                    &nv_last_flip->deferred_flip_list);
+
+                nv_new_crtc_state->nv_flip = NULL;
+            }
+            spin_unlock(&nv_crtc->flip_list_lock);
         }
-        nv_drm_handle_flip_event(nv_dev, nv_plane->head,
-                                 nv_plane->layer_idx, false);
-    }
 
-    nv_drm_for_each_crtc_in_state(state, crtc, crtc_state, i) {
-        struct nv_drm_crtc *nv_crtc = to_nv_crtc(crtc);
-        nv_drm_crtc_handle_completion_event(nv_dev, nv_crtc);
-    }
+        if (nv_new_crtc_state->nv_flip != NULL) {
+            /*
+             * Then, if no more pending flips for this crtc, deliver event for the
+             * current flip.
+             */
+            if (nv_new_crtc_state->nv_flip->event != NULL) {
+                spin_lock(&dev->event_lock);
+                drm_crtc_send_vblank_event(crtc,
+                                           nv_new_crtc_state->nv_flip->event);
+                spin_unlock(&dev->event_lock);
+            }
 
-    nv_drm_for_each_crtc_in_state(state, crtc, crtc_state, i) {
-        struct nv_drm_crtc *nv_crtc = to_nv_crtc(crtc);
+            nv_drm_free(nv_new_crtc_state->nv_flip);
+            nv_new_crtc_state->nv_flip = NULL;
+        }
 
         if (!nonblock) {
             /*
@@ -666,22 +823,43 @@ int nv_drm_atomic_commit(struct drm_device *dev,
                 NV_DRM_DEV_LOG_ERR(
                     nv_dev,
                     "Flip event timeout on head %u", nv_crtc->head);
+                while (!list_empty(&nv_crtc->flip_list)) {
+                    __nv_drm_handle_flip_event(nv_crtc);
+                }
+            }
+
+            if (crtc_state->color_mgmt_changed) {
+                NvBool complete = nvKms->checkLutNotifier(nv_dev->pDevice,
+                                                          nv_crtc->head,
+                                                          true /* waitForCompletion */);
+                if (!complete) {
+                    NV_DRM_DEV_LOG_ERR(
+                        nv_dev,
+                        "LUT notifier timeout on head %u", nv_crtc->head);
+                }
             }
         }
     }
 
 done:
 
-#if defined(NV_DRM_ATOMIC_STATE_REF_COUNTING_PRESENT)
     /*
-     * If ref counting is present, state will be freed when the caller
-     * drops its reference after we return.
+     * State will be freed when the caller drops its reference after we return.
      */
-#else
-    drm_atomic_state_free(state);
-#endif
 
     return 0;
+}
+
+void nv_drm_handle_flip_occurred(struct nv_drm_device *nv_dev,
+                                 NvU32 head, NvU32 plane)
+{
+    struct nv_drm_crtc *nv_crtc = nv_drm_crtc_lookup(nv_dev, head);
+
+    if (NV_DRM_WARN(nv_crtc == NULL)) {
+        return;
+    }
+
+    __nv_drm_handle_flip_event(nv_crtc);
 }
 
 #endif

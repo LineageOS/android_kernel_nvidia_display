@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -32,7 +32,6 @@
 #include "nv_compiler.h"
 #include "nv-reg.h"
 #include "conftest/patches.h"
-#include "nv-ibmnpu.h"
 
 #define NV_DEFINE_SINGLE_NVRM_PROCFS_FILE(name) \
     NV_DEFINE_SINGLE_PROCFS_FILE_READ_ONLY(name, nv_system_pm_lock)
@@ -55,6 +54,7 @@ static struct proc_dir_entry *proc_nvidia_warnings;
 static struct proc_dir_entry *proc_nvidia_patches;
 static struct proc_dir_entry *proc_nvidia_gpus;
 
+extern char *NVreg_CoherentGPUMemoryMode;
 extern char *NVreg_RegistryDwords;
 extern char *NVreg_RegistryDwordsPerDevice;
 extern char *NVreg_RmMsg;
@@ -197,28 +197,28 @@ nv_procfs_read_power(
 {
     nv_state_t *nv = s->private;
     nvidia_stack_t *sp = NULL;
-    const char *vidmem_power_status;
-    const char *dynamic_power_status;
-    const char *gc6_support;
-    const char *gcoff_support;
+    nv_power_info_t power_info;
 
     if (nv_kmem_cache_alloc_stack(&sp) != 0)
     {
         return 0;
     }
 
-    dynamic_power_status = rm_get_dynamic_power_management_status(sp, nv);
-    seq_printf(s, "Runtime D3 status:          %s\n", dynamic_power_status);
-
-    vidmem_power_status = rm_get_vidmem_power_status(sp, nv);
-    seq_printf(s, "Video Memory:               %s\n\n", vidmem_power_status);
+    rm_get_power_info(sp, nv, &power_info);
+    seq_printf(s, "Runtime D3 status:          %s\n", power_info.dynamic_power_status);
+    seq_printf(s, "Tegra iGPU Rail-Gating:     %s\n",
+                    nv->is_tegra_pci_igpu_rg_enabled ? "Enabled" : "Disabled");
+    seq_printf(s, "Video Memory:               %s\n\n", power_info.vidmem_power_status);
 
     seq_printf(s, "GPU Hardware Support:\n");
-    gc6_support = rm_get_gpu_gcx_support(sp, nv, NV_TRUE);
-    seq_printf(s, " Video Memory Self Refresh: %s\n", gc6_support);
+    seq_printf(s, " Video Memory Self Refresh: %s\n", power_info.gc6_support);
+    seq_printf(s, " Video Memory Off:          %s\n\n", power_info.gcoff_support);
 
-    gcoff_support = rm_get_gpu_gcx_support(sp, nv, NV_FALSE);
-    seq_printf(s, " Video Memory Off:          %s\n", gcoff_support);
+    seq_printf(s, "S0ix Power Management:\n");
+    seq_printf(s, " Platform Support:          %s\n",
+               nv_platform_supports_s0ix() ? "Supported" : "Not Supported");
+    seq_printf(s, " Status:                    %s\n\n", power_info.s0ix_status);
+    seq_printf(s, "Notebook Dynamic Boost:     %s\n", power_info.db_support);
 
     nv_kmem_cache_free_stack(sp);
     return 0;
@@ -432,6 +432,8 @@ nv_procfs_read_params(
     for (i = 0; (entry = &nv_parms[i])->name != NULL; i++)
         seq_printf(s, "%s: %u\n", entry->name, *entry->data);
 
+    seq_printf(s, "CoherentGPUMemoryMode: \"%s\"\n",
+               (NVreg_CoherentGPUMemoryMode != NULL) ? NVreg_CoherentGPUMemoryMode : "");
     seq_printf(s, "RegistryDwords: \"%s\"\n",
                (NVreg_RegistryDwords != NULL) ? NVreg_RegistryDwords : "");
     seq_printf(s, "RegistryDwordsPerDevice: \"%s\"\n",
@@ -694,7 +696,7 @@ static nv_proc_ops_t nv_procfs_suspend_fops = {
 /*
  * Forwards error to nv_log_error which exposes data to vendor callback
  */
-void
+static void
 exercise_error_forwarding_va(
     nv_state_t *nv,
     NvU32 err,
@@ -977,13 +979,9 @@ numa_is_change_allowed(nv_numa_status_t current_state, nv_numa_status_t requeste
 
 static NV_STATUS
 numa_status_read(
-        nv_state_t *nv,
-        nv_stack_t *sp,
-        NvS32 *nid,
-        NvS32 *status,
-        NvU64 *numa_mem_addr,
-        NvU64 *numa_mem_size,
-        nv_offline_addresses_t *list
+    nv_state_t              *nv,
+    nv_stack_t              *sp,
+    nv_ioctl_numa_info_t    *numa_info
 )
 {
     NV_STATUS rm_status;
@@ -1000,24 +998,17 @@ numa_status_read(
     {
         if (nv_platform_supports_numa(nvl))
         {
-            *nid = nvl->numa_info.node_id;
-            *status = nv_get_numa_status(nvl);
-            *numa_mem_addr = 0;
-            *numa_mem_size = 0;
-            memset(list, 0x0, sizeof(*list));
+            memset(numa_info, 0x0, sizeof(*numa_info));
+            numa_info->nid = nvl->numa_info.node_id;
+            numa_info->status = nv_get_numa_status(nvl);
         }
 
         rm_status = NV_ERR_NOT_READY;
         goto done;
     }
 
-    list->numEntries = ARRAY_SIZE(list->addresses);
-
-    rm_status = rm_get_gpu_numa_info(sp, nv,
-                                     nid, numa_mem_addr, numa_mem_size,
-                                     list->addresses, &list->numEntries);
-
-    if (rm_status == NV_OK && *nid == NUMA_NO_NODE)
+    rm_status = rm_get_gpu_numa_info(sp, nv, numa_info);
+    if (rm_status == NV_OK && numa_info->nid == NUMA_NO_NODE)
     {
         // 
         // RM returns NUMA_NO_NODE when running MIG instances because
@@ -1033,7 +1024,7 @@ numa_status_read(
         //
         rm_status = NV_ERR_NOT_SUPPORTED;
     } 
-    *status = nv_get_numa_status(nvl);
+    numa_info->status = nv_get_numa_status(nvl);
 
 done:
     up(&nvl->ldata_lock);
@@ -1049,18 +1040,15 @@ nv_procfs_read_offline_pages(
     NvU32 i;
     int retval = 0;
     NV_STATUS rm_status;
-    nv_ioctl_numa_info_t numa_info;
+    nv_ioctl_numa_info_t numa_info = { 0 };
     nv_procfs_private_t *nvpp = s->private;
     nv_stack_t *sp = nvpp->sp;
     nv_state_t *nv = nvpp->nv;
 
-    rm_status = numa_status_read(nv, sp,
-                                 &numa_info.nid,
-                                 &numa_info.status,
-                                 &numa_info.numa_mem_addr,
-                                 &numa_info.numa_mem_size,
-                                 &numa_info.offline_addresses);
+    numa_info.offline_addresses.numEntries =
+        ARRAY_SIZE(numa_info.offline_addresses.addresses);
 
+    rm_status = numa_status_read(nv, sp, &numa_info);
     if (rm_status != NV_OK)
         return -EIO;
 
@@ -1131,18 +1119,17 @@ nv_procfs_read_numa_status(
 {
     int retval = 0;
     NV_STATUS rm_status;
-    nv_ioctl_numa_info_t numa_info;
+    nv_ioctl_numa_info_t numa_info = { 0 };
     nv_procfs_private_t *nvpp = s->private;
     nv_stack_t *sp = nvpp->sp;
     nv_state_t *nv = nvpp->nv;
 
-    rm_status = numa_status_read(nv, sp,
-                                 &numa_info.nid,
-                                 &numa_info.status,
-                                 &numa_info.numa_mem_addr,
-                                 &numa_info.numa_mem_size,
-                                 &numa_info.offline_addresses);
-
+    /*
+     * Note: we leave numa_info.offline_addresses.numEntries as 0, so that
+     * the numa_status_read() callchain doesn't perform expensive page
+     * querying that we don't need here.
+     */
+    rm_status = numa_status_read(nv, sp, &numa_info);
     if ((rm_status != NV_OK) && (rm_status != NV_ERR_NOT_READY))
         return -EIO;
 

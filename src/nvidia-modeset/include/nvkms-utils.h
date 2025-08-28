@@ -55,6 +55,11 @@ static inline NvBool A_plus_B_greater_than_C_U16(NvU16 a, NvU16 b, NvU16 c)
     return (NV_U16_MAX - a < b) || ((a + b) > c);
 }
 
+static inline NvBool A_plus_B_greater_than_C_U64(NvU64 a, NvU64 b, NvU64 c)
+{
+    return (NV_U64_MAX - a < b) || ((a + b) > c);
+}
+
 static inline NvS32 clamp_S32(NvS32 val, NvS32 lo, NvS32 hi)
 {
     if (val < lo) {
@@ -77,6 +82,11 @@ static inline NvBool nvHasBitAboveMax(NvU32 bitmask, NvU8 max)
         return FALSE;
     }
     return (bitmask & ~((1 << max) - 1)) != 0;
+}
+
+static inline NvU32 nvPackNvU32(NvU8 a, NvU8 b, NvU8 c, NvU8 d)
+{
+    return (a << 24) | (b << 16) | (c << 8) | d;
 }
 
 /*!
@@ -113,8 +123,8 @@ static inline NvBool nvExceedsTimeoutUSec(
 {
     const NvU64 currentTime = nvkms_get_usec();
 
-    if (nvIsEmulationEvo(pDevEvo)) {
-        return FALSE;
+    if (nvIsEmulationEvo(pDevEvo) && !nvIsDfpgaEvo(pDevEvo)) {
+        timeoutPeriod *= 100;
     }
 
     if (*pStartTime == 0) {

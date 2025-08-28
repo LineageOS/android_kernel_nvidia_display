@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -35,6 +35,7 @@
 #include "dp_deviceimpl.h"
 #include "dp_groupimpl.h"
 #include "dp_connectorimpl.h"
+#include "dp_printf.h"
 
 using namespace DisplayPort;
 
@@ -110,11 +111,11 @@ void GroupImpl::update(Device * dev, bool allocationState)
         {
             if (allocationState)
             {
-                DP_LOG(("DP-TM> Attached stream:%d to %s", streamIndex, dev->getTopologyAddress().toString(sb)));
+                DP_PRINTF(DP_NOTICE, "DP-TM> Attached stream:%d to %s", streamIndex, dev->getTopologyAddress().toString(sb));
             }
             else
             {
-                DP_LOG(("DP-TM> Detached stream:%d from %s", streamIndex, dev->getTopologyAddress().toString(sb)));
+                DP_PRINTF(DP_NOTICE, "DP-TM> Detached stream:%d from %s", streamIndex, dev->getTopologyAddress().toString(sb));
             }
 
             ((DeviceImpl *)dev)->payloadAllocated = allocationState;
@@ -126,12 +127,12 @@ void GroupImpl::update(Device * dev, bool allocationState)
     // we should not have ideally reached here unless allocate payload failed.
     if (allocationState)
     {
-        DP_LOG(("DP-TM> Allocate_payload: Failed to ATTACH stream:%d to %s", streamIndex, dev->getTopologyAddress().toString(sb)));
+        DP_PRINTF(DP_ERROR, "DP-TM> Allocate_payload: Failed to ATTACH stream:%d to %s", streamIndex, dev->getTopologyAddress().toString(sb));
         DP_ASSERT(0);
     }
     else
     {
-        DP_LOG(("DP-TM> Allocate_payload: Failed to DETACH stream:%d from %s", streamIndex, dev->getTopologyAddress().toString(sb)));
+        DP_PRINTF(DP_ERROR, "DP-TM> Allocate_payload: Failed to DETACH stream:%d from %s", streamIndex, dev->getTopologyAddress().toString(sb));
         DP_ASSERT(0);
     }
 
@@ -169,12 +170,14 @@ void GroupImpl::insert(Device * dev)
             if (group->hdcpEnabled)
             {
                 countOnes = (((NvU64)1) << group->timeslot.count) - 1;
+
                 mask = countOnes << group->timeslot.begin;
                 ecf |= mask;
             }
         }
 
         countOnes = (((NvU64)1) << this->timeslot.count) - 1;
+
         mask = countOnes << this->timeslot.begin;
         ecf &= ~mask;
 
@@ -200,6 +203,16 @@ void GroupImpl::remove(Device * dev)
 
     if (isHeadAttached())
     {
+        /*
+         * The device may become lost and free after removal from the active
+         * group. Therefore, also remove the device from the
+         * 'dscEnabledDevices' list and ensure that its dangling pointer is not
+         * left behind.
+         */
+        if (parent->dscEnabledDevices.contains(dev)) {
+            parent->dscEnabledDevices.remove(dev);
+        }
+
         di->activeGroup = 0;
     }
     members.remove(di);
@@ -235,7 +248,6 @@ void GroupImpl::destroy()
                 if (group == this)
                 {
                     parent->activeGroups.remove(this);
-                    DP_LOG(("DP-GRP> Deleted group 0x%x from active group!", this));
                     break;
                 }
             }
@@ -250,7 +262,6 @@ void GroupImpl::destroy()
                 if (group == this)
                 {
                     parent->inactiveGroups.remove(this);
-                    DP_LOG(("DP-GRP> Deleted group 0x%x from inactive group!", this));
                     break;
                 }
             }
@@ -259,13 +270,11 @@ void GroupImpl::destroy()
         if (parent->intransitionGroups.contains(this))
         {
             parent->intransitionGroups.remove(this);
-            DP_LOG(("DP-GRP> Deleted group 0x%x from intransition group!", this));
         }
 
         if (parent->addStreamMSTIntransitionGroups.contains(this))
         {
             parent->addStreamMSTIntransitionGroups.remove(this);
-            DP_LOG(("DP-GRP> Deleted group 0x%x from addStreamMSTIntransitionGroups group!", this));
         }
     }
 
@@ -357,15 +366,16 @@ void GroupImpl::expired(const void * tag)
     }
 }
 
-// bForceClear stands for bForceClearECF. 
+// bForceClear stands for bForceClearECF.
 bool GroupImpl::hdcpSetEncrypted(bool encrypted, NvU8 streamType, NvBool  bForceClear, NvBool bAddStreamBack)
 {
+
     if (encrypted == true)
     {
         bool bNeedReNegotiate = false;
         HDCPState hdcpState = {0};
 
-        DP_LOG(("DP-GRP: enable encryption with type=%d.", streamType));
+        DP_PRINTF(DP_NOTICE, "DP-GRP: enable encryption with type=%d.", streamType);
 
         // enumerate the displays in the group and see if they are hdcp capable.
         Device * d = 0;
@@ -374,7 +384,7 @@ bool GroupImpl::hdcpSetEncrypted(bool encrypted, NvU8 streamType, NvBool  bForce
         {
             NvU8 Bcaps = (NvU8)(((DeviceImpl*)d)->nvBCaps[0]);
 
-            if ((FLD_TEST_DRF(_DPCD, _HDCP_BCAPS_OFFSET, _HDCP_CAPABLE, _YES, Bcaps)) && 
+            if ((FLD_TEST_DRF(_DPCD, _HDCP_BCAPS_OFFSET, _HDCP_CAPABLE, _YES, Bcaps)) &&
                 (((DeviceImpl*)d)->isHDCPCap == True))
             {
                 isHdcpCapable = true;
@@ -384,7 +394,7 @@ bool GroupImpl::hdcpSetEncrypted(bool encrypted, NvU8 streamType, NvBool  bForce
 
         if (isHdcpCapable == false)
         {
-            DP_LOG(("DP-GRP: group does not contain a hdcp capable device."));
+            DP_PRINTF(DP_ERROR, "DP-GRP: group does not contain a hdcp capable device.");
             return false;
         }
 
@@ -400,7 +410,7 @@ bool GroupImpl::hdcpSetEncrypted(bool encrypted, NvU8 streamType, NvBool  bForce
         if ((hdcpState.HDCP_State_22_Capable) &&
             (false == parent->main->setStreamType(streamIndex, streamType, &bNeedReNegotiate)))
         {
-            DP_LOG(("DP-GRP: group set stream type failed."));
+            DP_PRINTF(DP_ERROR, "DP-GRP: group set stream type failed.");
             return false;
         }
 
@@ -422,17 +432,19 @@ bool GroupImpl::hdcpSetEncrypted(bool encrypted, NvU8 streamType, NvBool  bForce
         }
         else
         {
-            // SST is done when it's authenticated.
-            if (!(parent->linkUseMultistream()))
+            // SST and non128b/132b is done when it's authenticated.
+            if (!(parent->linkUseMultistream())
+                )
                 return true;
         }
 
-        if (parent->linkUseMultistream())
+        if (parent->linkUseMultistream()
+            )
         {
             // Check if authenticated else wait it's authenticated then assigning ECF.
-            if(!parent->isHDCPAuthOn)
+            if(!parent->isHDCPAuthOn || bNeedReNegotiate)
             {
-                parent->timer->queueCallback(this, &tagMSTQSEandSetECF, HDCP_AUTHENTICATION_COOLDOWN);
+                parent->timer->queueCallback(this, &tagMSTQSEandSetECF, HDCP_QSEANDSETECF_COOLDOWN);
                 return true;
             }
             else
@@ -446,7 +458,8 @@ bool GroupImpl::hdcpSetEncrypted(bool encrypted, NvU8 streamType, NvBool  bForce
     {
         if (parent->isHDCPAuthOn)
         {
-            if (!(parent->linkUseMultistream()))
+            if (!(parent->linkUseMultistream())
+                )
             {
                 parent->main->configureHDCPDisableAuthentication();
                 parent->isHDCPAuthOn = this->hdcpEnabled = false;
@@ -464,6 +477,7 @@ bool GroupImpl::hdcpSetEncrypted(bool encrypted, NvU8 streamType, NvBool  bForce
                     if (group->hdcpEnabled)
                     {
                         countOnes = (((NvU64)1) << group->timeslot.count) - 1;
+
                         mask = countOnes << group->timeslot.begin;
                         ecf |= mask;
                     }
@@ -476,8 +490,8 @@ bool GroupImpl::hdcpSetEncrypted(bool encrypted, NvU8 streamType, NvBool  bForce
 
                     if (this->headIndex == group->headIndex)
                     {
-                        DP_ASSERT(group->hdcpEnabled);
                         countOnes = (((NvU64)1) << group->timeslot.count) - 1;
+
                         mask = countOnes << group->timeslot.begin;
                         ecf &= ~mask;
                     }
@@ -491,6 +505,16 @@ bool GroupImpl::hdcpSetEncrypted(bool encrypted, NvU8 streamType, NvBool  bForce
                     if (this->headIndex == group->headIndex)
                     {
                         group->hdcpEnabled = false;
+                        { // Inform ConnectorEventSink that we have disabled HDCP on this Device
+                            Device * d = 0;
+                            for (d = ((Group*)this)->enumDevices(0); d != 0; d = ((Group*)this)->enumDevices(d))
+                            {
+                                if (((DeviceImpl*)d)->isHDCPCap == True)
+                                {
+                                    parent->sink->notifyHDCPCapDone(d, False);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -521,6 +545,7 @@ bool GroupImpl::hdcpGetEncrypted()
 
 void GroupImpl::hdcpMSTQSEandSetECF()
 {
+
     //
     //  We become passive and wait for the Stream_Status_Change coming.
     //  Otherwise, we might not have the change to get the update KSVlist to
@@ -535,7 +560,8 @@ void GroupImpl::hdcpMSTQSEandSetECF()
     // This is added to provide driver for ST and not to be productized.
     //
     if ((parent->bIsEncryptionQseValid) &&
-        (!parent->main->getRegkeyValue(NV_DP_REGKEY_DISABLE_QSES)))
+        (!parent->main->getRegkeyValue(NV_DP_REGKEY_DISABLE_QSES)) 
+        )
     {
         for (ListElement * i = parent->activeGroups.begin();
              i != parent->activeGroups.end(); i = i->next)
@@ -567,6 +593,7 @@ void GroupImpl::hdcpMSTQSEandSetECF()
         if (group->hdcpEnabled)
         {
             countOnes = (((NvU64)1) << group->timeslot.count) - 1;
+
             mask = countOnes << group->timeslot.begin;
             ecf |= mask;
         }
@@ -580,6 +607,7 @@ void GroupImpl::hdcpMSTQSEandSetECF()
         if (this->headIndex == group->headIndex)
         {
             countOnes = (((NvU64)1) << group->timeslot.count) - 1;
+
             mask = countOnes << group->timeslot.begin;
             ecf |= mask;
         }
@@ -594,7 +622,8 @@ void GroupImpl::hdcpMSTQSEandSetECF()
     // This is added to provide driver for ST and not to be productized.
     //
     if ((parent->bIsEncryptionQseValid) &&
-        (!parent->main->getRegkeyValue(NV_DP_REGKEY_DISABLE_QSES)))
+        (!parent->main->getRegkeyValue(NV_DP_REGKEY_DISABLE_QSES))
+        )
     {
         for (ListElement * i = parent->activeGroups.begin();
              i != parent->activeGroups.end(); i = i->next)
@@ -627,8 +656,17 @@ void GroupImpl::hdcpMSTQSEandSetECF()
 
         if (this->headIndex == group->headIndex)
         {
-            DP_ASSERT(group->hdcpEnabled == false);
             group->hdcpEnabled = true;
+            { // Inform ConnectorEventSink that we have enabled HDCP on this Device
+                Device * d = 0;
+                for (d = ((Group*)this)->enumDevices(0); d != 0; d = ((Group*)this)->enumDevices(d))
+                {
+                    if (((DeviceImpl*)d)->isHDCPCap == True)
+                    {
+                        parent->sink->notifyHDCPCapDone(d, True);
+                    }
+                }
+	    }
         }
     }
 }
@@ -668,11 +706,11 @@ void GroupImpl::updateVbiosScratchRegister(Device * lastDev)
 //
 // Helper function for attaching and detaching heads.
 //
-// For attach, we will assert if group already has head attached but for 
+// For attach, we will assert if group already has head attached but for
 // some device in the group, active group did not point to current group.
-// For detach, we will assert if the group does not have head attached but  
-// some device in group has an active group OR head is marked attached but 
-// not all devies in the group have the current group as active group.  
+// For detach, we will assert if the group does not have head attached but
+// some device in group has an active group OR head is marked attached but
+// not all devies in the group have the current group as active group.
 // This also sets or clears dev->activeGroup for each contained
 // device.
 //
@@ -696,7 +734,7 @@ void GroupImpl::setHeadAttached(bool attached)
             {
                 DP_ASSERT(di->activeGroup == NULL);
             }
-            else 
+            else
             {
                 DP_ASSERT(di->activeGroup == this);
             }

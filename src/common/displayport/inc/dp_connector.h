@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -48,7 +48,10 @@
 namespace DisplayPort
 {
     class EvoInterface;
- 
+
+#define SET_DP_IMP_ERROR(pErrorCode, errorCode) \
+        if (pErrorCode && *pErrorCode == DP_IMP_ERROR_NONE) *pErrorCode = errorCode;
+
     typedef enum
     {
         DP_IMP_ERROR_NONE,
@@ -62,6 +65,7 @@ namespace DisplayPort
         DP_IMP_ERROR_INSUFFICIENT_BANDWIDTH,
         DP_IMP_ERROR_INSUFFICIENT_BANDWIDTH_DSC,
         DP_IMP_ERROR_INSUFFICIENT_BANDWIDTH_NO_DSC,
+        DP_IMP_ERROR_INSUFFICIENT_DP_TUNNELING_BANDWIDTH,
         DP_IMP_ERROR_WATERMARK_BLANKING,
         DP_IMP_ERROR_PPS_COLOR_FORMAT_NOT_SUPPORTED,
         DP_IMP_ERROR_PPS_INVALID_HBLANK,
@@ -162,6 +166,27 @@ namespace DisplayPort
 
     class Group;
 
+    struct DpLinkIsModePossibleParams
+    {
+        struct
+        {
+            Group * pTarget;
+            DpModesetParams *pModesetParams;
+            DP_IMP_ERROR *pErrorStatus;
+            DscParams *pDscParams;
+        } head[NV_MAX_HEADS];
+    };
+
+    struct DpPreModesetParams
+    {
+        struct
+        {
+            Group *pTarget;
+            const DpModesetParams *pModesetParams;
+        } head[NV_MAX_HEADS];
+        NvU32 headMask;
+    };
+
     bool SetConfigSingleHeadMultiStreamMode(Group **targets,                         // Array of group pointers given for getting configured in single head multistream mode.
                                             NvU32 displayIDs[],                      // Array of displayIDs  given for getting  configured in single head multistream mode.
                                             NvU32 numStreams,                        // Number of streams driven out from single head.
@@ -250,6 +275,10 @@ namespace DisplayPort
 
         virtual DscCaps getDscCaps() = 0;
 
+        virtual NvBool isDynamicPPSSupported() = 0;
+
+        virtual NvBool isDynamicDscToggleSupported() = 0;
+
         //
         // This function returns the device itself or its parent device that is doing
         // DSC decompression for it.
@@ -258,6 +287,10 @@ namespace DisplayPort
         virtual void    markDeviceForDeletion() = 0;
 
         virtual bool getRawDscCaps(NvU8 *buffer, NvU32 bufferSize) = 0;
+        virtual bool setRawDscCaps(const NvU8 *buffer, NvU32 bufferSize) = 0;
+        virtual bool setValidatedRawDscCaps(NvU8 *buffer, NvU32 bufferSize) = 0;
+        virtual bool validatePPSData(DSCPPSDATA *pPps) = 0;
+        virtual bool readAndParseDSCCaps() = 0;
 
         // This interface is still nascent. Please don't use it. Read size limit is 16 bytes.
         virtual AuxBus::status getDpcdData(unsigned offset, NvU8 * buffer,
@@ -297,8 +330,17 @@ namespace DisplayPort
         virtual bool isMSAOverMSTCapable() = 0;
         virtual bool isFakedMuxDevice() = 0;
         virtual bool setPanelReplayConfig(panelReplayConfig prcfg) = 0;
+        virtual bool getPanelReplayConfig(panelReplayConfig *pPrcfg) = 0;
         virtual bool isPanelReplaySupported() = 0;
         virtual bool getPanelReplayStatus(PanelReplayStatus *pPrStatus) = 0;
+        virtual bool getDeviceSpecificData(NvU8 *oui, NvU8 *deviceIdString,
+                                           NvU8 *hwRevision, NvU8 *swMajorRevision,
+                                           NvU8 *swMinorRevision) = 0;
+        virtual bool getParentSpecificData(NvU8 *oui, NvU8 *deviceIdString,
+                                           NvU8 *hwRevision, NvU8 *swMajorRevision,
+                                           NvU8 *swMinorRevision) = 0;
+
+        virtual bool setModeList(DisplayPort::DpModesetParams *pModeList, unsigned numModes) = 0;
 
     protected:
             virtual ~Device() {}
@@ -382,13 +424,16 @@ namespace DisplayPort
         virtual LinkConfiguration getActiveLinkConfig() = 0;
 
         // Get Current link configuration
-        virtual void getCurrentLinkConfig(unsigned & laneCount, NvU64 & linkRate) = 0;
+        virtual void getCurrentLinkConfig(unsigned &laneCount, NvU64 &linkRate) = 0;
 
         // Get the clock calculation supported by the panel
         virtual unsigned getPanelDataClockMultiplier() = 0;
 
         // Get the clock calculation supported by the GPU
         virtual unsigned getGpuDataClockMultiplier() = 0;
+
+        // Power Down the link
+        virtual void powerdownLink(bool bPowerdownPanel = false) = 0;
 
         // Resume from standby/initial boot notification
         //   The library is considered to start up in the suspended state.  You must make this
@@ -448,7 +493,7 @@ namespace DisplayPort
         //  Will tell you if you have sufficient bandwidth to operate
         //  two panels at 1920x1080 and 1280x1024 assuming all currently
         //  attached panels are detached.
-        virtual void beginCompoundQuery() = 0;
+        virtual void beginCompoundQuery(const bool bForceEnableFEC = false) = 0;
 
         //
         // twoChannelAudioHz
@@ -477,10 +522,12 @@ namespace DisplayPort
 
         virtual bool compoundQueryAttach(Group * target,
                                          const DpModesetParams &modesetParams,      // Modeset info
-                                         DscParams *pDscParams,				     // DSC parameters
-                                         DP_IMP_ERROR *errorStatus = NULL) = 0;     // Error Status code     
+                                         DscParams *pDscParams,                     // DSC parameters
+                                         DP_IMP_ERROR *errorStatus = NULL) = 0;     // Error Status code
 
         virtual bool endCompoundQuery() = 0;
+
+        virtual bool dpLinkIsModePossible(const DpLinkIsModePossibleParams &params) = 0;
 
         // Interface to indicate if clients need to perform a head shutdown before a modeset
         virtual bool isHeadShutDownNeeded(Group * target,            // Group of panels we're attaching to this head
@@ -535,6 +582,9 @@ namespace DisplayPort
         // Group of panels we're attaching to this head
         virtual bool notifyAttachBegin(Group * target, const DpModesetParams &modesetParams) = 0;
 
+        virtual void dpPreModeset(const DpPreModesetParams &modesetParams) = 0;
+        virtual void dpPostModeset(void) = 0;
+
         virtual void readRemoteHdcpCaps() = 0;
 
         // modeset might be cancelled when NAB failed
@@ -565,6 +615,8 @@ namespace DisplayPort
         // Notify Library when GPU capability changes. Usually because power event.
         virtual void notifyGPUCapabilityChange() = 0;
         virtual void notifyHBR2WAREngage() = 0;
+
+        virtual bool dpUpdateDscStream(Group *target, NvU32 dscBpp) = 0;
 
         // Create a new Group.  Note that if you wish to do a modeset but send the
         // stream nowhere, you may do a modeset with an EMPTY group.  This is expected
@@ -628,9 +680,10 @@ namespace DisplayPort
         // Compound queries and notify attaches(link train) would use the preferred link config unless it is reset again.
         // (not advisable to leave a preferred link config always ON).
         //
-        virtual bool setPreferredLinkConfig(LinkConfiguration & lc, bool commit,
+        virtual bool setPreferredLinkConfig(LinkConfiguration &lc, bool commit,
                                             bool force = false,
-                                            LinkTrainingType forceTrainType = NORMAL_LINK_TRAINING) = 0;
+                                            LinkTrainingType forceTrainType = NORMAL_LINK_TRAINING,
+                                            bool forcePreferredLinkConfig = false) = 0;
 
         //
         // Resets the preferred link config and lets the library go back to default LT policy.
@@ -662,8 +715,8 @@ namespace DisplayPort
         virtual void hdcpRenegotiate(NvU64 cN, NvU64 cKsv) = 0;
         virtual bool getHDCPAbortCodesDP12(NvU32 &hdcpAbortCodesDP12) = 0;
 
-        virtual bool getOuiSink(unsigned &ouiId, char * modelName,
-                                size_t modelNameBufferSize, NvU8 & chipRevision) = 0;
+        virtual bool getOuiSink(unsigned &ouiId, unsigned char * modelName,
+                                size_t modelNameBufferSize, NvU8 &chipRevision) = 0;
 
         virtual bool getIgnoreSourceOuiHandshake() = 0;
         virtual void setIgnoreSourceOuiHandshake(bool bIgnore) = 0;
@@ -684,6 +737,7 @@ namespace DisplayPort
         virtual bool setTestPattern(NV0073_CTRL_DP_TESTPATTERN testPattern,
                                     NvU8 laneMask, NV0073_CTRL_DP_CSTM cstm,
                                     NvBool bIsHBR2, NvBool bSkipLaneDataOverride) = 0;
+
         // "data" is an array of NV0073_CTRL_MAX_LANES unsigned ints
         virtual bool getLaneConfig(NvU32 *numLanes, NvU32 *data) = 0;
         // "data" is an array of NV0073_CTRL_MAX_LANES unsigned ints
@@ -706,7 +760,13 @@ namespace DisplayPort
     virtual bool readPsrErrorStatus(vesaPsrErrorStatus *psrErr) = 0;
     virtual bool writePsrEvtIndicator(vesaPsrEventIndicator psrErr) = 0;
     virtual bool readPsrEvtIndicator(vesaPsrEventIndicator *psrErr) = 0;
-    virtual bool updatePsrLinkState(bool bTrainLink) = 0;
+    virtual bool updatePsrLinkState(bool bTurnOnLink) = 0;
+
+    virtual bool readPrSinkDebugInfo(panelReplaySinkDebugInfo *prDbgInfo) = 0;
+    virtual void enableDpTunnelingBwAllocationSupport() = 0;
+    virtual bool willLinkSupportModeSST(const LinkConfiguration &linkConfig,
+                                        const ModesetInfo &modesetInfo,
+                                        const DscParams *pDscParams = NULL) = 0;
 
     protected:
            virtual ~Connector() {}

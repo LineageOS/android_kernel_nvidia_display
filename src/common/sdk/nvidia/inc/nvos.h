@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -79,6 +79,7 @@ extern "C" {
 #define NVOS_STATUS_ERROR_ILLEGAL_ACTION                        NV_ERR_ILLEGAL_ACTION
 #define NVOS_STATUS_ERROR_IN_USE                                NV_ERR_STATE_IN_USE
 #define NVOS_STATUS_ERROR_INSUFFICIENT_RESOURCES                NV_ERR_INSUFFICIENT_RESOURCES
+#define NVOS_STATUS_ERROR_INSUFFICIENT_ZBC_ENTRY                NV_ERR_INSUFFICIENT_ZBC_ENTRY
 #define NVOS_STATUS_ERROR_INVALID_ACCESS_TYPE                   NV_ERR_INVALID_ACCESS_TYPE
 #define NVOS_STATUS_ERROR_INVALID_ARGUMENT                      NV_ERR_INVALID_ARGUMENT
 #define NVOS_STATUS_ERROR_INVALID_BASE                          NV_ERR_INVALID_BASE
@@ -191,7 +192,6 @@ typedef struct
 #define NVOS02_FLAGS_PHYSICALITY_NONCONTIGUOUS                     (0x00000001)
 #define NVOS02_FLAGS_LOCATION                                      11:8
 #define NVOS02_FLAGS_LOCATION_PCI                                  (0x00000000)
-#define NVOS02_FLAGS_LOCATION_AGP                                  (0x00000001)
 #define NVOS02_FLAGS_LOCATION_VIDMEM                               (0x00000002)
 #define NVOS02_FLAGS_COHERENCY                                     15:12
 #define NVOS02_FLAGS_COHERENCY_UNCACHED                            (0x00000000)
@@ -256,6 +256,14 @@ typedef struct
 #define NVOS02_FLAGS_MEMORY_PROTECTION_DEFAULT                     (0x00000000)
 #define NVOS02_FLAGS_MEMORY_PROTECTION_PROTECTED                   (0x00000001)
 #define NVOS02_FLAGS_MEMORY_PROTECTION_UNPROTECTED                 (0x00000002)
+
+//
+// When allocating memory, register the memory descriptor to GSP-RM
+// so that GSP-RM is aware of and can access it
+//
+#define NVOS02_FLAGS_REGISTER_MEMDESC_TO_PHYS_RM                   27:27
+#define NVOS02_FLAGS_REGISTER_MEMDESC_TO_PHYS_RM_FALSE             (0x00000000)
+#define NVOS02_FLAGS_REGISTER_MEMDESC_TO_PHYS_RM_TRUE              (0x00000001)
 
 //
 // If _NO_MAP is requested, the RM in supported platforms will not map the
@@ -625,25 +633,14 @@ typedef void (*BindResultFunc)(void * pVoid, NvU32 gpuMask, NvU32 bState, NvU32 
 // NVOS32 function
 #define NVOS32_FUNCTION_ALLOC_SIZE                      2
 #define NVOS32_FUNCTION_FREE                            3
-// #define NVOS32_FUNCTION_HEAP_PURGE                   4
 #define NVOS32_FUNCTION_INFO                            5
 #define NVOS32_FUNCTION_ALLOC_TILED_PITCH_HEIGHT        6
-// #define NVOS32_FUNCTION_DESTROY                      7
-// #define NVOS32_FUNCTION_RETAIN                       9
-// #define NVOS32_FUNCTION_REALLOC                      10
-#define NVOS32_FUNCTION_DUMP                            11
-// #define NVOS32_FUNCTION_INFO_TYPE_ALLOC_BLOCKS       12
 #define NVOS32_FUNCTION_ALLOC_SIZE_RANGE                14
 #define NVOS32_FUNCTION_REACQUIRE_COMPR                 15
 #define NVOS32_FUNCTION_RELEASE_COMPR                   16
-// #define NVOS32_FUNCTION_MODIFY_DEFERRED_TILES        17
 #define NVOS32_FUNCTION_GET_MEM_ALIGNMENT               18
 #define NVOS32_FUNCTION_HW_ALLOC                        19
 #define NVOS32_FUNCTION_HW_FREE                         20
-// #define NVOS32_FUNCTION_SET_OFFSET                   21
-// #define NVOS32_FUNCTION_IS_TILED                     22
-// #define NVOS32_FUNCTION_ENABLE_RESOURCE              23
-// #define NVOS32_FUNCTION_BIND_COMPR                   24
 #define NVOS32_FUNCTION_ALLOC_OS_DESCRIPTOR             27
 
 typedef struct
@@ -651,14 +648,6 @@ typedef struct
     NvP64 sgt NV_ALIGN_BYTES(8);
     NvP64 gem NV_ALIGN_BYTES(8);
 } NVOS32_DESCRIPTOR_TYPE_OS_SGT_PTR_PARAMETERS;
-
-#define NVOS32_FLAGS_BLOCKINFO_VISIBILITY_CPU (0x00000001)
-typedef struct
-{
-    NvU64 startOffset NV_ALIGN_BYTES(8);
-    NvU64 size NV_ALIGN_BYTES(8);
-    NvU32 flags;
-} NVOS32_BLOCKINFO;
 
 // NVOS32 IVC-heap number delimiting value
 #define NVOS32_IVC_HEAP_NUMBER_DONT_ALLOCATE_ON_IVC_HEAP 0 // When IVC heaps are present,
@@ -722,7 +711,7 @@ typedef struct
           NvU64     rangeEnd   NV_ALIGN_BYTES(8); // [IN]  - from rangeBegin to rangeEnd, inclusive.
           NvU32     attr2;              // [IN/OUT] - surface attributes requested, and surface attributes allocated
           NvU32     ctagOffset;         // [IN] - comptag offset for this surface (see NVOS32_ALLOC_COMPTAG_OFFSET)
-          NvU32     attr3;              // [IN/OUT] - surface attributes requested, and surface attributes allocated
+          NvS32     numaNode;           // [IN] - NUMA node from which memory should be allocated
       } AllocSize;
 
       // NVOS32_FUNCTION_ALLOC_TILED_PITCH_HEIGHT
@@ -749,7 +738,7 @@ typedef struct
           NvU64     rangeEnd   NV_ALIGN_BYTES(8); // [IN]  - from rangeBegin to rangeEnd, inclusive.
           NvU32     attr2;              // [IN/OUT] - surface attributes requested, and surface attributes allocated
           NvU32     ctagOffset;         // [IN] - comptag offset for this surface (see NVOS32_ALLOC_COMPTAG_OFFSET)
-          NvU32     attr3;              // [IN/OUT] - surface attributes requested, and surface attributes allocated
+          NvS32     numaNode;           // [IN] - NUMA node from which memory should be allocated
       } AllocTiledPitchHeight;
 
       // NVOS32_FUNCTION_FREE
@@ -785,25 +774,6 @@ typedef struct
           NvU64 base   NV_ALIGN_BYTES(8);   // [OUT] - returned heap phys base
       } Info;
 
-      // NVOS32_FUNCTION_DUMP
-      struct
-      {
-          NvU32 flags;              // [IN] - see _DUMP_FLAGS
-          // [IN]  - if NULL, numBlocks is the returned number of blocks in
-          //         heap, else returns all blocks in eHeap
-          //         if non-NULL points to a buffer that is at least numBlocks
-          //         * sizeof(NVOS32_HEAP_DUMP_BLOCK) bytes.
-          NvP64 pBuffer NV_ALIGN_BYTES(8);
-          // [IN/OUT] - if pBuffer is NULL, will number of blocks in heap
-          //            if pBuffer is non-NULL, is input containing the size of
-          //            pBuffer in units of NVOS32_HEAP_DUMP_BLOCK.  This must
-          //            be greater than or equal to the number of blocks in the
-          //            heap.
-          NvU32 numBlocks;
-      } Dump;
-
-      // NVOS32_FUNCTION_DESTROY - no extra parameters needed
-
       // NVOS32_FUNCTION_ALLOC_SIZE_RANGE
       struct
       {
@@ -825,14 +795,8 @@ typedef struct
           NvP64     address NV_ALIGN_BYTES(8);// [OUT] - returned address
           NvU32     attr2;              // [IN/OUT] - surface attributes requested, and surface attributes allocated
           NvU32     ctagOffset;         // [IN] - comptag offset for this surface (see NVOS32_ALLOC_COMPTAG_OFFSET)
-          NvU32     attr3;              // [IN/OUT] - surface attributes requested, and surface attributes allocated
+          NvS32     numaNode;           // [IN] - NUMA node from which memory should be allocated
       } AllocSizeRange;
-
-      // additions for Longhorn
-#define NVAL_MAX_BANKS (4)
-#define NVAL_MAP_DIRECTION             0:0
-#define NVAL_MAP_DIRECTION_DOWN 0x00000000
-#define NVAL_MAP_DIRECTION_UP   0x00000001
 
       // NVOS32_FUNCTION_GET_MEM_ALIGNMENT
       struct
@@ -846,8 +810,6 @@ typedef struct
           NvU32 alignPitch;
           NvU32 alignPad;
           NvU32 alignMask;
-          NvU32 alignOutputFlags[NVAL_MAX_BANKS];           // We could compress this information but it is probably not that big of a deal
-          NvU32 alignBank[NVAL_MAX_BANKS];
           NvU32 alignKind;
           NvU32 alignAdjust;                                // Output -- If non-zero the amount we need to adjust the offset
           NvU32 alignAttr2;
@@ -916,16 +878,6 @@ typedef struct
   } data;
 } NVOS32_PARAMETERS;
 
-typedef struct
-{
-    NvU32 owner;    // owner id - NVOS32_BLOCK_TYPE_FREE or defined by client during heap_alloc
-    NvU32 format;   // arch specific format/kind
-    NvU64 begin NV_ALIGN_BYTES(8); // start of allocated memory block
-    NvU64 align NV_ALIGN_BYTES(8); // actual start of usable memory, aligned to chip specific boundary
-    NvU64 end   NV_ALIGN_BYTES(8); // end of usable memory.  end - align + 1 = size of block
-} NVOS32_HEAP_DUMP_BLOCK;
-
-
 #define NVOS32_DELETE_RESOURCES_ALL                     0
 
 // type field
@@ -946,7 +898,8 @@ typedef struct
 #define NVOS32_TYPE_RESERVED                            14
 #define NVOS32_TYPE_PMA                                 15
 #define NVOS32_TYPE_STENCIL                             16
-#define NVOS32_NUM_MEM_TYPES                            17
+#define NVOS32_TYPE_SYNCPOINT                           17
+#define NVOS32_NUM_MEM_TYPES                            18
 
 // Surface attribute field - bitmask of requested attributes the surface
 // should have.
@@ -998,12 +951,21 @@ typedef struct
 #define NVOS32_ATTR_AA_SAMPLES_8_VIRTUAL_16             0x00000009
 #define NVOS32_ATTR_AA_SAMPLES_8_VIRTUAL_32             0x0000000A
 
-// Tiled region
-#define NVOS32_ATTR_TILED                                      9:8
-#define NVOS32_ATTR_TILED_NONE                          0x00000000
-#define NVOS32_ATTR_TILED_REQUIRED                      0x00000001
-#define NVOS32_ATTR_TILED_ANY                           0x00000002
-#define NVOS32_ATTR_TILED_DEFERRED                      0x00000003
+//
+//
+// GPU_CACHE_SNOOPABLE_ON signals to RM that CPU (or other IO device)
+// accesses to this surface will snoop the GPU cache.
+// _OFF indicates no GPU cache snooping will take place.
+// _MAPPING defers the decision to mapping time.
+//
+// Only applies to fully coherent platforms.
+//
+//
+#define NVOS32_ATTR_GPU_CACHE_SNOOPABLE                        9:8
+#define NVOS32_ATTR_GPU_CACHE_SNOOPABLE_MAPPING         0x00000000
+#define NVOS32_ATTR_GPU_CACHE_SNOOPABLE_OFF             0x00000001
+#define NVOS32_ATTR_GPU_CACHE_SNOOPABLE_ON              0x00000002
+#define NVOS32_ATTR_GPU_CACHE_SNOOPABLE_INVALID         0x00000003
 
 // Zcull region (NV40 and up)
 // If ATTR_ZCULL is REQUIRED or ANY and ATTR_DEPTH is UNKNOWN, the
@@ -1028,6 +990,14 @@ typedef struct
 #define NVOS32_ATTR_COMPR_PLC_REQUIRED                  NVOS32_ATTR_COMPR_REQUIRED
 #define NVOS32_ATTR_COMPR_PLC_ANY                       NVOS32_ATTR_COMPR_ANY
 #define NVOS32_ATTR_COMPR_DISABLE_PLC_ANY               0x00000003
+
+//
+// Force the allocation to go to the reserved heap.
+// This flag is used for KMD allocations when MIG is enabled.
+//
+#define NVOS32_ATTR_ALLOCATE_FROM_RESERVED_HEAP              14:14
+#define NVOS32_ATTR_ALLOCATE_FROM_RESERVED_HEAP_NO      0x00000000
+#define NVOS32_ATTR_ALLOCATE_FROM_RESERVED_HEAP_YES     0x00000001
 
 // Format
 // _BLOCK_LINEAR is only available for nv50+.
@@ -1097,7 +1067,6 @@ typedef struct
 #define NVOS32_ATTR_LOCATION                                 26:25
 #define NVOS32_ATTR_LOCATION_VIDMEM                     0x00000000
 #define NVOS32_ATTR_LOCATION_PCI                        0x00000001
-#define NVOS32_ATTR_LOCATION_AGP                        0x00000002
 #define NVOS32_ATTR_LOCATION_ANY                        0x00000003
 
 //
@@ -1178,10 +1147,6 @@ typedef struct
 // Specified numaNode must be of a CPU's memory
 //
 
-// TODO: NVOS32_ATTR2_TILED_TYPE no longer used. Marked for deletion.
-#define NVOS32_ATTR2_TILED_TYPE                                7:7
-#define NVOS32_ATTR2_TILED_TYPE_LINEAR                  0x00000000
-#define NVOS32_ATTR2_TILED_TYPE_XY                      0x00000001
 #define NVOS32_ATTR2_FIXED_NUMA_NODE_ID                        7:7
 #define NVOS32_ATTR2_FIXED_NUMA_NODE_ID_NO              0x00000000
 #define NVOS32_ATTR2_FIXED_NUMA_NODE_ID_YES             0x00000001
@@ -1191,10 +1156,15 @@ typedef struct
 // SMMU mapping for GPU physical allocation decided internally by RM
 // This attribute provide an override to RM policy for verification purposes.
 //
-#define NVOS32_ATTR2_SMMU_ON_GPU                               10:8
+#define NVOS32_ATTR2_SMMU_ON_GPU                               9:8
 #define NVOS32_ATTR2_SMMU_ON_GPU_DEFAULT                 0x00000000
 #define NVOS32_ATTR2_SMMU_ON_GPU_DISABLE                 0x00000001
 #define NVOS32_ATTR2_SMMU_ON_GPU_ENABLE                  0x00000002
+
+// Used for allocating the memory from scanout carveout.
+#define NVOS32_ATTR2_USE_SCANOUT_CARVEOUT                    10:10
+#define NVOS32_ATTR2_USE_SCANOUT_CARVEOUT_FALSE              0x00000000
+#define NVOS32_ATTR2_USE_SCANOUT_CARVEOUT_TRUE               0x00000001
 
 //
 // Make comptag allocation aligned to compression cacheline size.
@@ -1295,6 +1265,7 @@ typedef struct
 #define NVOS32_ATTR2_PAGE_SIZE_HUGE_DEFAULT              0x00000000
 #define NVOS32_ATTR2_PAGE_SIZE_HUGE_2MB                  0x00000001
 #define NVOS32_ATTR2_PAGE_SIZE_HUGE_512MB                0x00000002
+#define NVOS32_ATTR2_PAGE_SIZE_HUGE_256GB                0x00000003
 
 // Allow read-only or read-write user CPU mappings
 #define NVOS32_ATTR2_PROTECTION_USER                          22:22
@@ -1305,6 +1276,11 @@ typedef struct
 #define NVOS32_ATTR2_PROTECTION_DEVICE                        23:23
 #define NVOS32_ATTR2_PROTECTION_DEVICE_READ_WRITE        0x00000000
 #define NVOS32_ATTR2_PROTECTION_DEVICE_READ_ONLY         0x00000001
+
+// Deprecated. To be deleted once client code has removed references.
+#define NVOS32_ATTR2_USE_EGM                                 24:24
+#define NVOS32_ATTR2_USE_EGM_FALSE                      0x00000000
+#define NVOS32_ATTR2_USE_EGM_TRUE                       0x00000001
 
 //
 // Allow client allocations to go to protected/unprotected video/system memory.
@@ -1327,20 +1303,24 @@ typedef struct
 #define NVOS32_ATTR2_ALLOCATE_FROM_SUBHEAP_YES          0x00000001
 
 //
+// Force the video memory allocation to localized allocation.
+// Same attribute can be used to choose between uGPU0 and uGPU1.
+// if set to default, RM will choose the next available uGPU memory.
+// if set to _UGPU0, RM will choose the memory from uGPU0.
+// if set to _UGPU1, RM will choose the memory from uGPU1.
+//
+#define NVOS32_ATTR2_ENABLE_LOCALIZED_MEMORY            30:29
+#define NVOS32_ATTR2_ENABLE_LOCALIZED_MEMORY_DEFAULT    0x00000000
+#define NVOS32_ATTR2_ENABLE_LOCALIZED_MEMORY_UGPU0      0x00000001
+#define NVOS32_ATTR2_ENABLE_LOCALIZED_MEMORY_UGPU1      0x00000002
+
+//
 // When allocating memory, register the memory descriptor to GSP-RM
 // so that GSP-RM is aware of and can access it
 //
 #define NVOS32_ATTR2_REGISTER_MEMDESC_TO_PHYS_RM            31:31
 #define NVOS32_ATTR2_REGISTER_MEMDESC_TO_PHYS_RM_FALSE      0x00000000
 #define NVOS32_ATTR2_REGISTER_MEMDESC_TO_PHYS_RM_TRUE       0x00000001
-
-//
-// Force the allocation to go to the reserved heap.
-// This flag is used for KMD allocations when MIG is enabled.
-//
-#define NVOS32_ATTR3_ALLOCATE_FROM_RESERVED_HEAP               0:0
-#define NVOS32_ATTR3_ALLOCATE_FROM_RESERVED_HEAP_NO            0x0
-#define NVOS32_ATTR3_ALLOCATE_FROM_RESERVED_HEAP_YES           0x1
 
 /**
  * NVOS32 ALLOC_FLAGS
@@ -1637,7 +1617,6 @@ typedef struct
 
     NvU32     attr;                         // [IN/OUT] - surface attributes requested, and surface attributes allocated
     NvU32     attr2;                        // [IN/OUT] - surface attributes requested, and surface attributes allocated
-    NvU32     attr3;                        // [IN/OUT] - surface attributes requested, and surface attributes allocated
 
     NvU32     format;                       // [IN/OUT] - format requested, and format allocated
     NvU32     comprCovg;                    // [IN/OUT] - compr covg requested, and allocated
@@ -1747,7 +1726,7 @@ typedef struct
 
 // Mappings can have restricted permissions (read-only, write-only).  Some
 // RM implementations may choose to ignore these flags, or they may work
-// only for certain memory spaces (system, AGP, video memory); in such cases,
+// only for certain memory spaces (system, video memory); in such cases,
 // you may get a read/write mapping even if you asked for a read-only or
 // write-only mapping.
 #define NVOS33_FLAGS_ACCESS                                        1:0
@@ -1805,7 +1784,7 @@ typedef struct
 // - Used for controlling CPU addresses in CUDA's unified CPU+GPU virtual
 //   address space
 // - Only valid on NvRmMapMemory
-// - Only implemented on Linux
+// - Implemented on Unix but not VMware
 #define NVOS33_FLAGS_MAP_FIXED                                     18:18
 #define NVOS33_FLAGS_MAP_FIXED_DISABLE                             (0x00000000)
 #define NVOS33_FLAGS_MAP_FIXED_ENABLE                              (0x00000001)
@@ -1823,9 +1802,10 @@ typedef struct
 // - When combined with MAP_FIXED, this allows the client to exert
 //   significant control over the CPU heap
 // - Used in CUDA's unified CPU+GPU virtual address space
-// - Only valid on NvRmMapMemory (specifies RM's behavior whenever the
+// - Valid in nvRmUnmapMemory
+// - Valid on NvRmMapMemory (specifies RM's behavior whenever the
 //   mapping is destroyed, regardless of mechanism)
-// - Only implemented on Linux
+// - Implemented on Unix but not VMware
 #define NVOS33_FLAGS_RESERVE_ON_UNMAP                              19:19
 #define NVOS33_FLAGS_RESERVE_ON_UNMAP_DISABLE                      (0x00000000)
 #define NVOS33_FLAGS_RESERVE_ON_UNMAP_ENABLE                       (0x00000001)
@@ -1847,6 +1827,18 @@ typedef struct
 #define NVOS33_FLAGS_CACHING_TYPE_WRITEBACK                        5
 #define NVOS33_FLAGS_CACHING_TYPE_DEFAULT                          6
 #define NVOS33_FLAGS_CACHING_TYPE_UNCACHED_WEAK                    7
+
+//
+// For use when Hopper Confidential Compute is operating in devtools mode
+// BAR1 access to CPR vidmem is blocked to CPU-RM by default when HCC is
+// enabled in both devtools and prod modes. However, certain mappings are
+// allowed to go through successfully only in devtools mode. For example,
+// CPU mappings made on behalf of devtools, event buffer mappings are allowed
+// to happen in devtools mode
+//
+#define NVOS33_FLAGS_ALLOW_MAPPING_ON_HCC                     26:26
+#define NVOS33_FLAGS_ALLOW_MAPPING_ON_HCC_NO                  (0x00000000)
+#define NVOS33_FLAGS_ALLOW_MAPPING_ON_HCC_YES                 (0x00000001)
 
 /* parameters */
 typedef struct
@@ -2047,6 +2039,7 @@ typedef struct
 #define NVOS46_FLAGS_PAGE_SIZE_BIG                                 (0x00000002)
 #define NVOS46_FLAGS_PAGE_SIZE_BOTH                                (0x00000003)
 #define NVOS46_FLAGS_PAGE_SIZE_HUGE                                (0x00000004)
+#define NVOS46_FLAGS_PAGE_SIZE_512M                                (0x00000005)
 
 // Some systems allow the device to use the system L3 cache when accessing the
 // system memory. For example, the iGPU on T19X can allocate from the system L3
@@ -2102,16 +2095,25 @@ typedef struct
 #define NVOS46_FLAGS_DMA_OFFSET_FIXED_FALSE                        (0x00000000)
 #define NVOS46_FLAGS_DMA_OFFSET_FIXED_TRUE                         (0x00000001)
 
-#define NVOS46_FLAGS_PTE_COALESCE_LEVEL_CAP                        19:16
-#define NVOS46_FLAGS_PTE_COALESCE_LEVEL_CAP_DEFAULT                (0x00000000)
-#define NVOS46_FLAGS_PTE_COALESCE_LEVEL_CAP_1                      (0x00000001)
-#define NVOS46_FLAGS_PTE_COALESCE_LEVEL_CAP_2                      (0x00000002)
-#define NVOS46_FLAGS_PTE_COALESCE_LEVEL_CAP_4                      (0x00000003)
-#define NVOS46_FLAGS_PTE_COALESCE_LEVEL_CAP_8                      (0x00000004)
-#define NVOS46_FLAGS_PTE_COALESCE_LEVEL_CAP_16                     (0x00000005)
-#define NVOS46_FLAGS_PTE_COALESCE_LEVEL_CAP_32                     (0x00000006)
-#define NVOS46_FLAGS_PTE_COALESCE_LEVEL_CAP_64                     (0x00000007)
-#define NVOS46_FLAGS_PTE_COALESCE_LEVEL_CAP_128                    (0x00000008)
+#define NVOS46_FLAGS_DISABLE_ENCRYPTION                            16:16
+#define NVOS46_FLAGS_DISABLE_ENCRYPTION_FALSE                      (0x00000000)
+#define NVOS46_FLAGS_DISABLE_ENCRYPTION_TRUE                       (0x00000001)
+
+//
+// DEFAULT  - Use the cache policy set at allocation
+// YES      - Enable gpu caching
+// NO       - Disable gpu caching
+//
+#define NVOS46_FLAGS_GPU_CACHEABLE                                 18:17
+#define NVOS46_FLAGS_GPU_CACHEABLE_DEFAULT                         (0x00000000)
+#define NVOS46_FLAGS_GPU_CACHEABLE_YES                             (0x00000001)
+#define NVOS46_FLAGS_GPU_CACHEABLE_NO                              (0x00000002)
+#define NVOS46_FLAGS_GPU_CACHEABLE_INVALID                         (0x00000003)
+
+#define NVOS46_FLAGS_PAGE_KIND_OVERRIDE                            19:19
+#define NVOS46_FLAGS_PAGE_KIND_OVERRIDE_NO                         (0x00000000)
+#define NVOS46_FLAGS_PAGE_KIND_OVERRIDE_YES                        (0x00000001)
+
 #define NVOS46_FLAGS_P2P                                           27:20
 
 #define NVOS46_FLAGS_P2P_ENABLE                                    21:20
@@ -2131,6 +2133,15 @@ typedef struct
 #define NVOS46_FLAGS_DMA_UNICAST_REUSE_ALLOC_FALSE                 (0x00000000)
 #define NVOS46_FLAGS_DMA_UNICAST_REUSE_ALLOC_TRUE                  (0x00000001)
 //
+// Force pte kind to compresssed for this and future mappings of the memory object
+// Only affects mappings using NVOS46_FLAGS_PAGE_KIND_VIRTUAL
+// Only has effect when physical allocation is compressed
+//
+#define NVOS46_FLAGS_ENABLE_FORCE_COMPRESSED_MAP                   30:30
+#define NVOS46_FLAGS_ENABLE_FORCE_COMPRESSED_MAP_FALSE             (0x00000000)
+#define NVOS46_FLAGS_ENABLE_FORCE_COMPRESSED_MAP_TRUE              (0x00000001)
+
+//
 // This flag must be used with caution. Improper use can leave stale entries in the TLB,
 // and allow access to memory no longer owned by the RM client or cause page faults.
 // Also see corresponding flag for NvUnmapMemoryDma.
@@ -2138,6 +2149,19 @@ typedef struct
 #define NVOS46_FLAGS_DEFER_TLB_INVALIDATION                        31:31
 #define NVOS46_FLAGS_DEFER_TLB_INVALIDATION_FALSE                  (0x00000000)
 #define NVOS46_FLAGS_DEFER_TLB_INVALIDATION_TRUE                   (0x00000001)
+
+//
+// This flag is used on fully coherent platforms to specify whether the GPU cache
+// should be snooped by the CPU or other IO devices for this mapping.
+//
+// Only takes effect if the physical memory is allocated with
+// _ATTR_GPU_CACHE_SNOOPABLE_MAPPING indicating the decision
+// should be deferred to map time.
+//
+#define NVOS46_FLAGS2_GPU_CACHE_SNOOP                          1:0
+#define NVOS46_FLAGS2_GPU_CACHE_SNOOP_DEFAULT                  (0x00000000)
+#define NVOS46_FLAGS2_GPU_CACHE_SNOOP_ENABLE                   (0x00000001)
+#define NVOS46_FLAGS2_GPU_CACHE_SNOOP_DISABLE                  (0x00000002)
 
 /* parameters */
 typedef struct
@@ -2149,6 +2173,8 @@ typedef struct
     NvU64    offset NV_ALIGN_BYTES(8);     // [IN] offset of region
     NvU64    length NV_ALIGN_BYTES(8);     // [IN] limit of region
     NvV32    flags;                  // [IN] flags
+    NvV32    flags2;                 // [IN] flags2
+    NvV32    kindOverride;           // [IN] page kind - applied if NVOS46_FLAGS_PAGE_KIND_OVERRIDE is YES
     NvU64    dmaOffset NV_ALIGN_BYTES(8);  // [OUT] offset of mapping
                                            // [IN] if FLAGS_DMA_OFFSET_FIXED_TRUE
                                            //      *OR* hDma is NOT a CTXDMA handle
@@ -2156,6 +2182,7 @@ typedef struct
     NvV32    status;                 // [OUT] status
 } NVOS46_PARAMETERS;
 
+typedef NVOS46_PARAMETERS NV_MAP_MEMORY_DMA_PARAMETERS;
 
 /* function OS47 */
 #define NV04_UNMAP_MEMORY_DMA                                      (0x0000002F)
@@ -2173,9 +2200,11 @@ typedef struct
     NvHandle hMemory;                // [IN] memory handle for mapping
     NvV32    flags;                  // [IN] flags
     NvU64    dmaOffset NV_ALIGN_BYTES(8);  // [IN] dma offset from NV04_MAP_MEMORY_DMA
+    NvU64    size NV_ALIGN_BYTES(8);       // [IN] size to unmap, 0 to unmap entire mapping
     NvV32    status;                 // [OUT] status
 } NVOS47_PARAMETERS;
 
+typedef NVOS47_PARAMETERS NV_UNMAP_MEMORY_DMA_PARAMETERS;
 
 #define NV04_BIND_CONTEXT_DMA                                      (0x00000031)
 /* parameters */
@@ -2285,7 +2314,11 @@ typedef struct
     NvU8  forceMonitorState;
     NvU8  bForcePerfBiosLevel;
     NvU8  bIsD3HotTransition;    // [OUT] To tell client if it's a D3Hot transition
+    NvU8  bForcePowerStateFail;
+    NvU32 errorStatus;           // [OUT] To tell client if there is bubble up errors
     NvU32 fastBootPowerState;
+    NvU8  reserved;
+    NvU8  reserved2;
 } NVPOWERSTATE_PARAMETERS, *PNVPOWERSTATE_PARAMETERS;
 
  /***************************************************************************\
@@ -2437,27 +2470,39 @@ typedef struct {
 
 #define NV_CHANNELGPFIFO_NOTIFICATION_TYPE_ERROR                0x00000000
 #define NV_CHANNELGPFIFO_NOTIFICATION_TYPE_WORK_SUBMIT_TOKEN    0x00000001
-#define NV_CHANNELGPFIFO_NOTIFICATION_TYPE__SIZE_1              2
+#define NV_CHANNELGPFIFO_NOTIFICATION_TYPE_KEY_ROTATION_STATUS  0x00000002
+#define NV_CHANNELGPFIFO_NOTIFICATION_TYPE__SIZE_1              3
 #define NV_CHANNELGPFIFO_NOTIFICATION_STATUS_VALUE              14:0
 #define NV_CHANNELGPFIFO_NOTIFICATION_STATUS_IN_PROGRESS        15:15
 #define NV_CHANNELGPFIFO_NOTIFICATION_STATUS_IN_PROGRESS_TRUE   0x1
 #define NV_CHANNELGPFIFO_NOTIFICATION_STATUS_IN_PROGRESS_FALSE  0x0
 
+typedef enum
+{
+    PB_SIZE_4KB = 0,
+    PB_SIZE_8KB,
+    PB_SIZE_16KB,
+    PB_SIZE_32KB,
+    PB_SIZE_64KB
+} ChannelPBSize;
+
 typedef struct
 {
-    NvV32    channelInstance;            // One of the n channel instances of a given channel type.
-                                         // Note that core channel has only one instance
-                                         // while all others have two (one per head).
-    NvHandle hObjectBuffer;              // ctx dma handle for DMA push buffer
-    NvHandle hObjectNotify;              // ctx dma handle for an area (of type NvNotification defined in sdk/nvidia/inc/nvtypes.h) where RM can write errors/notifications
-    NvU32    offset;                     // Initial offset for put/get, usually zero.
-    NvP64    pControl NV_ALIGN_BYTES(8); // pControl gives virt addr of UDISP GET/PUT regs
+    NvV32         channelInstance;            // One of the n channel instances of a given channel type.
+                                              // Note that core channel has only one instance
+                                              // while all others have two (one per head).
+    NvHandle      hObjectBuffer;              // ctx dma handle for DMA push buffer
+    NvHandle      hObjectNotify;              // ctx dma handle for an area (of type NvNotification defined in sdk/nvidia/inc/nvtypes.h) where RM can write errors/notifications
+    NvU32         offset;                     // Initial offset for put/get, usually zero.
+    NvP64         pControl NV_ALIGN_BYTES(8); // pControl gives virt addr of UDISP GET/PUT regs
 
-    NvU32    flags;
+    NvU32         flags;
+    ChannelPBSize channelPBSize;              // Size of Push Buffer requested by client (allowed values in enum)
 #define NV50VAIO_CHANNELDMA_ALLOCATION_FLAGS_CONNECT_PB_AT_GRAB                1:1
 #define NV50VAIO_CHANNELDMA_ALLOCATION_FLAGS_CONNECT_PB_AT_GRAB_YES            0x00000000
 #define NV50VAIO_CHANNELDMA_ALLOCATION_FLAGS_CONNECT_PB_AT_GRAB_NO             0x00000001
 
+    NvU32    subDeviceId;                // One-hot encoded subDeviceId (i.e. SDM) that will be used to address the channel in the pushbuffer stream (via SSDM method)
 } NV50VAIO_CHANNELDMA_ALLOCATION_PARAMETERS;
 
 typedef struct
@@ -2715,6 +2760,9 @@ typedef struct
  *       will override to the default big page size that is supported by the system.
  *       If the big page size value is set to ZERO then we will pick the default page size
  *       of the system.
+ * pasid
+ *       Process Address Space Identifier. Used by RM internally when
+ *       NV_VASPACE_ALLOCATION_FLAGS_ENABLE_NVLINK_ATS_TEST is set
  **/
 typedef struct
 {
@@ -2725,6 +2773,7 @@ typedef struct
     NvU64   vaLimitInternal NV_ALIGN_BYTES(8);
     NvU32   bigPageSize;
     NvU64   vaBase NV_ALIGN_BYTES(8);
+    NvU32   pasid;
 } NV_VASPACE_ALLOCATION_PARAMETERS;
 
 #define NV_VASPACE_ALLOCATION_FLAGS_NONE                            (0x00000000)
@@ -2741,6 +2790,9 @@ typedef struct
 #define NV_VASPACE_ALLOCATION_FLAGS_SKIP_SCRUB_MEMPOOL                    BIT(10)
 #define NV_VASPACE_ALLOCATION_FLAGS_OPTIMIZE_PTETABLE_MEMPOOL_USAGE       BIT(11)
 #define NV_VASPACE_ALLOCATION_FLAGS_REQUIRE_FIXED_OFFSET                  BIT(12)
+#define NV_VASPACE_ALLOCATION_FLAGS_PTETABLE_HEAP_MANAGED                 BIT(13)
+// To be used only by SRT for testing ATS within RM
+#define NV_VASPACE_ALLOCATION_FLAGS_ENABLE_NVLINK_ATS_TEST                BIT(14)
 
 #define NV_VASPACE_ALLOCATION_INDEX_GPU_NEW                                 0x00 //<! Create new VASpace, by default
 #define NV_VASPACE_ALLOCATION_INDEX_GPU_HOST                                0x01 //<! Acquire reference to BAR1 VAS.
@@ -2780,6 +2832,9 @@ typedef struct
  *              SPECIFIED
  *                  Force the VEID specified in the subctxId parameter.
  *                  This flag is intended for verif. i.e testing VEID reuse etc.
+ *              PREFER_LOWER
+ *                  Identical behavior to ASYNC, except lower VEIDs are preferred on VOLTA+ chips
+ *
  *
  * subctxId
  *          As input, it is used to specify the subcontext ID, when the _SPECIFIED flag is set.
@@ -2798,6 +2853,17 @@ typedef struct
 #define NV_CTXSHARE_ALLOCATION_FLAGS_SUBCONTEXT_SYNC                 (0x00000000)
 #define NV_CTXSHARE_ALLOCATION_FLAGS_SUBCONTEXT_ASYNC                (0x00000001)
 #define NV_CTXSHARE_ALLOCATION_FLAGS_SUBCONTEXT_SPECIFIED            (0x00000002)
+#define NV_CTXSHARE_ALLOCATION_FLAGS_SUBCONTEXT_ASYNC_PREFER_LOWER   (0x00000003)
+
+/*
+ * The high bit of NV_CTXSHARE_ALLOCATION_PARAMETERS.subctxId is used to indicate success or failure allocating
+ * a subcontext ID below an architecture specific value, which can be queried with
+ * NV2080_CTRL_FIFO_INFO_INDEX_MAX_LOWER_SUBCONTEXT. Remaining bits are currently reserved for the subcontext ID.
+ */
+#define NV_CTXSHARE_ALLOCATION_SUBCTXID_SUBCTXID                                 30:0
+#define NV_CTXSHARE_ALLOCATION_SUBCTXID_ASYNC_PREFER_LOWER_ALLOCATION            31:31
+#define NV_CTXSHARE_ALLOCATION_SUBCTXID_ASYNC_PREFER_LOWER_ALLOCATION_SUCCESS    (0x00000001)
+#define NV_CTXSHARE_ALLOCATION_SUBCTXID_ASYNC_PREFER_LOWER_ALLOCATION_FAIL       (0x00000000)
 
 /**
  * @brief RmTimeoutControl parameters
@@ -2827,85 +2893,6 @@ typedef struct
 
 // NV_TIMEOUT_CONTROL_CMD_RESET_DEVICE_TIMEOUT resets the device timeout to its
 // default value. It uses 'deviceInstance' as the target device.
-
-/**
- * @brief GspTestGetRpcMessageData parameters
- *
- * This API is used by the user-mode GSP firmware RM to get RPC message data
- * from the kernel-mode GSP client RM.
- *
- * This API is only supported in the GSP testbed environment.
- *
- *  blockNum
- *    Specifies block number of message data to return.  A value of 0
- *    indicates that the (default) message header and body should be returned
- *    in the buffer.  If additional RPC-specific data is required it can
- *    be read by continually incrementing the block number and reading the
- *    next block in sequence.
- *  msgBufferSize
- *    Size (in bytes) of buffer pointed to by pMsgBuffer.
- *  pMsgBuffer
- *    Address of user-buffer into  which RPC message data will be copied.
- *  status
- *    Returns status of call.
- **/
-typedef struct
-{
-    NvU32 blockNum;                      // [IN] block # of data to get
-    NvU32 bufferSize;                    // [IN] size of pBuffer
-    NvP64 pBuffer NV_ALIGN_BYTES(8);     // [OUT] buffer returning data
-    NvV32 status;                        // [OUT] status of call
-} NV_GSP_TEST_GET_MSG_BLOCK_PARAMETERS;
-
-/**
- * @brief GspTestSendRpcMessageResponse parameters
- *
- * This API is used to by the user-mode GSP firmware RM to send an RPC message
- * response to the kernel-mode GSP client RM.
- *
- * This API is only supported in the GSP testbed environment.
- *
- *  bufferSize
- *    Size (in bytes) of buffer pointed to by pBuffer.
- *  pBuffer
- *    Address of user-buffer from which RPC response data will be copied.
- *  status
- *    Returns status of call.
- **/
-typedef struct
-{
-    NvU32 bufferSize;                   // [IN] size of response data buffer
-    NvP64 pBuffer NV_ALIGN_BYTES(8);    // [IN] response data buffer
-    NvV32 status;                       // [OUT] status of call
-} NV_GSP_TEST_SEND_MSG_RESPONSE_PARAMETERS;
-
-/**
- * @brief GspTestSendEventNotification parameters
- *
- * This API is used by the user-mode GSP firmware RM to send an event
- * notification to the kernel-mode GSP client RM.
- *
- * This API is only supported in the GSP testbed environment.
- *
- *  hParentClient
- *    Specifies handle of client that owns object associated with event.
- *  hSrcResource
- *    Specifies handle of object associated with event.
- *  hClass
- *    Specifies class number (type) of event.
- *  notifyIndex
- *    Specifies notifier index associated with event.
- *  status
- *    Returns status of call.
- **/
-typedef struct
-{
-    NvHandle hParentClient;             // [IN] handle of client
-    NvHandle hSrcResource;              // [IN] handle of object
-    NvU32 hClass;                       // [IN] class number of event
-    NvU32 notifyIndex;                  // [IN] notifier index
-    NvV32 status;                       // [OUT] status of call
-} NV_GSP_TEST_SEND_EVENT_NOTIFICATION_PARAMETERS;
 
 /*
  * NV_VIDMEM_ACCESS_BIT_BUFFER_ADDR_SPACE_COH
@@ -2943,6 +2930,23 @@ typedef struct
     /* Address space of the vidmem access bit buffer. Used by VAB v1 - to be deleted */
     NV_VIDMEM_ACCESS_BIT_ALLOCATION_PARAMS_ADDR_SPACE addrSpace;
 } NV_VIDMEM_ACCESS_BIT_ALLOCATION_PARAMS;
+
+/**
+ * @brief HopperUsermodeAParams
+ * This set of optionalparameters is passed in on allocation of
+ * HOPPER_USERMODE_A object to specify whether a BAR1/GMMU
+ * privileged/non-privileged mapping is needed.
+ */
+
+typedef struct
+{
+    /**
+     * [IN] Whether to allocate GMMU/BAR1 mapping or BAR0 mapping.
+     */
+    NvBool bBar1Mapping;
+    /* [IN] Whether to allocate the PRIV page or regular VF page */
+    NvBool bPriv;
+} NV_HOPPER_USERMODE_A_PARAMS;
 
 
 #ifdef __cplusplus

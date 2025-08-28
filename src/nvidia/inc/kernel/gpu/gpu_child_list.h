@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2004-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2004-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -199,7 +199,7 @@
     GPU_CHILD_SINGLE_INST( OBJRC,                GPU_GET_RC,                          1,                NV_FALSE,        pRC              )
 #endif
 #if GPU_CHILD_MODULE(STEREO)
-    GPU_CHILD_SINGLE_INST( OBJSTEREO,            GPU_GET_STEREO,                      1,                NV_FALSE,        pStereo          )
+    GPU_CHILD_SINGLE_INST( Stereo,            GPU_GET_STEREO,                      1,                NV_FALSE,        pStereo          )
 #endif
 #if GPU_CHILD_MODULE(INTR)
     GPU_CHILD_SINGLE_INST( Intr,                 GPU_GET_INTR,                        1,                NV_FALSE,        pIntr            )
@@ -227,6 +227,9 @@
 #endif
 #if GPU_CHILD_MODULE(HDACODEC)
     GPU_CHILD_SINGLE_INST( OBJHDACODEC,          GPU_GET_HDACODEC,                    1,                NV_FALSE,        pHdacodec        )
+#endif
+#if GPU_CHILD_MODULE(GCX)
+    GPU_CHILD_SINGLE_INST( GCX,              GPU_GET_GCX,                        1,                NV_FALSE,           pGcx            )
 #endif
 #if GPU_CHILD_MODULE(LPWR)
     GPU_CHILD_SINGLE_INST( Lpwr,              GPU_GET_LPWR,                        1,                NV_FALSE,           pLpwr            )
@@ -276,6 +279,9 @@
 #if GPU_CHILD_MODULE(HWPM)
     GPU_CHILD_SINGLE_INST( OBJHWPM,              GPU_GET_HWPM,                        1,                NV_FALSE,        pHwpm            )
 #endif
+#if GPU_CHILD_MODULE(KERNEL_HWPM)
+    GPU_CHILD_SINGLE_INST( KernelHwpm,           GPU_GET_KERNEL_HWPM,                 1,                NV_FALSE,        pKernelHwpm      )
+#endif
 #if GPU_CHILD_MODULE(GRIDDISPLAYLESS)
     GPU_CHILD_SINGLE_INST( OBJGRIDDISPLAYLESS,   GPU_GET_GRIDDISPLAYLESS,             1,                NV_FALSE,        pGridDisplayless )
 #endif
@@ -288,11 +294,15 @@
 #if GPU_CHILD_MODULE(NVJPG)
     GPU_CHILD_MULTI_INST( OBJNVJPG,              GPU_GET_NVJPG,                       GPU_MAX_NVJPGS,   NV_FALSE,        pNvjpg           )
 #endif
+#if GPU_CHILD_MODULE(KERNEL_FSP)
+    GPU_CHILD_SINGLE_INST( KernelFsp,            GPU_GET_KERNEL_FSP,                  1,                NV_TRUE,        pKernelFsp       )
+#endif
+
 #if GPU_CHILD_MODULE(GSP)
     GPU_CHILD_SINGLE_INST( Gsp,                  GPU_GET_GSP,                         1,                NV_FALSE,        pGsp             )
 #endif
 #if GPU_CHILD_MODULE(OFA)
-    GPU_CHILD_MULTI_INST( OBJOFA,                GPU_GET_OFA,                         GPU_MAX_OFAS,      NV_FALSE,        pOfa             )
+    GPU_CHILD_MULTI_INST( OBJOFA,                GPU_GET_OFA,                         GPU_MAX_OFAS,     NV_FALSE,        pOfa             )
 #endif
 
 // Undefine the entry macros to simplify call sites

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -34,6 +34,13 @@ NV_STATUS NV_API_CALL rm_schedule_gpu_wakeup(
 )
 {
     return NV_OK;
+}
+
+void NV_API_CALL rm_init_tegra_dynamic_power_management(
+    nvidia_stack_t *sp,
+    nv_state_t     *nv
+)
+{
 }
 
 void NV_API_CALL rm_init_dynamic_power_management(
@@ -78,35 +85,25 @@ void NV_API_CALL rm_unref_dynamic_power(
 NV_STATUS NV_API_CALL rm_transition_dynamic_power(
     nvidia_stack_t *sp,
     nv_state_t     *nv,
-    NvBool          bEnter
+    NvBool          bEnter,
+    NvBool         *bTryAgain
 )
 {
     return NV_OK;
 }
 
-const char* NV_API_CALL rm_get_vidmem_power_status(
-    nvidia_stack_t *sp,
-    nv_state_t     *pNv
+void NV_API_CALL rm_get_power_info(
+    nvidia_stack_t  *sp,
+    nv_state_t      *pNv,
+    nv_power_info_t *powerInfo
 )
 {
-    return "?";
-}
-
-const char* NV_API_CALL rm_get_dynamic_power_management_status(
-    nvidia_stack_t *sp,
-    nv_state_t     *pNv
-)
-{
-    return "?";
-}
-
-const char* NV_API_CALL rm_get_gpu_gcx_support(
-    nvidia_stack_t *sp,
-    nv_state_t     *pNv,
-    NvBool          bGcxTypeGC6
-)
-{
-    return "?";
+    powerInfo->vidmem_power_status = "?";
+    powerInfo->dynamic_power_status = "?";
+    powerInfo->gc6_support = "?";
+    powerInfo->gcoff_support = "?";
+    powerInfo->s0ix_status = "?";
+    powerInfo->db_support = "?";
 }
 
 NV_STATUS
@@ -149,7 +146,7 @@ RmUpdateGc6ConsoleRefCount
 }
 
 void
-RmInitS0ixPowerManagement
+RmInitPowerManagement
 (
     nv_state_t *nv
 )
@@ -157,15 +154,7 @@ RmInitS0ixPowerManagement
 }
 
 void
-RmInitDeferredDynamicPowerManagement
-(
-    nv_state_t *nv
-)
-{
-}
-
-void
-RmDestroyDeferredDynamicPowerManagement
+RmDestroyPowerManagement
 (
     nv_state_t *nv
 )
@@ -239,6 +228,12 @@ deviceCtrlCmdOsUnixVTSwitch_IMPL
     return NV_OK;
 }
 
+NV_STATUS deviceCtrlCmdOsUnixVTGetFBInfo_IMPL(Device *pDevice,
+    NV0080_CTRL_OS_UNIX_VT_GET_FB_INFO_PARAMS *pParams)
+{
+    return NV_OK;
+}
+
 NV_STATUS NV_API_CALL rm_save_low_res_mode(
     nvidia_stack_t *sp,
     nv_state_t *pNv
@@ -269,6 +264,14 @@ void NV_API_CALL rm_isr_bh_unlocked(
     nv_state_t *pNv
 )
 {
+}
+
+NvBool NV_API_CALL rm_is_msix_allowed(
+    nvidia_stack_t *sp,
+    nv_state_t *nv
+)
+{
+    return NV_FALSE;
 }
 
 // Functions are in unix_intr.c -- that file is not compiled on DCE_CLIENT_RM enabled builds

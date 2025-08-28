@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2005-2019 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2005-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -27,6 +27,7 @@
 
 #include "os-interface.h"
 #include "nv-linux.h"
+#include "nvi2c.h"
 
 #if defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
 
@@ -248,13 +249,13 @@ void* NV_API_CALL nv_i2c_add_adapter(nv_state_t *nv, NvU32 port)
     if (nvl->pci_dev != NULL)
     {
         snprintf(pI2cAdapter->name, sizeof(pI2cAdapter->name),
-            "NVIDIA i2c adapter %u at %x:%02x.%u", port, nv->pci_info.bus,
+            "NVIDIA i2c adapter %u at %x:%02x.%u\n", port, nv->pci_info.bus,
              nv->pci_info.slot, PCI_FUNC(nvl->pci_dev->devfn));
     }
     else
     {
         snprintf(pI2cAdapter->name, sizeof(pI2cAdapter->name),
-            "NVIDIA SOC i2c adapter %u", port);
+            "NVIDIA SOC i2c adapter %u\n", port);
     }
 
     // add our data to the structure
@@ -286,6 +287,7 @@ void NV_API_CALL nv_i2c_del_adapter(nv_state_t *nv, void *data)
     }
 }
 
+#if NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
 static struct i2c_client * nv_i2c_register_client(
     nv_state_t *nv,
     NvU32 linuxI2CSwPort,
@@ -304,7 +306,7 @@ static struct i2c_client * nv_i2c_register_client(
     i2c_adapter = i2c_get_adapter(linuxI2CSwPort);
     if (i2c_adapter == NULL)
     {
-        nv_printf(NV_DBG_ERRORS, "Unable to get i2c adapter for port(%d)",
+        nv_printf(NV_DBG_ERRORS, "NVRM: Unable to get i2c adapter for port(%d)\n",
                   linuxI2CSwPort);
         return NULL;
     }
@@ -312,12 +314,12 @@ static struct i2c_client * nv_i2c_register_client(
 #if defined(NV_I2C_NEW_CLIENT_DEVICE_PRESENT)
     client = i2c_new_client_device(i2c_adapter, &i2c_dev_info);
 #else
-    nv_printf(NV_DBG_ERRORS, "nv_i2c_new_device not present\n");
+    nv_printf(NV_DBG_ERRORS, "NVRM: nv_i2c_new_device not present\n");
     client = NULL;
 #endif
     if (client == NULL)
     {
-        nv_printf(NV_DBG_ERRORS, "Unable to register client for address(0x%x)",
+        nv_printf(NV_DBG_ERRORS, "NVRM: Unable to register client for address(0x%x)\n",
                   address);
         i2c_put_adapter(i2c_adapter);
         return NULL;
@@ -369,7 +371,7 @@ static struct i2c_client *nv_i2c_get_registered_client(
 
 NV_STATUS NV_API_CALL nv_i2c_transfer(
     nv_state_t *nv,
-    NvU32 physicalI2CPort,
+    NvU32 linuxI2CSwPort,
     NvU8 address,
     nv_i2c_msg_t *nv_msgs,
     int num_msgs
@@ -380,7 +382,6 @@ NV_STATUS NV_API_CALL nv_i2c_transfer(
     int count;
     int rc;
     NV_STATUS status = NV_OK;
-    NvU32 linuxI2CSwPort;
 
     //
     // RM style client address is 8-bit addressing, but Linux use 7-bit
@@ -389,21 +390,11 @@ NV_STATUS NV_API_CALL nv_i2c_transfer(
     address = address >> 1;
 
     //
-    // Linux Tegra I2C controller driver uses logical port(controller) number
-    // where logical port number of I2C1(Gen1) controller is 0, logical port
-    // number for I2C2(Gen2) controller is 1 and so on.
-    // But RM passes I2C physical port(controller) number i.e RM passes "1"
-    // for I2C1(Gen1), 2 for I2C2(Gen2), etc. So convert physical port number
-    // to logical port number(linuxI2CSwPort).
-    //
-    linuxI2CSwPort = physicalI2CPort - 1;
-
-    //
     // Check if its valid port
     //
     if (!(linuxI2CSwPort >= 0 && linuxI2CSwPort < MAX_TEGRA_I2C_PORTS))
     {
-        nv_printf(NV_DBG_ERRORS, "Invalid I2C port:%d\n", linuxI2CSwPort);
+        nv_printf(NV_DBG_ERRORS, "NVRM: Invalid I2C port:%d\n", linuxI2CSwPort);
         return NV_ERR_INVALID_ARGUMENT;
     }
 
@@ -420,7 +411,7 @@ NV_STATUS NV_API_CALL nv_i2c_transfer(
             client = nv_i2c_register_client(nv, linuxI2CSwPort, nv_msgs[count].addr);
             if (client == NULL)
             {
-                nv_printf(NV_DBG_ERRORS, "i2c client register failed for addr:0x%x\n",
+                nv_printf(NV_DBG_ERRORS, "NVRM: i2c client register failed for addr:0x%x\n",
                           nv_msgs[count].addr);
                 return NV_ERR_GENERIC;
             }
@@ -430,7 +421,7 @@ NV_STATUS NV_API_CALL nv_i2c_transfer(
     msgs = kzalloc((num_msgs * sizeof(*msgs)), GFP_KERNEL);
     if (msgs == NULL)
     {
-        nv_printf(NV_DBG_ERRORS, "i2c message allocation failed\n");
+        nv_printf(NV_DBG_ERRORS, "NVRM: i2c message allocation failed\n");
         return NV_ERR_NO_MEMORY;
     }
 
@@ -444,7 +435,7 @@ NV_STATUS NV_API_CALL nv_i2c_transfer(
     rc = i2c_transfer(client->adapter, msgs, num_msgs);
     if (rc != num_msgs)
     {
-        nv_printf(NV_DBG_ERRORS, "i2c transfer failed for addr:0x%x",
+        nv_printf(NV_DBG_ERRORS, "NVRM: i2c transfer failed for addr: 0x%x\n",
                   address);
         status = NV_ERR_GENERIC;
     }
@@ -470,11 +461,7 @@ void NV_API_CALL nv_i2c_unregister_clients(nv_state_t *nv)
             client = (struct i2c_client *)nvl->i2c_clients[p_index].pOsClient[c_index];
             if (client)
             {
-#if defined(NV_I2C_UNREGISTER_DEVICE_PRESENT)
                 i2c_unregister_device(client);
-#else
-                nv_printf(NV_DBG_ERRORS, "i2c_unregister_device not present\n");
-#endif
                 nvl->i2c_clients[p_index].pOsClient[c_index] = NULL;
             }
         }
@@ -483,32 +470,21 @@ void NV_API_CALL nv_i2c_unregister_clients(nv_state_t *nv)
 
 NV_STATUS NV_API_CALL nv_i2c_bus_status(
     nv_state_t *nv,
-    NvU32 physicalI2CPort,
+    NvU32 linuxI2CSwPort,
     NvS32 *scl,
     NvS32 *sda)
 {
 #if NV_IS_EXPORT_SYMBOL_PRESENT_i2c_bus_status
-    NvU32 linuxI2CSwPort;
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     struct i2c_adapter *i2c_adapter;
     int ret;
-
-    //
-    // Linux Tegra I2C controller driver uses logical port(controller) number
-    // where logical port number of I2C1(Gen1) controller is 0, logical port
-    // number for I2C2(Gen2) controller is 1 and so on.
-    // But RM passes I2C physical port(controller) number i.e RM passes "1"
-    // for I2C1(Gen1), 2 for I2C2(Gen2), etc. So convert physical port number
-    // to logical port number(linuxI2CSwPort).
-    //
-    linuxI2CSwPort = physicalI2CPort - 1;
 
     //
     // Check if its valid port
     //
     if (!(linuxI2CSwPort >= 0 && linuxI2CSwPort < MAX_TEGRA_I2C_PORTS))
     {
-        nv_printf(NV_DBG_ERRORS, "Invalid I2C port:%d\n", linuxI2CSwPort);
+        nv_printf(NV_DBG_ERRORS, "NVRM: Invalid I2C port:%d\n", linuxI2CSwPort);
         return NV_ERR_INVALID_ARGUMENT;
     }
 
@@ -516,7 +492,7 @@ NV_STATUS NV_API_CALL nv_i2c_bus_status(
     i2c_adapter = i2c_get_adapter(linuxI2CSwPort);
     if (i2c_adapter == NULL)
     {
-        nv_printf(NV_DBG_ERRORS, "Unable to get i2c adapter for port(%d)",
+        nv_printf(NV_DBG_ERRORS, "NVRM: Unable to get i2c adapter for port(%d)\n",
                   linuxI2CSwPort);
         return NULL;
     }
@@ -525,7 +501,7 @@ NV_STATUS NV_API_CALL nv_i2c_bus_status(
     ret = i2c_bus_status(i2c_adapter, scl, sda);
     if (ret < 0)
     {
-        nv_printf(NV_DBG_ERRORS, "i2c_bus_status failed:%d\n", ret);
+        nv_printf(NV_DBG_ERRORS, "NVRM: i2c_bus_status failed:%d\n", ret);
         return NV_ERR_GENERIC;
     }
     i2c_put_adapter(i2c_adapter);
@@ -535,8 +511,10 @@ NV_STATUS NV_API_CALL nv_i2c_bus_status(
     return NV_ERR_NOT_SUPPORTED;
 #endif
 }
+#endif // NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
+#endif // defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
 
-#else // defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
+#if !defined(CONFIG_I2C) && !defined(CONFIG_I2C_MODULE)
 
 void NV_API_CALL nv_i2c_del_adapter(nv_state_t *nv, void *data)
 {
@@ -546,10 +524,16 @@ void* NV_API_CALL nv_i2c_add_adapter(nv_state_t *nv, NvU32 port)
 {
     return NULL;
 }
+#endif
+
+
+#if !NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE || \
+    (NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE && \
+    (!defined(CONFIG_I2C) && !defined(CONFIG_I2C_MODULE)))
 
 NV_STATUS NV_API_CALL nv_i2c_transfer(
     nv_state_t *nv,
-    NvU32 physicalI2CPort,
+    NvU32 linuxI2CSwPort,
     NvU8 address,
     nv_i2c_msg_t *nv_msgs,
     int num_msgs
@@ -564,10 +548,11 @@ void NV_API_CALL nv_i2c_unregister_clients(nv_state_t *nv)
 
 NV_STATUS NV_API_CALL nv_i2c_bus_status(
     nv_state_t *nv,
-    NvU32 physicalI2CPort,
+    NvU32 linuxI2CSwPort,
     NvS32 *scl,
     NvS32 *sda)
 {
     return NV_ERR_GENERIC;
 }
-#endif // defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
+
+#endif

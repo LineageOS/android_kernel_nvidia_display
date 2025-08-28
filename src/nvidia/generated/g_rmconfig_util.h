@@ -7,7 +7,7 @@
 // Profile:  devel-soc-disp-dce-client
 // Template: templates/gt_rmconfig_util.h
 //
-// Chips:    T234D
+// Chips:    T234D, T26XD, T25XD
 //
 
 #ifndef _G_RMCFG_UTIL_H_
@@ -18,6 +18,21 @@
 // These cannot be put in rmconfig_private.h as they need the OBJ typedefs.
 //
 
+NvBool rmcfg_IsT234D(POBJGPU pGpu);
+NvBool rmcfg_IsT23XD(POBJGPU pGpu);
+NvBool rmcfg_IsT264D(POBJGPU pGpu);
+NvBool rmcfg_IsT264DorBetter(POBJGPU pGpu);
+NvBool rmcfg_IsT26XD(POBJGPU pGpu);
+NvBool rmcfg_IsT26XDorBetter(POBJGPU pGpu);
+NvBool rmcfg_IsT256D(POBJGPU pGpu);
+NvBool rmcfg_IsT256DorBetter(POBJGPU pGpu);
+NvBool rmcfg_IsT25XD(POBJGPU pGpu);
+NvBool rmcfg_IsT25XDorBetter(POBJGPU pGpu);
+NvBool rmcfg_IsT23X_TEGRA_NVDISP_GPUS(POBJGPU pGpu);
+NvBool rmcfg_IsT26X(POBJGPU pGpu);
+NvBool rmcfg_IsT26XorBetter(POBJGPU pGpu);
+NvBool rmcfg_IsT25X(POBJGPU pGpu);
+NvBool rmcfg_IsT25XorBetter(POBJGPU pGpu);
 
 
 #endif  // _G_RMCFG_UTIL_H_

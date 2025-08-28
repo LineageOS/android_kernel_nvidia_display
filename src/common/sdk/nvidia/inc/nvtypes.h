@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -24,10 +24,6 @@
 #ifndef NVTYPES_INCLUDED
 #define NVTYPES_INCLUDED
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include "cpuopsys.h"
 
 #ifndef NVTYPES_USE_STDINT
@@ -50,6 +46,10 @@ extern "C" {
 // _MSC_VER is a hack to avoid  failures for old setup of UEFI builds which are
 //  currently set to msvc100 but do not properly set the include paths
 #endif // __cplusplus
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #if defined(MAKE_NV64TYPES_8BYTES_ALIGNED) && defined(__i386__)
 // ensure or force 8-bytes alignment of NV 64-bit types
@@ -141,7 +141,18 @@ typedef   signed short     NvS16; /* -32768 to 32767                         */
 #endif
 
 // Macro to build an NvU32 from four bytes, listed from msb to lsb
-#define NvU32_BUILD(a, b, c, d) (((a) << 24) | ((b) << 16) | ((c) << 8) | (d))
+#define NvU32_BUILD(a, b, c, d) \
+    ((NvU32)( \
+     (((NvU32)(a) & 0xff) << 24) | \
+     (((NvU32)(b) & 0xff) << 16) | \
+     (((NvU32)(c) & 0xff) << 8)  | \
+     (((NvU32)(d) & 0xff))))
+
+// Macro to build an NvU64 from two DWORDS, listed from msb to lsb
+#define NvU64_BUILD(a, b) \
+    ((NvU64)( \
+     (((NvU64)(a) & ~0U) << 32) | \
+     (((NvU64)(b) & ~0U))))
 
 #if NVTYPES_USE_STDINT
 typedef uint32_t           NvV32; /* "void": enumerated or multiple fields   */

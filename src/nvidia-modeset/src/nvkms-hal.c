@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2014-2016 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -36,6 +36,7 @@
 #include "class/clc570.h" // NVC570_DISPLAY
 #include "class/clc670.h" // NVC670_DISPLAY
 #include "class/clc770.h" // NVC770_DISPLAY
+#include "class/clc970.h" // NVC970_DISPLAY
 
 #include "class/cl947d.h" // NV947D_CORE_CHANNEL_DMA
 #include "class/cl957d.h" // NV957D_CORE_CHANNEL_DMA
@@ -48,11 +49,15 @@
 #include "class/clc67d.h" // NVC67D_CORE_CHANNEL_DMA
 #include "class/clc67e.h" // NVC67E_WINDOW_CHANNEL_DMA
 #include "class/clc77d.h" // NVC67D_CORE_CHANNEL_DMA
+#include "class/clc97d.h" // NVC97D_CORE_CHANNEL_DMA
+#include "class/clc97e.h" // NVC97E_WINDOW_CHANNEL_DMA
 
 extern NVEvoHAL nvEvo94;
+extern NVEvoHAL nvEvo97;
 extern NVEvoHAL nvEvoC3;
 extern NVEvoHAL nvEvoC5;
 extern NVEvoHAL nvEvoC6;
+extern NVEvoHAL nvEvoC9;
 
 enum NvKmsAllocDeviceStatus nvAssignEvoCaps(NVDevEvoPtr pDevEvo)
 {
@@ -60,8 +65,8 @@ enum NvKmsAllocDeviceStatus nvAssignEvoCaps(NVDevEvoPtr pDevEvo)
               _pEvoHal,                                                   \
               _supportsDP13,                                              \
               _supportsHDMI20,                                            \
+              _supportsYUV2020,                                           \
               _inputLutAppliesToBase,                                     \
-              _genericPageKind,                                           \
               _dpYCbCr422MaxBpc,                                          \
               _hdmiYCbCr422MaxBpc,                                        \
               _validNIsoFormatMask,                                       \
@@ -84,13 +89,13 @@ enum NvKmsAllocDeviceStatus nvAssignEvoCaps(NVDevEvoPtr pDevEvo)
         .evoCaps = {                                                      \
             .supportsDP13              = _supportsDP13,                   \
             .supportsHDMI20            = _supportsHDMI20,                 \
+            .supportsYUV2020           = _supportsYUV2020,                \
             .validNIsoFormatMask       = _validNIsoFormatMask,            \
             .inputLutAppliesToBase     = _inputLutAppliesToBase,          \
             .maxPitchValue             = _maxPitch,                       \
             .maxWidthInBytes           = _maxWidthInBytes,                \
             .maxWidthInPixels          = _maxWidthInPixels,               \
             .maxHeight                 = _maxHeight,                      \
-            .genericPageKind           = _genericPageKind,                \
             .maxRasterWidth  = DRF_MASK(NV ## _classPrefix ## 7D_HEAD_SET_RASTER_SIZE_WIDTH), \
             .maxRasterHeight = DRF_MASK(NV ## _classPrefix ## 7D_HEAD_SET_RASTER_SIZE_HEIGHT),\
             .dpYCbCr422MaxBpc = _dpYCbCr422MaxBpc,                        \
@@ -136,28 +141,6 @@ enum NvKmsAllocDeviceStatus nvAssignEvoCaps(NVDevEvoPtr pDevEvo)
  */
 #define NVD_CORE_CHANNEL_DMA_ARMED_SIZE 0x8000
 
-
-/*
- * The file
- * https://github.com/NVIDIA/open-gpu-doc/blob/master/manuals/turing/tu104/dev_mmu.ref.txt
- * defines:
- *
- *   #define NV_MMU_PTE_KIND_GENERIC_MEMORY                0x06
- *
- * The file
- * https://github.com/NVIDIA/open-gpu-doc/blob/master/manuals/volta/gv100/dev_mmu.ref.txt
- * defines:
- *
- *   #define NV_MMU_PTE_KIND_GENERIC_16BX2                 0xfe
- *
- * Which correspond to the "generic" page kind used for non-compressed single-
- * sample blocklinear color images on Turing+ and pre-Turing GPUs respectively.
- * This is the only blocklinear memory layout display ever cares about.
- */
-#define TURING_GENERIC_KIND 0x06
-#define FERMI_GENERIC_KIND  0xfe
-
-
 /* NVDisplay and later entries */
 #define ENTRY_NVD(_coreClassPrefix, _windowClassPrefix, ...) \
     ENTRY(_coreClassPrefix, __VA_ARGS__,  \
@@ -177,33 +160,35 @@ enum NvKmsAllocDeviceStatus nvAssignEvoCaps(NVDevEvoPtr pDevEvo)
         const NVEvoCapsRec evoCaps;
     } dispTable[] = {
         /*
-         * hdmiYCbCr422MaxBpc-----------------------------------------+
-         * dpYCbCr422MaxBpc---------------------------------------+   |
-         * genericPageKind---------------------+                  |   |
-         * inputLutAppliesToBase ---------+    |                  |   |
-         * supportsHDMI20 -------------+  |    |                  |   |
-         * supportsDP13 ------------+  |  |    |                  |   |
-         * pEvoHal --------------+  |  |  |    |                  |   |
-         * windowClassPrefix     |  |  |  |    |                  |   |
-         * classPrefix |         |  |  |  |    |                  |   |
-         *         |   |         |  |  |  |    |                  |   |
+         * hdmiYCbCr422MaxBpc-----------------------+
+         * dpYCbCr422MaxBpc---------------------+   |
+         * inputLutAppliesToBase ------------+  |   |
+         * supportsYUV2020 ---------------+  |  |   |
+         * supportsHDMI20 -------------+  |  |  |   |
+         * supportsDP13 ------------+  |  |  |  |   |
+         * pEvoHal --------------+  |  |  |  |  |   |
+         * windowClassPrefix     |  |  |  |  |  |   |
+         * classPrefix |         |  |  |  |  |  |   |
+         *         |   |         |  |  |  |  |  |   |
          */
+        /* Blackwell */
+        ENTRY_NVD(C9, C9, &nvEvoC9, 1, 1, 1, 0, 12, 12),
         /* Ada */
-        ENTRY_NVD(C7, C6, &nvEvoC6, 1, 1, 0, TURING_GENERIC_KIND, 12, 12),
+        ENTRY_NVD(C7, C6, &nvEvoC6, 1, 1, 1, 0, 12, 12),
         /* Ampere */
-        ENTRY_NVD(C6, C6, &nvEvoC6, 1, 1, 0, TURING_GENERIC_KIND, 12, 12),
+        ENTRY_NVD(C6, C6, &nvEvoC6, 1, 1, 1, 0, 12, 12),
         /* Turing */
-        ENTRY_NVD(C5, C5, &nvEvoC5, 1, 1, 0, TURING_GENERIC_KIND, 12, 12),
+        ENTRY_NVD(C5, C5, &nvEvoC5, 1, 1, 1, 0, 12, 12),
         /* Volta */
-        ENTRY_NVD(C3, C3, &nvEvoC3, 1, 1, 0, FERMI_GENERIC_KIND,  12, 12),
+        ENTRY_NVD(C3, C3, &nvEvoC3, 1, 1, 1, 0, 12, 12),
         /* gp10x */
-        ENTRY_EVO(98,     &nvEvo94, 1, 1, 1, FERMI_GENERIC_KIND,  12, 12),
+        ENTRY_EVO(98,     &nvEvo97, 1, 1, 1, 1, 12, 12),
         /* gp100 */
-        ENTRY_EVO(97,     &nvEvo94, 1, 1, 1, FERMI_GENERIC_KIND,  12, 12),
+        ENTRY_EVO(97,     &nvEvo97, 1, 1, 1, 1, 12, 12),
         /* gm20x */
-        ENTRY_EVO(95,     &nvEvo94, 0, 1, 1, FERMI_GENERIC_KIND,   8,  0),
+        ENTRY_EVO(95,     &nvEvo94, 0, 1, 0, 1, 8,  0),
         /* gm10x */
-        ENTRY_EVO(94,     &nvEvo94, 0, 0, 1, FERMI_GENERIC_KIND,   8,  0),
+        ENTRY_EVO(94,     &nvEvo94, 0, 0, 0, 1, 8,  0),
     };
 
     int i;

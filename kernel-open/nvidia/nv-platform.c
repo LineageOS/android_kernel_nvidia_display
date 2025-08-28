@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -24,9 +24,9 @@
 #include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <linux/of_device.h>
 
 #include "nv-platform.h"
-#include "nv-frontend.h"
 #include "nv-linux.h"
 #include <linux/reset.h>
 
@@ -101,7 +101,13 @@ static irqreturn_t nvidia_soc_isr(int irq, void *arg)
         if (nv->soc_irq_info[irq_count].bh_pending == NV_TRUE)
         {
             NV_SPIN_UNLOCK_IRQRESTORE(&nvl->soc_isr_lock, flags);
-            return IRQ_NONE;
+            /*
+             *  Return IRQ_HANDLED to prevent the Linux kernel from thinking
+             *  that this interrupt is spurious. Since all interrupts that we
+             *  care are level triggered the interrupt should still continue
+             *  to fire later.
+             */
+            return IRQ_HANDLED;
         }
     }
     nv->current_soc_irq = irq;
@@ -139,6 +145,17 @@ static irqreturn_t nvidia_soc_isr(int irq, void *arg)
     }
 
     NV_SPIN_UNLOCK_IRQRESTORE(&nvl->soc_isr_lock, flags);
+
+    /*
+     *  Return IRQ_HANDLED to prevent the Linux kernel from thinking
+     *  that this interrupt is spurious. Since all interrupts that we
+     *  care are level triggered the interrupt should still continue
+     *  to fire later.
+     */
+    if (ret == IRQ_NONE)
+    {
+        ret = IRQ_HANDLED;
+    }
 
     return ret;
 }
@@ -300,16 +317,45 @@ int nv_soc_register_irqs(nv_state_t *nv)
         }
     }
 
+    if (nv->soc_is_hfrp_supported)
+    {
+        rc = nv_request_soc_irq(nvl, nv->hfrp0_irq, NV_SOC_IRQ_HFRP0_TYPE,
+                nv_default_irq_flags(nv), 0, "hfrp0");
+        if (rc != 0)
+        {
+            nv_printf(NV_DBG_ERRORS, "failed to request hfrp0 irq (%d)\n", rc);
+            free_irq(nv->interrupt_line, (void *) nvl);
+            free_irq(nv->hdacodec_irq, (void *)nvl);
+            if (nv->soc_is_dpalt_mode_supported)
+            {
+               free_irq(nv->tcpc2disp_irq, (void *) nvl);
+            }
+            return rc;
+        }
+    
+        rc = nv_request_soc_irq(nvl, nv->hfrp1_irq, NV_SOC_IRQ_HFRP1_TYPE,
+                nv_default_irq_flags(nv), 0, "hfrp1");
+        if (rc != 0)
+        {
+            nv_printf(NV_DBG_ERRORS, "failed to request hfrp1 irq (%d)\n", rc);
+            free_irq(nv->interrupt_line, (void *) nvl);
+            free_irq(nv->hdacodec_irq, (void *)nvl);
+            if (nv->soc_is_dpalt_mode_supported)
+            {
+                free_irq(nv->tcpc2disp_irq, (void *) nvl);
+            }
+            free_irq(nv->hfrp0_irq, (void *) nvl);
+            return rc;
+        }
+    }
+
     for (dpauxindex = 0; dpauxindex < nv->num_dpaux_instance; dpauxindex++)
     {
-        char dpaux_dev_name[10] = {0};
-        snprintf(dpaux_dev_name, sizeof(dpaux_dev_name), "%s%d", "dpaux", dpauxindex);
-
         rc = nv_request_soc_irq(nvl, nv->dpaux_irqs[dpauxindex],
                                 NV_SOC_IRQ_DPAUX_TYPE,
                                 nv_default_irq_flags(nv),
                                 dpauxindex,
-                                dpaux_dev_name);
+                                nv->dpaux_devname[dpauxindex]);
         if (rc != 0)
         {
             nv_printf(NV_DBG_ERRORS, "failed to request dpaux irq (%d)\n", rc);
@@ -318,6 +364,11 @@ int nv_soc_register_irqs(nv_state_t *nv)
             if (nv->soc_is_dpalt_mode_supported)
             {
                 free_irq(nv->tcpc2disp_irq, (void *)nvl);
+            }
+            if (nv->soc_is_hfrp_supported)
+            {
+                free_irq(nv->hfrp0_irq, (void *) nvl);
+                free_irq(nv->hfrp1_irq, (void *) nvl);
             }
             return rc;
         }
@@ -337,7 +388,11 @@ void nv_soc_free_irqs(nv_state_t *nv)
     {
         nv_soc_free_irq_by_type(nv, NV_SOC_IRQ_TCPC2DISP_TYPE);
     }
-
+    if (nv->soc_is_hfrp_supported)
+    {
+        nv_soc_free_irq_by_type(nv, NV_SOC_IRQ_HFRP0_TYPE);
+        nv_soc_free_irq_by_type(nv, NV_SOC_IRQ_HFRP1_TYPE);
+    }
 }
 
 static void nv_platform_free_device_dpaux(nv_state_t *nv)
@@ -346,9 +401,16 @@ static void nv_platform_free_device_dpaux(nv_state_t *nv)
 
     for (dpauxindex = 0; dpauxindex < nv->num_dpaux_instance; dpauxindex++)
     {
-        if (nv->dpaux[dpauxindex] != NULL &&
-            nv->dpaux[dpauxindex]->size != 0 &&
-            nv->dpaux[dpauxindex]->cpu_address != 0)
+        /* Note that the memory region is being released only for dpaux0. This is
+         * because the memory mapping is done only for dpaux0. Refer to the memory
+         * mapping section in nv_platform_alloc_device_dpaux() for details on
+         * why this is done, and how the same mapping is reused for other dpaux
+         * instances.
+         */
+        if ((dpauxindex == 0) &&
+            (nv->dpaux[dpauxindex] != NULL) &&
+            (nv->dpaux[dpauxindex]->size != 0) &&
+            (nv->dpaux[dpauxindex]->cpu_address != 0))
         {
             release_mem_region(nv->dpaux[dpauxindex]->cpu_address,
                                nv->dpaux[dpauxindex]->size);
@@ -363,7 +425,7 @@ static void nv_platform_free_device_dpaux(nv_state_t *nv)
 
 static int nv_platform_alloc_device_dpaux(struct platform_device *plat_dev, nv_state_t *nv)
 {
-    static const size_t MAX_LENGTH = 10;
+#if NV_SUPPORTS_PLATFORM_DEVICE
     const char *sdpaux = "dpaux";
     int dpauxindex = 0;
     int irq = 0;
@@ -390,10 +452,35 @@ static int nv_platform_alloc_device_dpaux(struct platform_device *plat_dev, nv_s
         nv->num_dpaux_instance = NV_MAX_DPAUX_NUM_DEVICES;
     }
 
+    /* Memory region is being mapped only for dpaux0 because the size specified
+     * in device tree for dpaux0 register space is large enough to accomodate
+     * the register spaces of all dpaux instances. The iomapped memory of
+     * dpaux0 is reused for all other dpaux instances.
+     *
+     * This is also required for RM because RM indexes the dpaux register space
+     * for all dpaux instances using dpaux0 base address.
+     */
+    res = platform_get_resource_byname(plat_dev, IORESOURCE_MEM, "dpaux0");
+    if (!res)
+    {
+        nv_printf(NV_DBG_ERRORS, "NVRM: failed to get IO memory resource\n");
+        rc = -ENXIO;
+        goto err_free_dpaux_dev;
+    }
+    res_addr = res->start;
+    res_size = res->end - res->start;
+
+    if (!request_mem_region(res_addr, res_size, nv_device_name))
+    {
+        nv_printf(NV_DBG_ERRORS, "NVRM: request_mem_region failed for %pa\n",
+                &res_addr);
+        rc = -ENXIO;
+        goto err_free_dpaux_dev;
+    }
+
     for (dpauxindex = 0; dpauxindex < nv->num_dpaux_instance; dpauxindex++)
     {
-        char sdpaux_device[MAX_LENGTH];
-        snprintf(sdpaux_device, sizeof(sdpaux_device), "%s%d", sdpaux, dpauxindex);
+        snprintf(nv->dpaux_devname[dpauxindex], sizeof(nv->dpaux_devname[dpauxindex]), "%s%d", sdpaux, dpauxindex);
 
         NV_KMALLOC(nv->dpaux[dpauxindex], sizeof(*(nv->dpaux[dpauxindex])));
         if (nv->dpaux[dpauxindex] == NULL)
@@ -405,29 +492,11 @@ static int nv_platform_alloc_device_dpaux(struct platform_device *plat_dev, nv_s
 
         os_mem_set(nv->dpaux[dpauxindex], 0, sizeof(*(nv->dpaux[dpauxindex])));
 
-        res = platform_get_resource_byname(plat_dev, IORESOURCE_MEM, sdpaux_device);
-        if (!res)
-        {
-            nv_printf(NV_DBG_ERRORS, "NVRM: failed to get IO memory resource\n");
-            rc = -ENXIO;
-            goto err_free_dpaux_dev;
-        }
-        res_addr = res->start;
-        res_size = res->end - res->start;
-
-        irq = platform_get_irq_byname(plat_dev, sdpaux_device);
+        irq = platform_get_irq_byname(plat_dev, nv->dpaux_devname[dpauxindex]);
         if (irq < 0)
         {
             nv_printf(NV_DBG_ERRORS, "NVRM: failed to get IO irq resource\n");
             rc = irq;
-            goto err_free_dpaux_dev;
-        }
-
-        if (!request_mem_region(res_addr, res_size, nv_device_name))
-        {
-            nv_printf(NV_DBG_ERRORS, "NVRM: request_mem_region failed for %pa\n",
-                      res_addr);
-            rc = -ENXIO;
             goto err_free_dpaux_dev;
         }
 
@@ -442,10 +511,14 @@ err_free_dpaux_dev:
     nv_platform_free_device_dpaux(nv);
 
     return rc;
+#else
+    return -1;
+#endif
 }
 
 NV_STATUS NV_API_CALL nv_soc_device_reset(nv_state_t *nv)
 {
+#if NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
     NV_STATUS status = NV_OK;
     int rc = 0;
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
@@ -458,7 +531,6 @@ NV_STATUS NV_API_CALL nv_soc_device_reset(nv_state_t *nv)
     bool skip_clk_rsts = of_property_read_bool(nvl->dev->of_node, "nvidia,skip-clk-rsts");
     if (!skip_clk_rsts)
     {
-        // Resetting the Display
         if (nvl->nvdisplay_reset != NULL)
         {
             rc = reset_control_reset(nvl->nvdisplay_reset);
@@ -470,7 +542,6 @@ NV_STATUS NV_API_CALL nv_soc_device_reset(nv_state_t *nv)
             }
         }
 
-        // Resetting the dpaux
         if (nvl->dpaux0_reset != NULL)
         {
             rc = reset_control_reset(nvl->dpaux0_reset);
@@ -482,7 +553,6 @@ NV_STATUS NV_API_CALL nv_soc_device_reset(nv_state_t *nv)
             }
         }
 
-        // Resetting the DSI
         if (nvl->dsi_core_reset != NULL)
         {
             rc = reset_control_reset(nvl->dsi_core_reset);
@@ -493,14 +563,38 @@ NV_STATUS NV_API_CALL nv_soc_device_reset(nv_state_t *nv)
                 goto out;
             }
         }
+
+        if (nvl->hdacodec_reset != NULL)
+        {
+            /*
+             * HDACODEC reset control is shared between display driver and audio driver.
+             * Since reset_control_reset toggles the reset signal, we prefer to use
+             * reset_control_deassert. Additionally, since Audio driver uses
+             * reset_control_bulk_deassert() which internally calls reset_control_deassert,
+             * we must use reset_control_deassert, because consumers must not use
+             * reset_control_reset on shared reset lines when reset_control_deassert has
+             * been used.
+             */
+            rc = reset_control_deassert(nvl->hdacodec_reset);
+            if (rc != 0)
+            {
+                status = NV_ERR_GENERIC;
+                nv_printf(NV_DBG_ERRORS, "NVRM: hdacodec reset_control_deassert failed, rc: %d\n", rc);
+                goto out;
+            }
+        }
     }
 out:
     return status;
+#else
+    return NV_OK;
+#endif
 }
 
 NV_STATUS NV_API_CALL nv_soc_mipi_cal_reset(nv_state_t *nv)
 {
     NV_STATUS status = NV_OK;
+#if NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
     int rc = 0;
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     bool skip_clk_rsts = of_property_read_bool(nvl->dev->of_node, "nvidia,skip-clk-rsts");
@@ -521,48 +615,106 @@ NV_STATUS NV_API_CALL nv_soc_mipi_cal_reset(nv_state_t *nv)
     {
         status = NV_ERR_GENERIC;
     }
+#endif
     return status;
 }
 
 // This function gets called only for Tegra
-static void nv_platform_get_iommu_availability(struct platform_device *plat_dev,
+static NV_STATUS nv_platform_get_iommu_availability(struct platform_device *plat_dev,
                                               nv_state_t *nv)
 {
     struct device_node *np = plat_dev->dev.of_node;
     struct device_node *niso_np_with_iommus = NULL;
     struct device_node *niso_np = NULL;
     struct device_node *iso_np = NULL;
+    NV_STATUS status = NV_OK;
 
-
-    nv->iso_iommu_present = NV_FALSE;
-    nv->niso_iommu_present = NV_FALSE;
+    nv->iommus.iso_iommu_present = NV_FALSE;
+    nv->iommus.niso_iommu_present = NV_FALSE;
 
     iso_np = of_parse_phandle(np, "iommus", 0);
     if (iso_np && of_device_is_available(iso_np)) {
-        nv->iso_iommu_present = NV_TRUE;
+        nv->iommus.iso_iommu_present = NV_TRUE;
     }
 
     niso_np = of_get_child_by_name(np, "nvdisplay-niso");
     if (niso_np) {
         niso_np_with_iommus = of_parse_phandle(niso_np, "iommus", 0);
         if (niso_np_with_iommus && of_device_is_available(niso_np_with_iommus)) {
-            nv->niso_iommu_present = NV_TRUE;
+            nv->iommus.niso_iommu_present = NV_TRUE;
         }
     }
 
     if (niso_np_with_iommus)
         of_node_put(niso_np_with_iommus);
 
+    if (niso_np)
+        of_node_put(niso_np);
+
     if (iso_np)
         of_node_put(iso_np);
 
-    if (niso_np)
-        of_node_put(niso_np);
+    return status;
+}
+
+#define DISP_DT_SMMU_STREAM_ID_MASK     0xFF
+// This function gets called only for Tegra
+static NV_STATUS nv_platform_get_iso_niso_stream_ids(struct platform_device *plat_dev,
+                                              nv_state_t *nv)
+{
+    struct device_node *np = plat_dev->dev.of_node;
+    NvU32 value = 0;
+    NV_STATUS status = NV_OK;
+    int ret = 0;
+
+    /* NV_U32_MAX is used to indicate that the platform does not support SMMU */
+    nv->iommus.dispIsoStreamId = NV_U32_MAX;
+    nv->iommus.dispNisoStreamId = NV_U32_MAX;
+
+    /* Parse ISO StreamID */
+    ret = of_property_read_u32(np, "iso_sid", &value);
+    if (ret == 0)
+    {
+        nv->iommus.dispIsoStreamId = (value & DISP_DT_SMMU_STREAM_ID_MASK);
+    }
+    else if (ret == -EINVAL)
+    {
+        /* iso_sid will not be specified in device tree if SMMU needs to be bypassed. Continue without failing */
+        nv_printf(NV_DBG_INFO, "NVRM: nv_platform_get_iso_niso_stream_ids, iso_sid not specified under display node\n");
+     }
+     else
+     {
+        nv_printf(NV_DBG_ERRORS, "NVRM: nv_platform_get_iso_niso_stream_ids, iso_sid has invalid value\n");
+        status = NV_ERR_GENERIC;
+        goto fail;
+     }
+
+    /* Parse NISO StreamID */
+    ret = of_property_read_u32(np, "niso_sid", &value);
+    if (ret == 0)
+    {
+        nv->iommus.dispNisoStreamId = (value & DISP_DT_SMMU_STREAM_ID_MASK);
+    }
+    else if (ret == -EINVAL)
+    {
+        /* niso_sid will not be specified in device tree if SMMU needs to be bypassed. Continue without failing */
+        nv_printf(NV_DBG_INFO, "NVRM: nv_platform_get_iso_niso_stream_ids, niso_sid not specified under display node\n");
+    }
+    else
+    {
+        nv_printf(NV_DBG_ERRORS, "NVRM: nv_platform_get_iso_niso_stream_ids, niso_sid has invalid value\n");
+        status = NV_ERR_GENERIC;
+        goto fail;
+    }
+
+fail:
+    return status;
 }
 
 static int nv_platform_register_mapping_devs(struct platform_device *plat_dev,
                                              nv_state_t *nv)
 {
+#if NV_SUPPORTS_PLATFORM_DEVICE
     struct device_node *np = plat_dev->dev.of_node;
     struct device_node *niso_np = NULL;
     struct platform_device *niso_plat_dev = NULL;
@@ -578,12 +730,7 @@ static int nv_platform_register_mapping_devs(struct platform_device *plat_dev,
         goto register_mapping_devs_end;
     }
 
-#if defined(NV_DEVM_OF_PLATFORM_POPULATE_PRESENT)
     rc = devm_of_platform_populate(&plat_dev->dev);
-#else
-    nv_printf(NV_DBG_ERRORS, "NVRM: devm_of_platform_populate not present\n");
-    rc = -ENOSYS;
-#endif
     if (rc != 0)
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: devm_of_platform_populate failed\n");
@@ -598,12 +745,13 @@ static int nv_platform_register_mapping_devs(struct platform_device *plat_dev,
         goto register_mapping_devs_end;
     }
 
-#if defined(NV_OF_DMA_CONFIGURE_PRESENT)
-    rc = of_dma_configure(&niso_plat_dev->dev, niso_np, true);
-#else
-    nv_printf(NV_DBG_ERRORS, "NVRM: of_dma_configure not present\n");
-    rc = -ENOSYS;
+    rc = of_dma_configure(
+        &niso_plat_dev->dev,
+        niso_np
+#if NV_OF_DMA_CONFIGURE_ARGUMENT_COUNT > 2
+        , true
 #endif
+    );
     if (rc != 0)
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: nv_of_dma_configure failed for niso\n");
@@ -618,6 +766,9 @@ static int nv_platform_register_mapping_devs(struct platform_device *plat_dev,
 register_mapping_devs_end:
     of_node_put(niso_np);
     return rc;
+#else
+    return -ENOSYS;
+#endif
 }
 
 static int nv_platform_parse_dcb(struct platform_device *plat_dev,
@@ -625,13 +776,8 @@ static int nv_platform_parse_dcb(struct platform_device *plat_dev,
 {
     int ret;
 
-#if defined(NV_OF_PROPERTY_COUNT_ELEMS_OF_SIZE_PRESENT)
     struct device_node *np = plat_dev->dev.of_node;
     ret = of_property_count_elems_of_size(np, "nvidia,dcb-image", sizeof(u8));
-#else
-    nv_printf(NV_DBG_ERRORS, "of_property_count_elems_of_size not present\n");
-    return -ENOSYS;
-#endif
     if (ret > 0)
     {
         nv->soc_dcb_size = ret;
@@ -644,13 +790,8 @@ static int nv_platform_parse_dcb(struct platform_device *plat_dev,
         }
     }
 
-#if defined(NV_OF_PROPERTY_READ_VARIABLE_U8_ARRAY_PRESENT)
     ret = of_property_read_variable_u8_array(np, "nvidia,dcb-image",
             nv->soc_dcb_blob, 0, nv->soc_dcb_size);
-#else
-    nv_printf(NV_DBG_ERRORS, "of_property_read_variable_u8_array not present\n");
-    ret = -ENOSYS;
-#endif
     if (IS_ERR(&ret))
     {
         nv_printf(NV_DBG_ERRORS, "failed to read dcb blob");
@@ -663,6 +804,7 @@ static int nv_platform_parse_dcb(struct platform_device *plat_dev,
     return 0;
 }
 
+#if NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
 static int nv_platform_device_display_probe(struct platform_device *plat_dev)
 {
     nv_state_t *nv = NULL;
@@ -739,7 +881,7 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
     if (!request_mem_region(res_addr, res_size, nv_device_name))
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: request_mem_region failed for %pa\n",
-                  res_addr);
+                  &res_addr);
         rc = -ENOMEM;
         goto err_free_nv_regs;
     }
@@ -751,8 +893,21 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
 
     nv->os_state = (void *) nvl;
 
-    // Check if ISO SMMU status
-    nv_platform_get_iommu_availability(plat_dev, nv);
+    // Check ISO/NISO SMMU status
+    status = nv_platform_get_iommu_availability(plat_dev, nv);
+    if (status != NV_OK)
+    {
+        nv_printf(NV_DBG_ERRORS, "NVRM: nv_platform_device_display_probe: parsing iommu node failed\n");
+        goto err_release_mem_region_regs;
+    }
+
+    // Parse ISO/NISO SMMU StreamIDs
+    status = nv_platform_get_iso_niso_stream_ids(plat_dev, nv);
+    if (status != NV_OK)
+    {
+        nv_printf(NV_DBG_ERRORS, "NVRM: nv_platform_device_display_probe: parsing ISO/NISO StreamIDs failed\n");
+        goto err_release_mem_region_regs;
+    }
 
     rc = nv_platform_register_mapping_devs(plat_dev, nv);
     if (rc != 0)
@@ -773,7 +928,7 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: failed to allocate hdacodecregs memory\n");
         rc = -ENOMEM;
-        goto err_release_mem_region_regs;
+        goto err_remove_dpaux_device;
     }
     os_mem_set(nv->hdacodec_regs, 0, sizeof(*(nv->hdacodec_regs)));
 
@@ -790,7 +945,7 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
     if (!request_mem_region(res_addr, res_size, nv_device_name))
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: request_mem_region of hdacodec failed for %pa\n",
-                  res_addr);
+                  &res_addr);
         rc = -ENOMEM;
         goto err_free_nv_codec_regs;
     }
@@ -798,6 +953,7 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
     nv->hdacodec_regs->cpu_address = res_addr;
     nv->hdacodec_regs->size = res_size;
     nv->soc_is_dpalt_mode_supported = false;
+    nv->soc_is_hfrp_supported = false;
 
     nv->hdacodec_irq = platform_get_irq_byname(plat_dev, "hdacodec");
     if (nv->hdacodec_irq < 0)
@@ -822,6 +978,12 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
         }
     }
 
+    rc = of_property_read_bool(nvl->dev->of_node, "nvidia,hfrp-supported");
+    if (rc == true)
+    {
+        nv->soc_is_hfrp_supported = true;
+    }
+
     NV_KMALLOC(nv->mipical_regs, sizeof(*(nv->mipical_regs)));
     if (nv->mipical_regs == NULL)
     {
@@ -844,13 +1006,94 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
     if (!request_mem_region(res_addr, res_size, nv_device_name))
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: request_mem_region of mipical failed for %pa\n",
-                  res_addr);
+                  &res_addr);
         rc = -ENOMEM;
         goto err_free_mipical_regs;
     }
 
     nv->mipical_regs->cpu_address = res_addr;
     nv->mipical_regs->size = res_size;
+
+    if (nv->soc_is_hfrp_supported)
+    {
+        NV_KMALLOC(nv->hfrp0_regs, sizeof(*(nv->hfrp0_regs)));
+        if (nv->hfrp0_regs == NULL)
+        {
+            nv_printf(NV_DBG_ERRORS, "NVRM: failed to allocate hfrp0 registers memory\n");
+            rc = -ENOMEM;
+            goto err_release_mem_mipical_region_regs;
+        }
+        os_mem_set(nv->hfrp0_regs, 0, sizeof(*(nv->hfrp0_regs)));
+    
+        NV_KMALLOC(nv->hfrp1_regs, sizeof(*(nv->hfrp1_regs)));
+        if (nv->hfrp1_regs == NULL)
+        {
+            nv_printf(NV_DBG_ERRORS, "NVRM: failed to allocate hfrp1 registers memory\n");
+            rc = -ENOMEM;
+            goto err_free_hfrp_regs;
+        }
+        os_mem_set(nv->hfrp1_regs, 0, sizeof(*(nv->hfrp1_regs)));
+    
+        res = platform_get_resource_byname(plat_dev, IORESOURCE_MEM, "hfrp0");
+        if (!res)
+        {
+            nv_printf(NV_DBG_ERRORS, "NVRM: failed to get hfrp0 IO memory resource\n");
+            rc = -ENODEV;
+            goto err_free_hfrp_regs;
+        }
+    
+        res_addr = res->start;
+        res_size = res->end - res->start;
+    
+        if (!request_mem_region(res_addr, res_size, nv_device_name))
+        {
+            nv_printf(NV_DBG_ERRORS, "NVRM: request_mem_region of hfrp0 failed for %pa\n",
+                      &res_addr);
+            rc = -ENOMEM;
+            goto err_free_hfrp_regs;
+        }
+    
+        nv->hfrp0_regs->cpu_address = res_addr;
+        nv->hfrp0_regs->size = res_size;
+    
+        res = platform_get_resource_byname(plat_dev, IORESOURCE_MEM, "hfrp1");
+        if (!res)
+        {
+            nv_printf(NV_DBG_ERRORS, "NVRM: failed to get hfrp1 IO memory resource\n");
+            rc = -ENODEV;
+            goto err_release_mem_hfrp_region_regs;
+        }
+    
+        res_addr = res->start;
+        res_size = res->end - res->start;
+    
+        if (!request_mem_region(res_addr, res_size, nv_device_name))
+        {
+            nv_printf(NV_DBG_ERRORS, "NVRM: request_mem_region of hfrp1 failed for %pa\n",
+                      &res_addr);
+            rc = -ENOMEM;
+            goto err_release_mem_hfrp_region_regs;
+        }
+    
+        nv->hfrp1_regs->cpu_address = res_addr;
+        nv->hfrp1_regs->size = res_size;
+    
+        nv->hfrp0_irq = platform_get_irq_byname(plat_dev, "hfrp0");
+        if (nv->hfrp0_irq < 0)
+        {
+            nv_printf(NV_DBG_ERRORS, "NVRM: failed to get HFRP0 irq resource\n");
+            rc = -ENODEV;
+            goto err_free_hfrp_regs;
+        }
+    
+        nv->hfrp1_irq = platform_get_irq_byname(plat_dev, "hfrp1");
+        if (nv->hfrp1_irq < 0)
+        {
+            nv_printf(NV_DBG_ERRORS, "NVRM: failed to get HFRP1 irq resource\n");
+            rc = -ENODEV;
+            goto err_free_hfrp_regs;
+        }
+    }
 
     pm_vt_switch_required(&plat_dev->dev, NV_TRUE);
 
@@ -874,7 +1117,7 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
         {
             nv_printf(NV_DBG_ERRORS, "NVRM: failed to get clock handles\n");
             rc = -EPERM;
-            goto err_release_mem_mipical_region_regs;
+            goto err_release_mem_hfrp_region_regs;
         }
 
         /*
@@ -920,14 +1163,26 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
             nv_printf(NV_DBG_ERRORS, "NVRM: mipi_cal devm_reset_control_get failed, err: %ld\n",  PTR_ERR(nvl->mipi_cal_reset));
             nvl->mipi_cal_reset = NULL;
         }
-    }
 
-    status = nv_imp_get_bpmp_data(nvl);
-    if (status != NV_OK)
-    {
-        nv_printf(NV_DBG_ERRORS, "NVRM: failed to get bpmp data\n");
-        rc = -EPERM;
-        goto err_destroy_clk_handles;
+        /*
+         * In T23x, HDACODEC is part of the same power domain as NVDisplay, so
+         * unpowergating the DISP domain also results in the HDACODEC reset
+         * being de-asserted. However, in T26x, HDACODEC is being moved
+         * out to a separate always-on domain, so we need to explicitly de-assert
+         * the HDACODEC reset in RM. We don't have good way to differentiate
+         * between T23x vs T264x at this place. So if there is failure to read
+         * "hdacodec_reset" from DT silently ignore it for now. In long term we
+         * should really look into using the devm_reset_control_bulk* APIs and
+         * see if this is feasible if we're ultimately just getting and
+         * asserting/deasserting all of the resets specified in DT together all of
+         * the time, and if there's no scenarios in which we need to only use a 
+         * specific set of reset(s) at a given point.
+         */
+        nvl->hdacodec_reset = devm_reset_control_get(nvl->dev, "hdacodec_reset");
+        if (IS_ERR(nvl->hdacodec_reset))
+        {
+            nvl->hdacodec_reset = NULL;
+        }
     }
 
     status = nv_imp_icc_get(nv);
@@ -978,6 +1233,12 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
         goto err_destroy_lock;
     }
 
+    if (nv_linux_init_open_q(nvl) != 0)
+    {
+        nv_printf(NV_DBG_ERRORS, "NVRM: nv_linux_init_open_q() failed!\n");
+        goto err_free_private_state;
+    }
+
     num_nv_devices++;
 
     /*
@@ -988,16 +1249,15 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
      */
     LOCK_NV_LINUX_DEVICES();
 
-    nv_linux_add_device_locked(nvl);
-
-    UNLOCK_NV_LINUX_DEVICES();
-
-    if (nvidia_frontend_add_device((void *)&nv_fops, nvl) != 0)
+    if (nv_linux_add_device_locked(nvl) != 0)
     {
+        UNLOCK_NV_LINUX_DEVICES();
         nv_printf(NV_DBG_ERRORS, "NVRM: failed to add device\n");
         rc = -ENODEV;
-        goto err_remove_device;
+        goto err_stop_open_q;
     }
+
+    UNLOCK_NV_LINUX_DEVICES();
 
     rm_set_rm_firmware_requested(sp, nv);
 
@@ -1025,56 +1285,76 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
      * TODO: procfs, vt_switch, dynamic_power_management
      */
 
-    nv_kmem_cache_free_stack(sp);
-
     dma_set_mask(nv->dma_dev->dev, DMA_BIT_MASK(39));
-#if defined(NV_DMA_SET_MASK_AND_COHERENT_PRESENT)
     if (nv->niso_dma_dev != NULL)
     {
         dma_set_mask_and_coherent(nv->niso_dma_dev->dev, DMA_BIT_MASK(39));
     }
-#else
-    nv_printf(NV_DBG_INFO, "NVRM: Using default 32-bit DMA mask\n");
-#endif
 
     rc = os_alloc_mutex(&nvl->soc_bh_mutex);
+    if (rc != 0)
+    {
+        goto err_remove_device;
+    }
 
-    return rc;
+    nv_kmem_cache_free_stack(sp);
+
+    return 0;
 
 err_remove_device:
     LOCK_NV_LINUX_DEVICES();
     nv_linux_remove_device_locked(nvl);
     UNLOCK_NV_LINUX_DEVICES();
+err_stop_open_q:
+    nv_linux_stop_open_q(nvl);
+err_free_private_state:
     rm_free_private_state(sp, nv);
 err_destroy_lock:
     nv_lock_destroy_locks(sp, nv);
 err_put_icc_handle:
     nv_imp_icc_put(nv);
 err_destroy_clk_handles:
-    nv_clk_clear_handles(nv);
-err_remove_dpaux_device:
-    nv_platform_free_device_dpaux(nv);
+    if (!skip_clk_rsts)
+    {
+        nv_clk_clear_handles(nv);
+    }
+err_release_mem_hfrp_region_regs:
+    if (nv->soc_is_hfrp_supported)
+    {
+        release_mem_region(nv->hfrp0_regs->cpu_address, nv->hfrp0_regs->size);
+        release_mem_region(nv->hfrp1_regs->cpu_address, nv->hfrp1_regs->size);
+    }
+err_free_hfrp_regs:
+    if (nv->soc_is_hfrp_supported)
+    {
+        NV_KFREE(nv->hfrp0_regs, sizeof(*(nv->hfrp0_regs)));
+        NV_KFREE(nv->hfrp1_regs, sizeof(*(nv->hfrp1_regs)));
+    }
 err_release_mem_mipical_region_regs:
     release_mem_region(nv->mipical_regs->cpu_address, nv->mipical_regs->size);
 err_free_mipical_regs:
     NV_KFREE(nv->mipical_regs, sizeof(*(nv->mipical_regs)));
 err_release_mem_hdacodec_region_regs:
     release_mem_region(nv->hdacodec_regs->cpu_address, nv->hdacodec_regs->size);
-err_release_mem_region_regs:
-    release_mem_region(nv->regs->cpu_address, nv->regs->size);
 err_free_nv_codec_regs:
     NV_KFREE(nv->hdacodec_regs, sizeof(*(nv->hdacodec_regs)));
+err_remove_dpaux_device:
+    nv_platform_free_device_dpaux(nv);
+err_release_mem_region_regs:
+    release_mem_region(nv->regs->cpu_address, nv->regs->size);
 err_free_nv_regs:
     NV_KFREE(nv->regs, sizeof(*(nv->regs)));
 err_free_nvl:
-    NV_KFREE(nvl, sizeof(*nvl));
     platform_set_drvdata(plat_dev, NULL);
+    NV_KFREE(nvl, sizeof(*nvl));
 err_free_stack:
     nv_kmem_cache_free_stack(sp);
 
     return rc;
 }
+#endif
 
+#if NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
 static void nv_platform_device_display_remove(struct platform_device *plat_dev)
 {
     nv_linux_state_t *nvl = NULL;
@@ -1083,17 +1363,24 @@ static void nv_platform_device_display_remove(struct platform_device *plat_dev)
 
     nv_printf(NV_DBG_SETUP, "NVRM: removing SOC Display device\n");
 
+    nvl = platform_get_drvdata(plat_dev);
+    if (WARN_ON(!nvl || (nvl->dev != &plat_dev->dev)))
+    {
+        return;
+    }
+
     if (WARN_ON(nv_kmem_cache_alloc_stack(&sp) < 0))
     {
         return;
     }
 
+    /*
+     * Flush and stop open_q before proceeding with removal to ensure nvl
+     * outlives all enqueued work items.
+     */
+    nv_linux_stop_open_q(nvl);
+
     LOCK_NV_LINUX_DEVICES();
-    nvl = platform_get_drvdata(plat_dev);
-    if (!nvl || (nvl->dev != &plat_dev->dev))
-    {
-        goto done;
-    }
 
     nv_linux_remove_device_locked(nvl);
 
@@ -1107,8 +1394,6 @@ static void nv_platform_device_display_remove(struct platform_device *plat_dev)
     /*
      * TODO: vt_switch, dynamic_power_management
      */
-
-    nvidia_frontend_remove_device((void *)&nv_fops, nvl);
 
     nv = NV_STATE_PTR(nvl);
 
@@ -1128,6 +1413,17 @@ static void nv_platform_device_display_remove(struct platform_device *plat_dev)
     num_probed_nv_devices--;
 
     rm_free_private_state(sp, nv);
+
+    if (nv->soc_is_hfrp_supported)
+    {
+        release_mem_region(nv->hfrp0_regs->cpu_address, nv->hfrp0_regs->size);
+
+        NV_KFREE(nv->hfrp0_regs, sizeof(*(nv->hfrp0_regs)));
+
+        release_mem_region(nv->hfrp1_regs->cpu_address, nv->hfrp1_regs->size);
+
+        NV_KFREE(nv->hfrp1_regs, sizeof(*(nv->hfrp1_regs)));
+    }
 
     release_mem_region(nv->mipical_regs->cpu_address, nv->mipical_regs->size);
 
@@ -1163,46 +1459,25 @@ static void nv_platform_device_display_remove(struct platform_device *plat_dev)
     NV_KFREE(nvl, sizeof(*nvl));
 
     nv_kmem_cache_free_stack(sp);
-
-    return;
-
-done:
-    UNLOCK_NV_LINUX_DEVICES();
-    nv_kmem_cache_free_stack(sp);
-
-    return;
 }
+#endif
 
 static int nv_platform_device_probe(struct platform_device *plat_dev)
 {
     int rc = 0;
 
-    if (plat_dev->dev.of_node)
-    {
-        {
-            rc = nv_platform_device_display_probe(plat_dev);
-        }
-    }
-    else
-    {
-        rc = nv_platform_device_display_probe(plat_dev);
-    }
+#if NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
+    rc = nv_platform_device_display_probe(plat_dev);
+#endif
 
     return rc;
 }
 
 static void nv_platform_device_remove(struct platform_device *plat_dev)
 {
-    if (plat_dev->dev.of_node)
-    {
-        {
-            nv_platform_device_display_remove(plat_dev);
-        }
-    }
-    else
-    {
-        nv_platform_device_display_remove(plat_dev);
-    }
+#if NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
+    nv_platform_device_display_remove(plat_dev);
+#endif
 }
 
 #if defined(NV_PLATFORM_DRIVER_STRUCT_REMOVE_RETURNS_VOID) /* Linux v6.11 */
@@ -1222,6 +1497,8 @@ static int nv_platform_device_remove_wrapper(struct platform_device *pdev)
 const struct of_device_id nv_platform_device_table[] =
 {
     { .compatible = "nvidia,tegra234-display",},
+    { .compatible = "nvidia,tegra264-display",},
+    { .compatible = "nvidia,tegra256-display",},
     {},
 };
 MODULE_DEVICE_TABLE(of, nv_platform_device_table);
@@ -1248,6 +1525,11 @@ int nv_platform_count_devices(void)
     int count = 0;
     struct device_node *np = NULL;
 
+    if (NVreg_RegisterPlatformDeviceDriver == 0)
+    {
+        return 0;
+    }
+
     while ((np = of_find_matching_node(np, nv_platform_device_table)))
     {
         count++;
@@ -1258,12 +1540,27 @@ int nv_platform_count_devices(void)
 
 int nv_platform_register_driver(void)
 {
-    return platform_driver_register(&nv_platform_driver);
+#if NV_SUPPORTS_PLATFORM_DEVICE
+    if (NVreg_RegisterPlatformDeviceDriver > 0)
+    {
+        return platform_driver_register(&nv_platform_driver);
+    }
+
+    return 0;
+#else
+    nv_printf(NV_DBG_ERRORS, "NVRM: Not registering platform driver\n");
+    return -1;
+#endif
 }
 
 void nv_platform_unregister_driver(void)
 {
-    platform_driver_unregister(&nv_platform_driver);
+#if NV_SUPPORTS_PLATFORM_DEVICE
+    if (NVreg_RegisterPlatformDeviceDriver > 0)
+    {
+        platform_driver_unregister(&nv_platform_driver);
+    }
+#endif
 }
 
 extern int tegra_fuse_control_read(unsigned long addr, unsigned int *data);
@@ -1272,7 +1569,7 @@ unsigned int NV_API_CALL nv_soc_fuse_register_read (unsigned int addr)
 {
    unsigned int data = 0;
 
-#if NV_IS_EXPORT_SYMBOL_PRESENT_tegra_fuse_control_read
+#if NV_SUPPORTS_PLATFORM_DEVICE && NV_IS_EXPORT_SYMBOL_PRESENT_tegra_fuse_control_read
    tegra_fuse_control_read ((unsigned long)(addr), &data);
 #endif
 
@@ -1355,6 +1652,7 @@ void NV_API_CALL nv_soc_tsec_free_mem_desc(void *mem_desc)
 
 NV_STATUS nv_get_valid_window_head_mask(nv_state_t *nv, NvU64 *window_head_mask)
 {
+#if NV_SUPPORTS_PLATFORM_DEVICE
     int ret = 0;
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
 
@@ -1376,6 +1674,9 @@ NV_STATUS nv_get_valid_window_head_mask(nv_state_t *nv, NvU64 *window_head_mask)
         return NV_ERR_GENERIC;
     }
     return NV_OK;
+#else
+    return NV_ERR_NOT_SUPPORTED;
+#endif
 }
 
 NV_STATUS NV_API_CALL nv_soc_i2c_hsp_semaphore_acquire(NvU32 ownerId, NvBool bAcquire, NvU64 timeout)

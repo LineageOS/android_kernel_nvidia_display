@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2011-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -25,11 +25,12 @@
 
 #include "os-interface.h"
 #include "nv-linux.h"
-#include "nv-ibmnpu.h"
 #include "nv-rsync.h"
 
 #include "nv-p2p.h"
 #include "rmp2pdefines.h"
+
+#include "nvmisc.h"
 
 typedef enum nv_p2p_page_table_type {
     NV_P2P_PAGE_TABLE_TYPE_NON_PERSISTENT = 0,
@@ -50,6 +51,8 @@ typedef struct nv_p2p_mem_info {
         struct semaphore lock;
     } dma_mapping_list;
     void *private;
+    void *mig_info;
+    NvBool force_pcie;
 } nv_p2p_mem_info_t;
 
 // declared and created in nv.c
@@ -73,7 +76,7 @@ static struct nvidia_status_mapping {
 };
 
 #define NVIDIA_STATUS_MAPPINGS \
-    (sizeof(nvidia_status_mappings) / sizeof(struct nvidia_status_mapping))
+    NV_ARRAY_ELEMENTS(nvidia_status_mappings)
 
 static int nvidia_p2p_map_status(NV_STATUS status)
 {
@@ -171,7 +174,6 @@ static void nv_p2p_free_dma_mapping(
     nv_dma_device_t peer_dma_dev = {{ 0 }};
     NvU32 page_size;
     NV_STATUS status;
-    NvU32 i;
 
     peer_dma_dev.dev = &dma_mapping->pci_dev->dev;
     peer_dma_dev.addressable_range.limit = dma_mapping->pci_dev->dma_mask;
@@ -180,16 +182,64 @@ static void nv_p2p_free_dma_mapping(
 
     if (dma_mapping->private != NULL)
     {
-        WARN_ON(page_size != PAGE_SIZE);
+        /*
+         * If OS page size is smaller than P2P page size,
+         * page inflation logic applies for DMA unmapping too.
+         * Bigger P2P page needs to be split in smaller OS pages.
+         */
+        if (page_size > PAGE_SIZE)
+        {
+            NvU64 *os_dma_addresses = NULL;
+            NvU32 os_pages_per_p2p_page = page_size;
+            NvU32 os_page_count;
+            NvU32 index, i, j;
 
-        status = nv_dma_unmap_alloc(&peer_dma_dev,
-                                    dma_mapping->entries,
-                                    dma_mapping->dma_addresses,
-                                    &dma_mapping->private);
-        WARN_ON(status != NV_OK);
+            do_div(os_pages_per_p2p_page, PAGE_SIZE);
+
+            os_page_count = os_pages_per_p2p_page * dma_mapping->entries;
+
+            status = os_alloc_mem((void **)&os_dma_addresses,
+                        (os_page_count * sizeof(NvU64)));
+            if(WARN_ON(status != NV_OK))
+            {
+                goto failed;
+            }
+
+            index = 0;
+            for (i = 0; i < dma_mapping->entries; i++)
+            {
+                os_dma_addresses[index] = dma_mapping->dma_addresses[i];
+                index++;
+
+                for (j = 1; j < os_pages_per_p2p_page; j++)
+                {
+                    os_dma_addresses[index] = os_dma_addresses[index - 1] + PAGE_SIZE;
+                    index++;
+                }
+            }
+
+            status = nv_dma_unmap_alloc(&peer_dma_dev,
+                                        os_page_count,
+                                        os_dma_addresses,
+                                        &dma_mapping->private);
+            WARN_ON(status != NV_OK);
+
+            os_free_mem(os_dma_addresses);
+        }
+        else
+        {
+            WARN_ON(page_size != PAGE_SIZE);
+
+            status = nv_dma_unmap_alloc(&peer_dma_dev,
+                                        dma_mapping->entries,
+                                        dma_mapping->dma_addresses,
+                                        &dma_mapping->private);
+            WARN_ON(status != NV_OK);
+        }
     }
     else
     {
+        NvU32 i;
         for (i = 0; i < dma_mapping->entries; i++)
         {
             nv_dma_unmap_peer(&peer_dma_dev, page_size / PAGE_SIZE,
@@ -197,6 +247,7 @@ static void nv_p2p_free_dma_mapping(
         }
     }
 
+failed:
     os_free_mem(dma_mapping->dma_addresses);
 
     os_free_mem(dma_mapping);
@@ -266,7 +317,7 @@ static NV_STATUS nv_p2p_put_pages(
          * callback which can free it unlike non-persistent page_table.
          */
         mem_info = container_of(*page_table, nv_p2p_mem_info_t, page_table);
-        status = rm_p2p_put_pages_persistent(sp, mem_info->private, *page_table);
+        status = rm_p2p_put_pages_persistent(sp, mem_info->private, *page_table, mem_info->mig_info);
     }
     else
     {
@@ -316,14 +367,14 @@ int nvidia_p2p_init_mapping(
     return -ENOTSUPP;
 }
 
-EXPORT_SYMBOL(nvidia_p2p_init_mapping);
+NV_EXPORT_SYMBOL(nvidia_p2p_init_mapping);
 
 int nvidia_p2p_destroy_mapping(uint64_t p2p_token)
 {
     return -ENOTSUPP;
 }
 
-EXPORT_SYMBOL(nvidia_p2p_destroy_mapping);
+NV_EXPORT_SYMBOL(nvidia_p2p_destroy_mapping);
 
 static void nv_p2p_mem_info_free_callback(void *data)
 {
@@ -340,6 +391,7 @@ static int nv_p2p_get_pages(
     uint32_t va_space,
     uint64_t virtual_address,
     uint64_t length,
+    uint8_t  flags,
     struct nvidia_p2p_page_table **page_table,
     void (*free_callback)(void * data),
     void *data
@@ -362,7 +414,26 @@ static int nv_p2p_get_pages(
     NvU64 temp_length;
     NvU8 *gpu_uuid = NULL;
     NvU8 uuid[NVIDIA_P2P_GPU_UUID_LEN] = {0};
+    NvBool force_pcie = !!(flags & NVIDIA_P2P_FLAGS_FORCE_BAR1_MAPPING);
+    NvBool cpu_cacheable;
     int rc;
+
+    if (!NV_IS_ALIGNED64(virtual_address, NVRM_P2P_PAGESIZE_BIG_64K) ||
+        !NV_IS_ALIGNED64(length, NVRM_P2P_PAGESIZE_BIG_64K))
+    {
+        nv_printf(NV_DBG_ERRORS,
+                  "NVRM: Invalid argument in nv_p2p_get_pages,"
+                  "address or length are not aligned "
+                  "address=0x%llx, length=0x%llx\n",
+                  virtual_address, length);
+        return -EINVAL;
+    }
+
+    // Forced PCIe mappings are not supported for non-persistent APIs
+    if ((free_callback != NULL) && force_pcie)
+    {
+        return -ENOTSUPP;
+    }
 
     rc = nv_kmem_cache_alloc_stack(&sp);
     if (rc != 0)
@@ -381,6 +452,8 @@ static int nv_p2p_get_pages(
 
     INIT_LIST_HEAD(&mem_info->dma_mapping_list.list_head);
     NV_INIT_MUTEX(&mem_info->dma_mapping_list.lock);
+
+    mem_info->force_pcie = force_pcie;
 
     *page_table = &(mem_info->page_table);
 
@@ -447,7 +520,8 @@ static int nv_p2p_get_pages(
         status = rm_p2p_get_pages_persistent(sp, virtual_address, length,
                                              &mem_info->private,
                                              physical_addresses, &entries,
-                                             *page_table, gpu_info);
+                                             force_pcie, *page_table, gpu_info,
+                                             &mem_info->mig_info, &cpu_cacheable);
         if (status != NV_OK)
         {
             goto failed;
@@ -458,7 +532,7 @@ static int nv_p2p_get_pages(
         // Get regular old-style, non-persistent mappings
         status = rm_p2p_get_pages(sp, p2p_token, va_space,
                 virtual_address, length, physical_addresses, wreqmb_h,
-                rreqmb_h, &entries, &gpu_uuid, *page_table);
+                rreqmb_h, &entries, &gpu_uuid, *page_table, &cpu_cacheable);
         if (status != NV_OK)
         {
             goto failed;
@@ -505,9 +579,19 @@ static int nv_p2p_get_pages(
 
     (*page_table)->page_size = page_size_index;
 
+    if (cpu_cacheable)
+    {
+        (*page_table)->flags |= NVIDIA_P2P_PAGE_TABLE_FLAGS_CPU_CACHEABLE;
+    }
+
     os_free_mem(physical_addresses);
+    physical_addresses = NULL;
+
     os_free_mem(wreqmb_h);
+    wreqmb_h = NULL;
+
     os_free_mem(rreqmb_h);
+    rreqmb_h = NULL;
 
     if (free_callback != NULL)
     {
@@ -563,6 +647,304 @@ failed:
     return nvidia_p2p_map_status(status);
 }
 
+int nvidia_p2p_get_pages(
+    uint64_t p2p_token,
+    uint32_t va_space,
+    uint64_t virtual_address,
+    uint64_t length,
+    struct nvidia_p2p_page_table **page_table,
+    void (*free_callback)(void * data),
+    void *data
+)
+{
+    if (free_callback == NULL)
+    {
+        return -EINVAL;
+    }
+
+    return nv_p2p_get_pages(NV_P2P_PAGE_TABLE_TYPE_NON_PERSISTENT,
+                            p2p_token, va_space, virtual_address,
+                            length, NVIDIA_P2P_FLAGS_DEFAULT,
+                            page_table, free_callback, data);
+}
+NV_EXPORT_SYMBOL(nvidia_p2p_get_pages);
+
+int nvidia_p2p_get_pages_persistent(
+    uint64_t virtual_address,
+    uint64_t length,
+    struct nvidia_p2p_page_table **page_table,
+    uint32_t flags
+)
+{
+    return nv_p2p_get_pages(NV_P2P_PAGE_TABLE_TYPE_PERSISTENT, 0, 0,
+                            virtual_address, length, flags, page_table,
+                            NULL, NULL);
+}
+NV_EXPORT_SYMBOL(nvidia_p2p_get_pages_persistent);
+
+/*
+ * This function is a no-op, but is left in place (for now), in order to allow
+ * third-party callers to build and run without errors or warnings. This is OK,
+ * because the missing functionality is provided by nv_p2p_free_platform_data,
+ * which is being called as part of the RM's cleanup path.
+ */
+int nvidia_p2p_free_page_table(struct nvidia_p2p_page_table *page_table)
+{
+    return 0;
+}
+
+NV_EXPORT_SYMBOL(nvidia_p2p_free_page_table);
+
+int nvidia_p2p_put_pages(
+    uint64_t p2p_token,
+    uint32_t va_space,
+    uint64_t virtual_address,
+    struct nvidia_p2p_page_table *page_table
+)
+{
+    NV_STATUS status;
+    nvidia_stack_t *sp = NULL;
+    int rc = 0;
+
+    if (page_table == NULL)
+    {
+        return 0;
+    }
+
+    rc = nv_kmem_cache_alloc_stack(&sp);
+    if (rc != 0)
+    {
+        return -ENOMEM;
+    }
+
+    status = nv_p2p_put_pages(NV_P2P_PAGE_TABLE_TYPE_NON_PERSISTENT,
+                              sp, p2p_token, va_space,
+                              virtual_address, &page_table);
+    nv_kmem_cache_free_stack(sp);
+
+    return nvidia_p2p_map_status(status);
+}
+NV_EXPORT_SYMBOL(nvidia_p2p_put_pages);
+
+int nvidia_p2p_put_pages_persistent(
+    uint64_t virtual_address,
+    struct nvidia_p2p_page_table *page_table,
+    uint32_t flags
+)
+{
+    NvU8 uuid[NVIDIA_P2P_GPU_UUID_LEN] = {0};
+    NV_STATUS status;
+    nvidia_stack_t *sp = NULL;
+    int rc = 0;
+
+    if (flags != 0)
+    {
+        return -EINVAL;
+    }
+
+    if (page_table == NULL)
+    {
+        return 0;
+    }
+
+    rc = nv_kmem_cache_alloc_stack(&sp);
+    if (rc != 0)
+    {
+        return -ENOMEM;
+    }
+
+    os_mem_copy(uuid, page_table->gpu_uuid, NVIDIA_P2P_GPU_UUID_LEN);
+
+    status = nv_p2p_put_pages(NV_P2P_PAGE_TABLE_TYPE_PERSISTENT,
+                              sp, 0, 0, virtual_address, &page_table);
+
+    nvidia_dev_put_uuid(uuid, sp);
+
+    nv_kmem_cache_free_stack(sp);
+
+    return nvidia_p2p_map_status(status);
+}
+NV_EXPORT_SYMBOL(nvidia_p2p_put_pages_persistent);
+
+int nvidia_p2p_dma_map_pages(
+    struct pci_dev *peer,
+    struct nvidia_p2p_page_table *page_table,
+    struct nvidia_p2p_dma_mapping **dma_mapping
+)
+{
+    NV_STATUS status;
+    nv_dma_device_t peer_dma_dev = {{ 0 }};
+    nvidia_stack_t *sp = NULL;
+    NvU64 *dma_addresses = NULL;
+    NvU32 page_count;
+    NvU32 page_size;
+    enum nvidia_p2p_page_size_type page_size_type;
+    struct nv_p2p_mem_info *mem_info = NULL;
+    NvU32 i;
+    void *priv;
+    int rc;
+
+    if (peer == NULL || page_table == NULL || dma_mapping == NULL ||
+        page_table->gpu_uuid == NULL)
+    {
+        return -EINVAL;
+    }
+
+    mem_info = container_of(page_table, nv_p2p_mem_info_t, page_table);
+
+    //
+    // Only CPU mappings are supported for forced PCIe config through
+    // nv-p2p APIs. IO mappings will not be supported.
+    //
+    if (mem_info->force_pcie)
+    {
+        return -ENOTSUPP;
+    }
+
+    rc = nv_kmem_cache_alloc_stack(&sp);
+    if (rc != 0)
+    {
+        return rc;
+    }
+
+    *dma_mapping = NULL;
+    status = os_alloc_mem((void **)dma_mapping, sizeof(**dma_mapping));
+    if (status != NV_OK)
+    {
+        goto failed;
+    }
+    memset(*dma_mapping, 0, sizeof(**dma_mapping));
+
+    page_count = page_table->entries;
+
+    status = os_alloc_mem((void **)&dma_addresses,
+            (page_count * sizeof(NvU64)));
+    if (status != NV_OK)
+    {
+        goto failed;
+    }
+
+    page_size_type = page_table->page_size;
+
+    BUG_ON((page_size_type <= NVIDIA_P2P_PAGE_SIZE_4KB) ||
+           (page_size_type >= NVIDIA_P2P_PAGE_SIZE_COUNT));
+
+    peer_dma_dev.dev = &peer->dev;
+    peer_dma_dev.addressable_range.limit = peer->dma_mask;
+
+    page_size = nvidia_p2p_page_size_mappings[page_size_type];
+
+    for (i = 0; i < page_count; i++)
+    {
+        dma_addresses[i] = page_table->pages[i]->physical_address;
+    }
+
+    status = rm_p2p_dma_map_pages(sp, &peer_dma_dev,
+            page_table->gpu_uuid, page_size, page_count, dma_addresses, &priv);
+    if (status != NV_OK)
+    {
+        goto failed;
+    }
+
+    (*dma_mapping)->version = NVIDIA_P2P_DMA_MAPPING_VERSION;
+    (*dma_mapping)->page_size_type = page_size_type;
+    (*dma_mapping)->entries = page_count;
+    (*dma_mapping)->dma_addresses = dma_addresses;
+    (*dma_mapping)->private = priv;
+    (*dma_mapping)->pci_dev = peer;
+
+    /*
+     * All success, it is safe to insert dma_mapping now.
+     */
+    status = nv_p2p_insert_dma_mapping(mem_info, *dma_mapping);
+    if (status != NV_OK)
+    {
+        goto failed_insert;
+    }
+
+    nv_kmem_cache_free_stack(sp);
+
+    return 0;
+
+failed_insert:
+    nv_p2p_free_dma_mapping(*dma_mapping);
+    dma_addresses = NULL;
+    *dma_mapping = NULL;
+
+failed:
+    if (dma_addresses != NULL)
+    {
+        os_free_mem(dma_addresses);
+    }
+
+    if (*dma_mapping != NULL)
+    {
+        os_free_mem(*dma_mapping);
+        *dma_mapping = NULL;
+    }
+
+    nv_kmem_cache_free_stack(sp);
+
+    return nvidia_p2p_map_status(status);
+}
+
+NV_EXPORT_SYMBOL(nvidia_p2p_dma_map_pages);
+
+int nvidia_p2p_dma_unmap_pages(
+    struct pci_dev *peer,
+    struct nvidia_p2p_page_table *page_table,
+    struct nvidia_p2p_dma_mapping *dma_mapping
+)
+{
+    struct nv_p2p_mem_info *mem_info = NULL;
+
+    if (peer == NULL || dma_mapping == NULL || page_table == NULL)
+    {
+        return -EINVAL;
+    }
+
+    mem_info = container_of(page_table, nv_p2p_mem_info_t, page_table);
+
+    /*
+     * nv_p2p_remove_dma_mapping returns dma_mapping if the dma_mapping was
+     * found and got unlinked from the mem_info->dma_mapping_list (atomically).
+     * This ensures that the RM's tear-down path does not race with this path.
+     *
+     * nv_p2p_remove_dma_mappings returns NULL if the dma_mapping was already
+     * unlinked.
+     */
+    if (nv_p2p_remove_dma_mapping(mem_info, dma_mapping) == NULL)
+    {
+        return 0;
+    }
+
+    WARN_ON(peer != dma_mapping->pci_dev);
+
+    BUG_ON((dma_mapping->page_size_type <= NVIDIA_P2P_PAGE_SIZE_4KB) ||
+           (dma_mapping->page_size_type >= NVIDIA_P2P_PAGE_SIZE_COUNT));
+
+    nv_p2p_free_dma_mapping(dma_mapping);
+
+    return 0;
+}
+
+NV_EXPORT_SYMBOL(nvidia_p2p_dma_unmap_pages);
+
+/*
+ * This function is a no-op, but is left in place (for now), in order to allow
+ * third-party callers to build and run without errors or warnings. This is OK,
+ * because the missing functionality is provided by nv_p2p_free_platform_data,
+ * which is being called as part of the RM's cleanup path.
+ */
+int nvidia_p2p_free_dma_mapping(
+    struct nvidia_p2p_dma_mapping *dma_mapping
+)
+{
+    return 0;
+}
+
+NV_EXPORT_SYMBOL(nvidia_p2p_free_dma_mapping);
+
 int nvidia_p2p_register_rsync_driver(
     nvidia_p2p_rsync_driver_t *driver,
     void *data
@@ -590,7 +972,7 @@ int nvidia_p2p_register_rsync_driver(
                                     driver->wait_for_rsync, data);
 }
 
-EXPORT_SYMBOL(nvidia_p2p_register_rsync_driver);
+NV_EXPORT_SYMBOL(nvidia_p2p_register_rsync_driver);
 
 void nvidia_p2p_unregister_rsync_driver(
     nvidia_p2p_rsync_driver_t *driver,
@@ -622,129 +1004,24 @@ void nvidia_p2p_unregister_rsync_driver(
                                driver->wait_for_rsync, data);
 }
 
-EXPORT_SYMBOL(nvidia_p2p_unregister_rsync_driver);
+NV_EXPORT_SYMBOL(nvidia_p2p_unregister_rsync_driver);
 
 int nvidia_p2p_get_rsync_registers(
     nvidia_p2p_rsync_reg_info_t **reg_info
 )
 {
-    nv_linux_state_t *nvl;
-    nv_state_t *nv;
-    NV_STATUS status;
-    void *ptr = NULL;
-    NvU64 addr;
-    NvU64 size;
-    struct pci_dev *ibmnpu = NULL;
-    NvU32 index = 0;
-    NvU32 count = 0;
-    nvidia_p2p_rsync_reg_info_t *info = NULL;
-    nvidia_p2p_rsync_reg_t *regs = NULL;
-
-    if (reg_info == NULL)
-    {
-        return -EINVAL;
-    }
-
-    status = os_alloc_mem((void**)&info, sizeof(*info));
-    if (status != NV_OK)
-    {
-        return -ENOMEM;
-    }
-
-    memset(info, 0, sizeof(*info));
-
-    info->version = NVIDIA_P2P_RSYNC_REG_INFO_VERSION;
-
-    LOCK_NV_LINUX_DEVICES();
-
-    for (nvl = nv_linux_devices; nvl; nvl = nvl->next)
-    {
-        count++;
-    }
-
-    status = os_alloc_mem((void**)&regs, (count * sizeof(*regs)));
-    if (status != NV_OK)
-    {
-        nvidia_p2p_put_rsync_registers(info);
-        UNLOCK_NV_LINUX_DEVICES();
-        return -ENOMEM;
-    }
-
-    for (nvl = nv_linux_devices; nvl; nvl = nvl->next)
-    {
-        nv = NV_STATE_PTR(nvl);
-
-        addr = 0;
-        size = 0;
-
-        status = nv_get_ibmnpu_genreg_info(nv, &addr, &size, (void**)&ibmnpu);
-        if (status != NV_OK)
-        {
-            continue;
-        }
-
-        ptr = nv_ioremap_nocache(addr, size);
-        if (ptr == NULL)
-        {
-            continue;
-        }
-
-        regs[index].ptr = ptr;
-        regs[index].size = size;
-        regs[index].gpu = nvl->pci_dev;
-        regs[index].ibmnpu = ibmnpu;
-        regs[index].cluster_id = 0;
-        regs[index].socket_id = nv_get_ibmnpu_chip_id(nv);
-
-        index++;
-    }
-
-    UNLOCK_NV_LINUX_DEVICES();
-
-    info->regs = regs;
-    info->entries = index;
-
-    if (info->entries == 0)
-    {
-        nvidia_p2p_put_rsync_registers(info);
-        return -ENODEV;
-    }
-
-    *reg_info = info;
-
-    return 0;
+    // TODO: Remove this interface.
+    return -ENODEV;
 }
 
-EXPORT_SYMBOL(nvidia_p2p_get_rsync_registers);
+NV_EXPORT_SYMBOL(nvidia_p2p_get_rsync_registers);
 
 void nvidia_p2p_put_rsync_registers(
     nvidia_p2p_rsync_reg_info_t *reg_info
 )
 {
-    NvU32 i;
-    nvidia_p2p_rsync_reg_t *regs = NULL;
-
-    if (reg_info == NULL)
-    {
-        return;
-    }
-
-    if (reg_info->regs)
-    {
-        for (i = 0; i < reg_info->entries; i++)
-        {
-            regs = &reg_info->regs[i];
-
-            if (regs->ptr)
-            {
-                nv_iounmap(regs->ptr, regs->size);
-            }
-        }
-
-        os_free_mem(reg_info->regs);
-    }
-
-    os_free_mem(reg_info);
+    // TODO: Remove this interface.  There is nothing to do because
+    // nvidia_p2p_get_rsync_registers always fails.
 }
 
-EXPORT_SYMBOL(nvidia_p2p_put_rsync_registers);
+NV_EXPORT_SYMBOL(nvidia_p2p_put_rsync_registers);

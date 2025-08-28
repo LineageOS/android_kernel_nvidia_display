@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -74,53 +74,30 @@ NV_STATUS NV_API_CALL nv_vgpu_get_type_info(
 NV_STATUS NV_API_CALL nv_vgpu_create_request(
     nvidia_stack_t *sp,
     nv_state_t *pNv,
-    const NvU8 *pMdevUuid,
+    const NvU8 *pVgpuDevName,
     NvU32 vgpuTypeId,
     NvU16 *vgpuId,
+    NvU32 *gpu_instance_id,
+    NvU32 *placement_id,
     NvU32 gpuPciBdf
 )
 {
     return NV_ERR_NOT_SUPPORTED;
 }
 
-NV_STATUS NV_API_CALL nv_vgpu_update_request(
-    nvidia_stack_t *sp ,
-    const NvU8 *pMdevUuid,
-    VGPU_DEVICE_STATE deviceState,
-    NvU64 *offsets,
-    NvU64 *sizes,
-    const char *configParams
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS NV_API_CALL nv_vgpu_get_sparse_mmap(
-    nvidia_stack_t *sp ,
-    nv_state_t *pNv,
-    const NvU8 *pMdevUuid,
-    NvU64 **offsets,
-    NvU64 **sizes,
-    NvU32 *numAreas
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
 NV_STATUS NV_API_CALL nv_gpu_bind_event(
-    nvidia_stack_t *sp
+    nvidia_stack_t *sp,
+    NvU32 gpuId,
+    NvBool *isEventNotified
 )
 {
     return NV_ERR_NOT_SUPPORTED;
 }
 
-NV_STATUS NV_API_CALL nv_vgpu_start(
+NV_STATUS NV_API_CALL nv_gpu_unbind_event(
     nvidia_stack_t *sp,
-    const NvU8 *pMdevUuid,
-    void *waitQueue,
-    NvS32 *returnStatus,
-    NvU8 *vmName,
-    NvU32 qemuPid
+    NvU32 gpuId,
+    NvBool *isEventNotified
 )
 {
     return NV_ERR_NOT_SUPPORTED;
@@ -128,8 +105,22 @@ NV_STATUS NV_API_CALL nv_vgpu_start(
 
 NV_STATUS NV_API_CALL nv_vgpu_delete(
     nvidia_stack_t *sp,
-    const NvU8 *pMdevUuid,
+    const NvU8 *pVgpuDevName,
     NvU16 vgpuId
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS nv_vgpu_rm_get_bar_info(
+    OBJGPU     *pGpu,
+    const NvU8 *pVgpuDevName,
+    NvU64      *bar_sizes,
+    NvU64      *sparse_offsets,
+    NvU64      *sparse_sizes,
+    NvU32      *sparse_count,
+    NvBool     *isBar064bit,
+    NvU8       *config_params
 )
 {
     return NV_ERR_NOT_SUPPORTED;
@@ -138,28 +129,47 @@ NV_STATUS NV_API_CALL nv_vgpu_delete(
 NV_STATUS NV_API_CALL nv_vgpu_get_bar_info(
     nvidia_stack_t *sp,
     nv_state_t *pNv,
-    const NvU8 *pMdevUuid,
-    NvU64 *size,
-    NvU32 regionIndex,
-    void *pVgpuVfioRef,
-    NvBool *isBar64bit
+    const NvU8 *pVgpuDevName,
+    NvU64 *bar_sizes,
+    NvU64 *sparse_offsets,
+    NvU64 *sparse_sizes,
+    NvU32 *sparse_count,
+    NvBool *isBar064bit,
+    NvU8 *config_params
 )
 {
     return NV_ERR_NOT_SUPPORTED;
 }
 
+NV_STATUS NV_API_CALL nv_vgpu_update_sysfs_info(
+    nvidia_stack_t      *sp,
+    nv_state_t          *pNv,
+    const NvU8          *pVgpuDevName,
+    NvU32                updateMode,
+    NvU32                *sysfs_val
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS NV_API_CALL nv_vgpu_get_hbm_info(
+    nvidia_stack_t *sp,
+    nv_state_t *pNv,
+    const NvU8 *pVgpuDevName,
+    NvU64 *hbm_addr,
+    NvU64 *size
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NvU32 osGetGridCspSupport(void)
+{
+    return 0;
+}
+
 void initVGXSpecificRegistry(OBJGPU *pGpu)
 {}
-
-NV_STATUS osVgpuVfioWake(void *pArg1)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS osVgpuRegisterMdev(OS_GPU_INFO *pArg1)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
 
 NV_STATUS osIsVgpuVfioPresent(void)
 {
@@ -176,7 +186,7 @@ NvBool hypervisorIsVgxHyper_IMPL(void)
     return NV_FALSE;
 }
 
-NvBool hypervisorIsAC_IMPL(void)
+NV_STATUS osIsVgpuDeviceVmPresent(void)
 {
-    return NV_FALSE;
+    return NV_ERR_NOT_SUPPORTED;
 }

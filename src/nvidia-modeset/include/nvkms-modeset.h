@@ -33,8 +33,10 @@ extern "C" {
 
 NvBool
 nvGetHwModeTimings(const NVDispEvoRec *pDispEvo,
+                   const NvU32 apiHead,
                    const struct NvKmsSetModeOneHeadRequest *pRequestHead,
                    NVHwModeTimingsEvo *pTimings,
+                   NVDpyAttributeColor *pDpyColor,
                    NVDispHeadInfoFrameStateEvoRec *pInfoFrameState);
 
 NvBool nvGetAllowHeadSurfaceInNvKms(const NVDevEvoRec *pDevEvo,
@@ -50,16 +52,21 @@ NvBool nvSetDispModeEvo(NVDevEvoPtr pDevEvo,
 
 typedef NvBool (*NVShutDownApiHeadsTestFunc)(
     const NVDispEvoRec *pDispEvo,
-    const NvU32 apiHead);
+    const NvU32 apiHead,
+    void *pData);
 
 void nvShutDownApiHeads(NVDevEvoPtr pDevEvo,
-                        NVShutDownApiHeadsTestFunc pTestFunc);
+                        struct NvKmsPerOpenDev *pOpenDev,
+                        NVShutDownApiHeadsTestFunc pTestFunc,
+                        void *pData,
+                        NvBool doRasterLock);
 
 NVVBlankCallbackPtr
 nvApiHeadRegisterVBlankCallback(NVDispEvoPtr pDispEvo,
                                 const NvU32 apiHead,
                                 NVVBlankCallbackProc pCallback,
-                                void *pUserData);
+                                void *pUserData,
+                                NvU8 listIndex);
 
 void nvApiHeadUnregisterVBlankCallback(NVDispEvoPtr pDispEvo,
                                        NVVBlankCallbackPtr pCallback);
@@ -74,16 +81,6 @@ void nvApiHeadGetScanLine(const NVDispEvoRec *pDispEvo,
                           const NvU32 apiHead,
                           NvU16 *pScanLine,
                           NvBool *pInBlankingPeriod);
-
-NVVBlankIntrCallbackRec*
-nvApiHeadRegisterVBlankIntrCallback(NVDispEvoPtr pDispEvo,
-                                    const NvU32 apiHead,
-                                    NVVBlankIntrCallbackProc pCallback,
-                                    NvU64 param1,
-                                    NvU64 param2);
-
-void nvApiHeadUnregisterVBlankIntrCallback(NVDispEvoPtr pDispEvo,
-                                           NVVBlankIntrCallbackRec *pCallback);
 
 #ifdef __cplusplus
 };

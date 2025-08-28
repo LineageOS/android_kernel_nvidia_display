@@ -1,6 +1,15 @@
+
 #ifndef _G_IO_VASPACE_NVOC_H_
 #define _G_IO_VASPACE_NVOC_H_
+
+// Version of generated metadata structures
+#ifdef NVOC_METADATA_VERSION
+#undef NVOC_METADATA_VERSION
+#endif
+#define NVOC_METADATA_VERSION 2
+
 #include "nvoc/runtime.h"
+#include "nvoc/rtti.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +38,7 @@ extern "C" {
  * DEALINGS IN THE SOFTWARE.
  */
 
+#pragma once
 #include "g_io_vaspace_nvoc.h"
 
 #ifndef _IOVASPACE_H_
@@ -43,19 +53,6 @@ extern "C" {
 #include "mem_mgr/vaspace.h"               // base class object header
 
 #define NV_IOVA_DOMAIN_NONE (~(NvU32)0)
-
-typedef struct OBJIOVASPACE *POBJIOVASPACE;
-
-#ifndef __NVOC_CLASS_OBJIOVASPACE_TYPEDEF__
-#define __NVOC_CLASS_OBJIOVASPACE_TYPEDEF__
-typedef struct OBJIOVASPACE OBJIOVASPACE;
-#endif /* __NVOC_CLASS_OBJIOVASPACE_TYPEDEF__ */
-
-#ifndef __nvoc_class_id_OBJIOVASPACE
-#define __nvoc_class_id_OBJIOVASPACE 0x28ed9c
-#endif /* __nvoc_class_id_OBJIOVASPACE */
-
-
 
 typedef struct IOVAMAPPING IOVAMAPPING;
 typedef struct IOVAMAPPING *PIOVAMAPPING;
@@ -135,28 +132,62 @@ struct IOVAMAPPING
 /*!
  * Virtual address space for a system's IOMMU translation.
  */
+
+// Private field names are wrapped in PRIVATE_FIELD, which does nothing for
+// the matching C source file, but causes diagnostics to be issued if another
+// source file references the field.
 #ifdef NVOC_IO_VASPACE_H_PRIVATE_ACCESS_ALLOWED
 #define PRIVATE_FIELD(x) x
 #else
 #define PRIVATE_FIELD(x) NVOC_PRIVATE_FIELD(x)
 #endif
+
+
+// Metadata with per-class RTTI and vtable with ancestor(s)
+struct NVOC_METADATA__OBJIOVASPACE;
+struct NVOC_METADATA__OBJVASPACE;
+struct NVOC_VTABLE__OBJIOVASPACE;
+
+
 struct OBJIOVASPACE {
-    const struct NVOC_RTTI *__nvoc_rtti;
+
+    // Metadata starts with RTTI structure.
+    union {
+         const struct NVOC_METADATA__OBJIOVASPACE *__nvoc_metadata_ptr;
+         const struct NVOC_RTTI *__nvoc_rtti;
+    };
+
+    // Parent (i.e. superclass or base class) objects
     struct OBJVASPACE __nvoc_base_OBJVASPACE;
-    struct Object *__nvoc_pbase_Object;
-    struct OBJVASPACE *__nvoc_pbase_OBJVASPACE;
-    struct OBJIOVASPACE *__nvoc_pbase_OBJIOVASPACE;
-    NV_STATUS (*__iovaspaceConstruct___)(struct OBJIOVASPACE *, NvU32, NvU32, NvU64, NvU64, NvU64, NvU64, NvU32);
-    NV_STATUS (*__iovaspaceAlloc__)(struct OBJIOVASPACE *, NvU64, NvU64, NvU64, NvU64, NvU64, VAS_ALLOC_FLAGS, NvU64 *);
-    NV_STATUS (*__iovaspaceFree__)(struct OBJIOVASPACE *, NvU64);
-    NV_STATUS (*__iovaspaceApplyDefaultAlignment__)(struct OBJIOVASPACE *, const FB_ALLOC_INFO *, NvU64 *, NvU64 *, NvU64 *);
-    NV_STATUS (*__iovaspaceIncAllocRefCnt__)(struct OBJIOVASPACE *, NvU64);
-    NvU64 (*__iovaspaceGetVaStart__)(struct OBJIOVASPACE *);
-    NvU64 (*__iovaspaceGetVaLimit__)(struct OBJIOVASPACE *);
-    NV_STATUS (*__iovaspaceGetVasInfo__)(struct OBJIOVASPACE *, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *);
-    NvBool (*__iovaspaceIsInternalVaRestricted__)(struct OBJIOVASPACE *);
-    NvU32 (*__iovaspaceGetFlags__)(struct OBJIOVASPACE *);
+
+    // Ancestor object pointers for `staticCast` feature
+    struct Object *__nvoc_pbase_Object;    // obj super^2
+    struct OBJVASPACE *__nvoc_pbase_OBJVASPACE;    // vaspace super
+    struct OBJIOVASPACE *__nvoc_pbase_OBJIOVASPACE;    // iovaspace
+
+    // Data members
     NvU64 mappingCount;
+};
+
+
+// Vtable with 9 per-class function pointers
+struct NVOC_VTABLE__OBJIOVASPACE {
+    NV_STATUS (*__iovaspaceConstruct___)(struct OBJIOVASPACE * /*this*/, NvU32, NvU32, NvU64, NvU64, NvU64, NvU64, NvU32);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__iovaspaceAlloc__)(struct OBJIOVASPACE * /*this*/, NvU64, NvU64, NvU64, NvU64, NvU64, VAS_ALLOC_FLAGS, NvU64 *);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__iovaspaceFree__)(struct OBJIOVASPACE * /*this*/, NvU64);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__iovaspaceApplyDefaultAlignment__)(struct OBJIOVASPACE * /*this*/, const FB_ALLOC_INFO *, NvU64 *, NvU64 *, NvU64 *);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__iovaspaceIncAllocRefCnt__)(struct OBJIOVASPACE * /*this*/, NvU64);  // virtual override (vaspace) base (vaspace)
+    NvU64 (*__iovaspaceGetVaStart__)(struct OBJIOVASPACE * /*this*/);  // virtual override (vaspace) base (vaspace)
+    NvU64 (*__iovaspaceGetVaLimit__)(struct OBJIOVASPACE * /*this*/);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__iovaspaceGetVasInfo__)(struct OBJIOVASPACE * /*this*/, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *);  // virtual override (vaspace) base (vaspace)
+    NvU32 (*__iovaspaceGetFlags__)(struct OBJIOVASPACE * /*this*/);  // inline virtual inherited (vaspace) base (vaspace) body
+};
+
+// Metadata with per-class RTTI and vtable with ancestor(s)
+struct NVOC_METADATA__OBJIOVASPACE {
+    const struct NVOC_RTTI rtti;
+    const struct NVOC_METADATA__OBJVASPACE metadata__OBJVASPACE;
+    const struct NVOC_VTABLE__OBJIOVASPACE vtable;
 };
 
 #ifndef __NVOC_CLASS_OBJIOVASPACE_TYPEDEF__
@@ -168,18 +199,18 @@ typedef struct OBJIOVASPACE OBJIOVASPACE;
 #define __nvoc_class_id_OBJIOVASPACE 0x28ed9c
 #endif /* __nvoc_class_id_OBJIOVASPACE */
 
+// Casting support
 extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJIOVASPACE;
 
 #define __staticCast_OBJIOVASPACE(pThis) \
     ((pThis)->__nvoc_pbase_OBJIOVASPACE)
 
 #ifdef __nvoc_io_vaspace_h_disabled
-#define __dynamicCast_OBJIOVASPACE(pThis) ((OBJIOVASPACE*)NULL)
+#define __dynamicCast_OBJIOVASPACE(pThis) ((OBJIOVASPACE*) NULL)
 #else //__nvoc_io_vaspace_h_disabled
 #define __dynamicCast_OBJIOVASPACE(pThis) \
-    ((OBJIOVASPACE*)__nvoc_dynamicCast(staticCast((pThis), Dynamic), classInfo(OBJIOVASPACE)))
+    ((OBJIOVASPACE*) __nvoc_dynamicCast(staticCast((pThis), Dynamic), classInfo(OBJIOVASPACE)))
 #endif //__nvoc_io_vaspace_h_disabled
-
 
 NV_STATUS __nvoc_objCreateDynamic_OBJIOVASPACE(OBJIOVASPACE**, Dynamic*, NvU32, va_list);
 
@@ -187,71 +218,79 @@ NV_STATUS __nvoc_objCreate_OBJIOVASPACE(OBJIOVASPACE**, Dynamic*, NvU32);
 #define __objCreate_OBJIOVASPACE(ppNewObj, pParent, createFlags) \
     __nvoc_objCreate_OBJIOVASPACE((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
 
+
+// Wrapper macros
+#define iovaspaceConstruct__FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceConstruct___
 #define iovaspaceConstruct_(pVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags) iovaspaceConstruct__DISPATCH(pVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags)
+#define iovaspaceAlloc_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceAlloc__
 #define iovaspaceAlloc(pVAS, size, align, rangeLo, rangeHi, pageSizeLockMask, flags, pAddr) iovaspaceAlloc_DISPATCH(pVAS, size, align, rangeLo, rangeHi, pageSizeLockMask, flags, pAddr)
+#define iovaspaceFree_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceFree__
 #define iovaspaceFree(pVAS, vAddr) iovaspaceFree_DISPATCH(pVAS, vAddr)
+#define iovaspaceApplyDefaultAlignment_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceApplyDefaultAlignment__
 #define iovaspaceApplyDefaultAlignment(pVAS, pAllocInfo, pAlign, pSize, pPageSizeLockMask) iovaspaceApplyDefaultAlignment_DISPATCH(pVAS, pAllocInfo, pAlign, pSize, pPageSizeLockMask)
+#define iovaspaceIncAllocRefCnt_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceIncAllocRefCnt__
 #define iovaspaceIncAllocRefCnt(pVAS, vAddr) iovaspaceIncAllocRefCnt_DISPATCH(pVAS, vAddr)
+#define iovaspaceGetVaStart_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceGetVaStart__
 #define iovaspaceGetVaStart(pVAS) iovaspaceGetVaStart_DISPATCH(pVAS)
+#define iovaspaceGetVaLimit_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceGetVaLimit__
 #define iovaspaceGetVaLimit(pVAS) iovaspaceGetVaLimit_DISPATCH(pVAS)
+#define iovaspaceGetVasInfo_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceGetVasInfo__
 #define iovaspaceGetVasInfo(pVAS, pParams) iovaspaceGetVasInfo_DISPATCH(pVAS, pParams)
-#define iovaspaceIsInternalVaRestricted(pVAS) iovaspaceIsInternalVaRestricted_DISPATCH(pVAS)
+#define iovaspaceGetFlags_FNPTR(pVAS) pVAS->__nvoc_base_OBJVASPACE.__nvoc_metadata_ptr->vtable.__vaspaceGetFlags__
 #define iovaspaceGetFlags(pVAS) iovaspaceGetFlags_DISPATCH(pVAS)
-NV_STATUS iovaspaceConstruct__IMPL(struct OBJIOVASPACE *pVAS, NvU32 classId, NvU32 vaspaceId, NvU64 vaStart, NvU64 vaLimit, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 flags);
 
+// Dispatch functions
 static inline NV_STATUS iovaspaceConstruct__DISPATCH(struct OBJIOVASPACE *pVAS, NvU32 classId, NvU32 vaspaceId, NvU64 vaStart, NvU64 vaLimit, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 flags) {
-    return pVAS->__iovaspaceConstruct___(pVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags);
+    return pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceConstruct___(pVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags);
 }
-
-NV_STATUS iovaspaceAlloc_IMPL(struct OBJIOVASPACE *pVAS, NvU64 size, NvU64 align, NvU64 rangeLo, NvU64 rangeHi, NvU64 pageSizeLockMask, VAS_ALLOC_FLAGS flags, NvU64 *pAddr);
 
 static inline NV_STATUS iovaspaceAlloc_DISPATCH(struct OBJIOVASPACE *pVAS, NvU64 size, NvU64 align, NvU64 rangeLo, NvU64 rangeHi, NvU64 pageSizeLockMask, VAS_ALLOC_FLAGS flags, NvU64 *pAddr) {
-    return pVAS->__iovaspaceAlloc__(pVAS, size, align, rangeLo, rangeHi, pageSizeLockMask, flags, pAddr);
+    return pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceAlloc__(pVAS, size, align, rangeLo, rangeHi, pageSizeLockMask, flags, pAddr);
 }
-
-NV_STATUS iovaspaceFree_IMPL(struct OBJIOVASPACE *pVAS, NvU64 vAddr);
 
 static inline NV_STATUS iovaspaceFree_DISPATCH(struct OBJIOVASPACE *pVAS, NvU64 vAddr) {
-    return pVAS->__iovaspaceFree__(pVAS, vAddr);
+    return pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceFree__(pVAS, vAddr);
 }
-
-NV_STATUS iovaspaceApplyDefaultAlignment_IMPL(struct OBJIOVASPACE *pVAS, const FB_ALLOC_INFO *pAllocInfo, NvU64 *pAlign, NvU64 *pSize, NvU64 *pPageSizeLockMask);
 
 static inline NV_STATUS iovaspaceApplyDefaultAlignment_DISPATCH(struct OBJIOVASPACE *pVAS, const FB_ALLOC_INFO *pAllocInfo, NvU64 *pAlign, NvU64 *pSize, NvU64 *pPageSizeLockMask) {
-    return pVAS->__iovaspaceApplyDefaultAlignment__(pVAS, pAllocInfo, pAlign, pSize, pPageSizeLockMask);
+    return pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceApplyDefaultAlignment__(pVAS, pAllocInfo, pAlign, pSize, pPageSizeLockMask);
 }
-
-NV_STATUS iovaspaceIncAllocRefCnt_IMPL(struct OBJIOVASPACE *pVAS, NvU64 vAddr);
 
 static inline NV_STATUS iovaspaceIncAllocRefCnt_DISPATCH(struct OBJIOVASPACE *pVAS, NvU64 vAddr) {
-    return pVAS->__iovaspaceIncAllocRefCnt__(pVAS, vAddr);
+    return pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceIncAllocRefCnt__(pVAS, vAddr);
 }
-
-NvU64 iovaspaceGetVaStart_IMPL(struct OBJIOVASPACE *pVAS);
 
 static inline NvU64 iovaspaceGetVaStart_DISPATCH(struct OBJIOVASPACE *pVAS) {
-    return pVAS->__iovaspaceGetVaStart__(pVAS);
+    return pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceGetVaStart__(pVAS);
 }
-
-NvU64 iovaspaceGetVaLimit_IMPL(struct OBJIOVASPACE *pVAS);
 
 static inline NvU64 iovaspaceGetVaLimit_DISPATCH(struct OBJIOVASPACE *pVAS) {
-    return pVAS->__iovaspaceGetVaLimit__(pVAS);
+    return pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceGetVaLimit__(pVAS);
 }
-
-NV_STATUS iovaspaceGetVasInfo_IMPL(struct OBJIOVASPACE *pVAS, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *pParams);
 
 static inline NV_STATUS iovaspaceGetVasInfo_DISPATCH(struct OBJIOVASPACE *pVAS, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *pParams) {
-    return pVAS->__iovaspaceGetVasInfo__(pVAS, pParams);
-}
-
-static inline NvBool iovaspaceIsInternalVaRestricted_DISPATCH(struct OBJIOVASPACE *pVAS) {
-    return pVAS->__iovaspaceIsInternalVaRestricted__(pVAS);
+    return pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceGetVasInfo__(pVAS, pParams);
 }
 
 static inline NvU32 iovaspaceGetFlags_DISPATCH(struct OBJIOVASPACE *pVAS) {
-    return pVAS->__iovaspaceGetFlags__(pVAS);
+    return pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceGetFlags__(pVAS);
 }
+
+NV_STATUS iovaspaceConstruct__IMPL(struct OBJIOVASPACE *pVAS, NvU32 classId, NvU32 vaspaceId, NvU64 vaStart, NvU64 vaLimit, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 flags);
+
+NV_STATUS iovaspaceAlloc_IMPL(struct OBJIOVASPACE *pVAS, NvU64 size, NvU64 align, NvU64 rangeLo, NvU64 rangeHi, NvU64 pageSizeLockMask, VAS_ALLOC_FLAGS flags, NvU64 *pAddr);
+
+NV_STATUS iovaspaceFree_IMPL(struct OBJIOVASPACE *pVAS, NvU64 vAddr);
+
+NV_STATUS iovaspaceApplyDefaultAlignment_IMPL(struct OBJIOVASPACE *pVAS, const FB_ALLOC_INFO *pAllocInfo, NvU64 *pAlign, NvU64 *pSize, NvU64 *pPageSizeLockMask);
+
+NV_STATUS iovaspaceIncAllocRefCnt_IMPL(struct OBJIOVASPACE *pVAS, NvU64 vAddr);
+
+NvU64 iovaspaceGetVaStart_IMPL(struct OBJIOVASPACE *pVAS);
+
+NvU64 iovaspaceGetVaLimit_IMPL(struct OBJIOVASPACE *pVAS);
+
+NV_STATUS iovaspaceGetVasInfo_IMPL(struct OBJIOVASPACE *pVAS, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *pParams);
 
 void iovaspaceDestruct_IMPL(struct OBJIOVASPACE *pIOVAS);
 
@@ -304,4 +343,5 @@ void iovaMappingDestroy(PIOVAMAPPING pIovaMapping);
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
 #endif // _G_IO_VASPACE_NVOC_H_

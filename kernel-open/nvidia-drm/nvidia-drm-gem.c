@@ -35,16 +35,12 @@
 #include "nvidia-drm-gem-dma-buf.h"
 #include "nvidia-drm-gem-nvkms-memory.h"
 
-#if defined(NV_DRM_DRM_DRV_H_PRESENT)
 #include <drm/drm_drv.h>
-#endif
-
-#if defined(NV_DRM_DRM_PRIME_H_PRESENT)
 #include <drm/drm_prime.h>
-#endif
-
-#if defined(NV_DRM_DRM_FILE_H_PRESENT)
 #include <drm/drm_file.h>
+
+#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
+#include <drm/drm_vma_manager.h>
 #endif
 
 #include "linux/dma-buf.h"
@@ -58,7 +54,7 @@ void nv_drm_gem_free(struct drm_gem_object *gem)
     /* Cleanup core gem object */
     drm_gem_object_release(&nv_gem->base);
 
-#if defined(NV_DRM_FENCE_AVAILABLE) && !defined(NV_DRM_GEM_OBJECT_HAS_RESV)
+#if !defined(NV_DRM_GEM_OBJECT_HAS_RESV)
     nv_dma_resv_fini(&nv_gem->resv);
 #endif
 
@@ -135,7 +131,7 @@ void nv_drm_gem_object_init(struct nv_drm_device *nv_dev,
 
     /* Initialize the gem object */
 
-#if defined(NV_DRM_FENCE_AVAILABLE) && !defined(NV_DRM_GEM_OBJECT_HAS_RESV)
+#if !defined(NV_DRM_GEM_OBJECT_HAS_RESV)
     nv_dma_resv_init(&nv_gem->resv);
 #endif
 
@@ -144,12 +140,17 @@ void nv_drm_gem_object_init(struct nv_drm_device *nv_dev,
 #endif
 
     drm_gem_private_object_init(dev, &nv_gem->base, size);
+
+    /* Create mmap offset early for drm_gem_prime_mmap(), if possible. */
+    if (nv_gem->ops->create_mmap_offset) {
+        uint64_t offset;
+        nv_gem->ops->create_mmap_offset(nv_dev, nv_gem, &offset);
+    }
 }
 
 struct drm_gem_object *nv_drm_gem_prime_import(struct drm_device *dev,
                                                struct dma_buf *dma_buf)
 {
-#if defined(NV_DMA_BUF_OWNER_PRESENT)
     struct drm_gem_object *gem_dst;
     struct nv_drm_gem_object *nv_gem_src;
 
@@ -166,11 +167,13 @@ struct drm_gem_object *nv_drm_gem_prime_import(struct drm_device *dev,
              */
             gem_dst = nv_gem_src->ops->prime_dup(dev, nv_gem_src);
 
-            if (gem_dst)
-                return gem_dst;
+            if (gem_dst == NULL) {
+                return ERR_PTR(-ENOTSUPP);
+            }
+
+            return gem_dst;
         }
     }
-#endif /* NV_DMA_BUF_OWNER_PRESENT */
 
     return drm_gem_prime_import(dev, dma_buf);
 }
@@ -222,8 +225,7 @@ int nv_drm_gem_map_offset_ioctl(struct drm_device *dev,
     struct nv_drm_gem_object *nv_gem;
     int ret;
 
-    if ((nv_gem = nv_drm_gem_object_lookup(dev,
-                                           filep,
+    if ((nv_gem = nv_drm_gem_object_lookup(filep,
                                            params->handle)) == NULL) {
         NV_DRM_DEV_LOG_ERR(
             nv_dev,
@@ -232,6 +234,7 @@ int nv_drm_gem_map_offset_ioctl(struct drm_device *dev,
         return -EINVAL;
     }
 
+    /* mmap offset creation is idempotent, fetch it by creating it again. */
     if (nv_gem->ops->create_mmap_offset) {
         ret = nv_gem->ops->create_mmap_offset(nv_dev, nv_gem, &params->offset);
     } else {
@@ -258,8 +261,8 @@ int nv_drm_mmap(struct file *file, struct vm_area_struct *vma)
     struct nv_drm_gem_object *nv_gem;
 
     drm_vma_offset_lock_lookup(dev->vma_offset_manager);
-    node = nv_drm_vma_offset_exact_lookup_locked(dev->vma_offset_manager,
-                                                 vma->vm_pgoff, vma_pages(vma));
+    node = drm_vma_offset_exact_lookup_locked(dev->vma_offset_manager,
+                                              vma->vm_pgoff, vma_pages(vma));
     if (likely(node)) {
         obj = container_of(node, struct drm_gem_object, vma_node);
         /*
@@ -285,7 +288,7 @@ int nv_drm_mmap(struct file *file, struct vm_area_struct *vma)
         goto done;
     }
 
-    if (!nv_drm_vma_node_is_allowed(node, file)) {
+    if (!drm_vma_node_is_allowed(node, file->private_data)) {
         ret = -EACCES;
         goto done;
     }
@@ -319,10 +322,10 @@ int nv_drm_gem_identify_object_ioctl(struct drm_device *dev,
     struct nv_drm_gem_object *nv_gem = NULL;
 
     if (!drm_core_check_feature(dev, DRIVER_MODESET)) {
-        return -EINVAL;
+        return -EOPNOTSUPP;
     }
 
-    nv_dma_buf = nv_drm_gem_object_dma_buf_lookup(dev, filep, p->handle);
+    nv_dma_buf = nv_drm_gem_object_dma_buf_lookup(filep, p->handle);
     if (nv_dma_buf) {
         p->object_type = NV_GEM_OBJECT_DMABUF;
         nv_gem = &nv_dma_buf->base;
@@ -330,7 +333,7 @@ int nv_drm_gem_identify_object_ioctl(struct drm_device *dev,
     }
 
 #if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
-    nv_nvkms_memory = nv_drm_gem_object_nvkms_memory_lookup(dev, filep, p->handle);
+    nv_nvkms_memory = nv_drm_gem_object_nvkms_memory_lookup(filep, p->handle);
     if (nv_nvkms_memory) {
         p->object_type = NV_GEM_OBJECT_NVKMS;
         nv_gem = &nv_nvkms_memory->base;
@@ -338,7 +341,7 @@ int nv_drm_gem_identify_object_ioctl(struct drm_device *dev,
     }
 #endif
 
-    nv_user_memory = nv_drm_gem_object_user_memory_lookup(dev, filep, p->handle);
+    nv_user_memory = nv_drm_gem_object_user_memory_lookup(filep, p->handle);
     if (nv_user_memory) {
         p->object_type = NV_GEM_OBJECT_USERMEMORY;
         nv_gem = &nv_user_memory->base;

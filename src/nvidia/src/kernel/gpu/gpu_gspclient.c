@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -22,13 +22,33 @@
  */
 
 /*!
- * @file
- * @brief   GSP Client (CPU RM) specific GPU routines reside in this file.
+ * GSP Client (CPU RM) specific GPU routines reside in this file.
  */
 
 #include "core/core.h"
 #include "gpu/gpu.h"
 #include "ctrl/ctrl2080.h"
+
+NV_STATUS
+gpuGetRegBaseOffset_FWCLIENT
+(
+    OBJGPU *pGpu,
+    NvU32 regBase,
+    NvU32 *pOffset
+)
+{
+    const NV2080_CTRL_INTERNAL_GPU_GET_CHIP_INFO_PARAMS *pChipInfo = gpuGetChipInfo(pGpu);
+    NV_ASSERT_OR_RETURN(pChipInfo != NULL, NV_ERR_INVALID_STATE);
+    NV_ASSERT_OR_RETURN(regBase < NV_ARRAY_ELEMENTS(pChipInfo->regBases), NV_ERR_NOT_SUPPORTED);
+
+    if (pChipInfo->regBases[regBase] != 0xFFFFFFFF)
+    {
+        *pOffset = pChipInfo->regBases[regBase];
+        return NV_OK;
+    }
+
+    return NV_ERR_NOT_SUPPORTED;
+}
 
 /*!
  * @brief These functions are used on CPU RM when pGpu is a GSP client.
@@ -52,104 +72,24 @@ gpuGetChipSubRev_FWCLIENT
     return pChipInfo->chipSubRev;
 }
 
-NvU32
-gpuGetEmulationRev1_FWCLIENT
-(
-    OBJGPU *pGpu
-)
-{
-    const NV2080_CTRL_INTERNAL_GPU_GET_CHIP_INFO_PARAMS *pChipInfo = gpuGetChipInfo(pGpu);
-    NV_ASSERT_OR_RETURN(pChipInfo != NULL, 0);
-
-    return pChipInfo->emulationRev1;
-}
-
+/*! GPU has a new reset required state */
 NV_STATUS
-gpuConstructDeviceInfoTable_FWCLIENT
-(
-    OBJGPU *pGpu
-)
-{
-    NV_STATUS status;
-    RM_API *pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
-
-    NV2080_CTRL_INTERNAL_GET_DEVICE_INFO_TABLE_PARAMS *pParams;
-
-    if (pGpu->pDeviceInfoTable) // already initialized
-        return NV_OK;
-
-    pParams = portMemAllocNonPaged(sizeof *pParams);
-    NV_ASSERT_OR_RETURN(pParams != NULL, NV_ERR_NO_MEMORY);
-
-    status = pRmApi->Control(pRmApi,
-                             pGpu->hInternalClient,
-                             pGpu->hInternalSubdevice,
-                             NV2080_CTRL_CMD_INTERNAL_GET_DEVICE_INFO_TABLE,
-                             pParams,
-                             sizeof *pParams);
-    if (status != NV_OK)
-        goto done;
-
-    if (pParams->numEntries == 0)
-        goto done;
-
-    pGpu->pDeviceInfoTable = portMemAllocNonPaged(
-        pParams->numEntries * (sizeof *pGpu->pDeviceInfoTable));
-    NV_ASSERT_TRUE_OR_GOTO(status,
-                           pGpu->pDeviceInfoTable != NULL,
-                           NV_ERR_NO_MEMORY,
-                           done);
-
-    pGpu->numDeviceInfoEntries = pParams->numEntries;
-    portMemCopy(pGpu->pDeviceInfoTable,
-                pGpu->numDeviceInfoEntries * (sizeof *pGpu->pDeviceInfoTable),
-                pParams->deviceInfoTable,
-                pParams->numEntries * (sizeof pParams->deviceInfoTable[0]));
-
-done:
-    portMemFree(pParams);
-    return status;
-}
-
-NvU32
-gpuGetLitterValues_FWCLIENT
+gpuResetRequiredStateChanged_FWCLIENT
 (
     OBJGPU *pGpu,
-    NvU32 index
+    NvBool  newState
 )
 {
-    return 0;
+    gpuRefreshRecoveryAction_HAL(pGpu, NV_FALSE);
+
+    return NV_OK;
 }
 
-NV_STATUS
-gpuGetRegBaseOffset_FWCLIENT
-(
-    OBJGPU *pGpu,
-    NvU32 regBase,
-    NvU32 *pOffset
-)
-{
-    const NV2080_CTRL_INTERNAL_GPU_GET_CHIP_INFO_PARAMS *pChipInfo = gpuGetChipInfo(pGpu);
-    NV_ASSERT_OR_RETURN(pChipInfo != NULL, NV_ERR_INVALID_STATE);
-    NV_ASSERT_OR_RETURN(regBase < NV_ARRAY_ELEMENTS(pChipInfo->regBases), NV_ERR_NOT_SUPPORTED);
-
-    if (pChipInfo->regBases[regBase] != 0xFFFFFFFF)
-    {
-        *pOffset = pChipInfo->regBases[regBase];
-        return NV_OK;
-    }
-
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NvU32
-gpuReadBAR1Size_FWCLIENT
+NvBool
+gpuIsSystemRebootRequired_FWCLIENT
 (
     OBJGPU *pGpu
 )
 {
-    const NV2080_CTRL_INTERNAL_GPU_GET_CHIP_INFO_PARAMS *pChipInfo = gpuGetChipInfo(pGpu);
-    NV_ASSERT_OR_RETURN(pChipInfo != NULL, 0);
-
-    return pChipInfo->bar1Size;
+    return NV_FALSE;
 }

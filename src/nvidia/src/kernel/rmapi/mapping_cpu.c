@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -93,31 +93,9 @@ rmapiGetEffectiveAddrSpace
     NV_ADDRESS_SPACE *pAddrSpace
 )
 {
-    NV_ADDRESS_SPACE addrSpace;
-    NvBool bDirectSysMappingAllowed = NV_TRUE;
-
-    if (memdescGetFlag(pMemDesc, MEMDESC_FLAGS_MAP_SYSCOH_OVER_BAR1))
-    {
-        addrSpace = ADDR_FBMEM;
-    }
-    else if ((memdescGetAddressSpace(pMemDesc) == ADDR_SYSMEM) &&
-        (bDirectSysMappingAllowed || FLD_TEST_DRF(OS33, _FLAGS, _MAPPING, _DIRECT, mapFlags) ||
-        (IS_VIRTUAL_WITH_SRIOV(pGpu) && !IS_FMODEL(pGpu) && !IS_RTLSIM(pGpu))))
-    {
-        addrSpace = ADDR_SYSMEM;
-    }
-    else if ((memdescGetAddressSpace(pMemDesc) == ADDR_FBMEM) ||
-             ((memdescGetAddressSpace(pMemDesc) == ADDR_SYSMEM) && !bDirectSysMappingAllowed))
-    {
-        addrSpace = ADDR_FBMEM;
-    }
-    else
-    {
-        addrSpace = memdescGetAddressSpace(pMemDesc);
-    }
-
-    if (pAddrSpace)
-        *pAddrSpace = addrSpace;
+    // FIXME: Stub for openrm-orin, remove when openrm is merged
+    if (pAddrSpace != NULL)
+        *pAddrSpace = memdescGetAddressSpace(pMemDesc);
 
     return NV_OK;
 }
@@ -220,7 +198,7 @@ memMap_IMPL
         effectiveAddrSpace = ADDR_SYSMEM;
     }
 
-    bIsSysmem = (effectiveAddrSpace == ADDR_SYSMEM);
+    bIsSysmem = (effectiveAddrSpace == ADDR_SYSMEM) || (effectiveAddrSpace == ADDR_EGM);
 
     if (bIsSysmem)
     {
@@ -285,8 +263,8 @@ memMap_IMPL
                                                 priv,
                                                 *(pMapParams->ppCpuVirtAddr),
                                                 pMapParams->length,
-                                                -1, // gpu virtual addr
-                                                -1, // gpu map length
+                                                0, // gpu virtual addr
+                                                0, // gpu map length
                                                 pMapParams->flags);
         pCpuMapping->pPrivate->pGpu = pGpu;
 
@@ -333,40 +311,21 @@ memUnmap_IMPL
         // Nothing more to do
     }
     // System Memory case
-    else if ((pGpu == NULL) || ((memdescGetAddressSpace(pMemDesc) == ADDR_SYSMEM) &&
+    else if ((pGpu == NULL) || (((memdescGetAddressSpace(pMemDesc) == ADDR_SYSMEM) ||
+                                  (memdescGetAddressSpace(pMemDesc) == ADDR_EGM)) &&
                                  FLD_TEST_DRF(OS33, _FLAGS, _MAPPING, _DIRECT, pCpuMapping->flags)))
     {
         if (FLD_TEST_DRF(OS33, _FLAGS, _MAPPING, _DIRECT, pCpuMapping->flags))
         {
             memdescUnmap(pMemDesc,
                          pCpuMapping->pPrivate->bKernel,
-                         pCpuMapping->processId,
                          pCpuMapping->pLinearAddress,
                          pCpuMapping->pPrivate->pPriv);
         }
     }
     else if (memdescGetAddressSpace(pMemDesc) == ADDR_VIRTUAL)
     {
-        // If the memory is tiled, then it's being mapped through BAR1
-        if( DRF_VAL(OS32, _ATTR, _TILED, pMemory->Attr) )
-        {
-            // BAR1 mapping.  Unmap it.
-            if (pCpuMapping->pPrivate->bKernel)
-            {
-                osUnmapPciMemoryKernel64(pGpu, pCpuMapping->pLinearAddress);
-            }
-            else
-            {
-                osUnmapPciMemoryUser(pGpu->pOsGpuInfo,
-                                     pCpuMapping->pLinearAddress,
-                                     pCpuMapping->length,
-                                     pCpuMapping->pPrivate->pPriv);
-            }
-        }
-        else
-        {
-            NV_ASSERT_OR_RETURN(0, NV_ERR_INVALID_STATE);
-        }
+        NV_ASSERT_OR_RETURN(0, NV_ERR_INVALID_STATE);
     }
     else if (memdescGetAddressSpace(pMemDesc) == ADDR_REGMEM)
     {
@@ -722,6 +681,17 @@ rmapiMapToCpuWithSecInfoV2
     {
         rmapiEpilogue(pRmApi, &rmApiContext);
         return status;
+    }
+
+    //
+    // In the RTD3 case, the API lock isn't taken since it can be initiated
+    // from another thread that holds the API lock and because we now hold
+    // the GPU lock.
+    //
+    if (rmapiInRtd3PmPath())
+    {
+        lockInfo.flags |= RM_LOCK_FLAGS_NO_API_LOCK;
+        lockInfo.state &= ~RM_LOCK_STATES_API_LOCK_ACQUIRED;
     }
 
     LOCK_METER_DATA(MAPMEM, flags, 0, 0);

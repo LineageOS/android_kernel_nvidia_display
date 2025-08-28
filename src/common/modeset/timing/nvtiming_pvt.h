@@ -23,7 +23,7 @@
 //
 //  File:       nvtiming_pvt.h
 //
-//  Purpose:    the private functions/structures which are only used inside 
+//  Purpose:    the private functions/structures which are only used inside
 //              the nv timing library.
 //
 //*****************************************************************************
@@ -43,6 +43,11 @@
 #endif
 
 #define nvt_assert(p) ((void)0)
+
+#ifdef DD_UNITTEST
+#undef nvt_assert(p)
+#define nvt_assert(p) ((void)0)
+#endif // DD_UNITTEST
 
 #include <stddef.h> // NULL
 
@@ -72,6 +77,7 @@ NVT_STATUS parseCta861DataBlockInfo(NvU8 *pEdid, NvU32 size, NVT_EDID_CEA861_INF
 void       parse861ExtDetailedTiming(NvU8 *pEdidExt, NvU8 basicCaps, NVT_EDID_INFO *pInfo);
 void       parse861bShortTiming(NVT_EDID_CEA861_INFO *pExt861, void *pRawInfo, NVT_CTA861_ORIGIN flag);
 void       parse861bShortYuv420Timing(NVT_EDID_CEA861_INFO *pExt861, void *pRawInfo, NVT_CTA861_ORIGIN flag);
+void       parseCta861VideoFormatDataBlock(NVT_EDID_CEA861_INFO *pExt861, void *pRawInfo);
 void       parseCta861NativeOrPreferredTiming(NVT_EDID_CEA861_INFO *pExt861, void *pRawInfo, NVT_CTA861_ORIGIN flag);
 void       parseCta861VsdbBlocks(NVT_EDID_CEA861_INFO *pExt861, void *pRawInfo, NVT_CTA861_ORIGIN flag);
 void       parseCta861VsvdbBlocks(NVT_EDID_CEA861_INFO *pExt861, void *pRawInfo, NVT_CTA861_ORIGIN flag);
@@ -83,7 +89,7 @@ void       parseEdidHdmiForumVSDB(VSDB_DATA *pVsdb, NVT_HDMI_FORUM_INFO *pHdmiIn
 void       getEdidHDM1_4bVsdbTiming(NVT_EDID_INFO *pInfo);
 void       parseEdidHDMILLCTiming(NVT_EDID_INFO *pInfo, VSDB_DATA *pVsdb, NvU32 *pSupported, HDMI3DSUPPORTMAP * pM);
 void       parseEdidNvidiaVSDBBlock(VSDB_DATA *pVsdb, NVDA_VSDB_PARSED_INFO *vsdbInfo);
-void       parseCea861HdrStaticMetadataDataBlock(NVT_EDID_CEA861_INFO *pExt861, void *pRawInfo, NVT_CTA861_ORIGIN flag);
+void       parseCta861HdrStaticMetadataDataBlock(NVT_EDID_CEA861_INFO *pExt861, void *pRawInfo, NVT_CTA861_ORIGIN flag);
 void       parseCta861DvStaticMetadataDataBlock(VSVDB_DATA* pVsvdb, NVT_DV_STATIC_METADATA* pDvInfo);
 void       parseCta861Hdr10PlusDataBlock(VSVDB_DATA* pVsvdb, NVT_HDR10PLUS_INFO* pHdr10PlusInfo);
 void       parseCta861DIDType7VideoTimingDataBlock(NVT_EDID_CEA861_INFO *pExt861, void *pRawInfo);
@@ -94,6 +100,7 @@ NvBool     isMatchedStandardTiming(NVT_EDID_INFO *pInfo, NVT_TIMING *pT);
 NvBool     isMatchedEstablishedTiming(NVT_EDID_INFO *pInfo, NVT_TIMING *pT);
 NvU32      isHdmi3DStereoType(NvU8 StereoStructureType);
 NvU32      getCEA861TimingAspectRatio(NvU32 vic);
+NvU8       getHighestPrioritySVRIdx(const NVT_EDID_CEA861_INFO *pExt861);
 void       SetActiveSpaceForHDMI3DStereo(const NVT_TIMING *pTiming, NVT_EXT_TIMING *pExtTiming);
 void       AddModeToSupportMap(HDMI3DSUPPORTMAP * pMap, NvU8 vic, NvU8 structure, NvU8 Detail);
 void       getMonitorDescriptorString(NvU8 *pEdid, NvU8 tag, char *str, int onceOnly);
@@ -157,7 +164,7 @@ NvU32 axb_div_c_old(NvU32 a, NvU32 b, NvU32 c);
 
 // Sentinel values for NVT_TIMING
 #define NVT_TIMINGEXT_SENTINEL {0,0,0,0,0,{0},{0},{0},{0},0,""}
-#define NVT_TIMING_SENTINEL {0,0,0,0,0,0,0,0,0,0,0,0,0,0,NVT_TIMINGEXT_SENTINEL}
+#define NVT_TIMING_SENTINEL {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,NVT_TIMINGEXT_SENTINEL}
 
 #endif //__NVTIMING_PVT_H_
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -53,6 +53,7 @@
 NV_STATUS NV_API_CALL nv_soc_pm_unpowergate(
     nv_state_t *nv)
 {
+#if NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     NvS32 ret             = -EBUSY;
 
@@ -79,6 +80,9 @@ NV_STATUS NV_API_CALL nv_soc_pm_unpowergate(
     }
 
     return NV_OK;
+#else
+    return NV_ERR_NOT_SUPPORTED;
+#endif
 }
 
 /*!
@@ -102,6 +106,7 @@ NV_STATUS NV_API_CALL nv_soc_pm_unpowergate(
 NV_STATUS NV_API_CALL nv_soc_pm_powergate(
     nv_state_t *nv)
 {
+#if NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
     NV_STATUS status      = NV_ERR_GENERIC;
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     NvS32 ret             = -EBUSY;
@@ -118,5 +123,8 @@ NV_STATUS NV_API_CALL nv_soc_pm_powergate(
     }
 
     return status;
+#else
+    return NV_ERR_NOT_SUPPORTED;
+#endif
 }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -28,6 +28,7 @@
 #ifndef _NVOC_PRELUDE_H_
 #define _NVOC_PRELUDE_H_
 
+#include "nvtypes.h"
 #include "utils/nvmacro.h"
 
 /* Calls the macro named in the first parameter with the rest of the given arguments. Written
@@ -176,9 +177,13 @@
 /*!
  * @brief Cast any object supporting Run-Time Type Information (RTTI) to 'Dynamic'.
  *
- * Since '__nvoc_rtti' is always first, pObj == &(pObj)->__nvoc_rtti
- * The purpose of this expression is to force a compile-time error if
- * pObj does not contain RTTI information
+ * The purpose of this more complicated expression is to force a compile-time
+ * error if `pObj` does not contain Metadata/RTTI information.
+ *
+ * Since the `__nvoc_rtti` pointer is always first, `pObj == &(pObj)->__nvoc_rtti`.
+ * With metadata version 2, `__nvoc_rtti` is unioned with `__nvoc_metadata`,
+ * which is okay since the RTTI structure is first in the metadata structure.
+ *
  */
 #define __staticCast_Dynamic(pObj) ((Dynamic*) &(pObj)->__nvoc_rtti)
 
@@ -218,6 +223,7 @@ typedef struct {
     const struct NVOC_RTTI *__nvoc_rtti;
 } Dynamic;
 
+
 typedef NvU32 NVOC_CLASS_ID;
 
 typedef struct NVOC_RTTI_PROVIDER {
@@ -236,6 +242,7 @@ typedef struct NVOC_CLASS_INFO
     const char                  *name;
 #endif
 } NVOC_CLASS_INFO;
+
 
 /*!
  * @brief Wrapper of private field and private function

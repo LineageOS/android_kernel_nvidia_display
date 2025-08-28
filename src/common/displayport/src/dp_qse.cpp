@@ -8,7 +8,7 @@
  * the rights to use, copy, modify, merge, publish, distribute, sublicense,
  * and/or sell copies of the Software, and to permit persons to whom the
  * Software is furnished to do so, subject to the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
  *
@@ -34,6 +34,7 @@
 #include "dp_internal.h"
 #include "dp_deviceimpl.h"
 #include "dp_connectorimpl.h"
+#include "dp_printf.h"
 #include <nvmisc.h>
 
 using namespace DisplayPort;
@@ -110,8 +111,8 @@ StreamEncryptionStatusDetection::messageFailed
         //
         else
         {
-             DP_LOG(("DP-QSE> Downstream failed to handle %s QSES message",
-                     reason == qseReason_Ssc ? "SSC" : "generic"));
+             DP_PRINTF(DP_ERROR, "DP-QSE> Downstream failed to handle %s QSES message",
+                       reason == qseReason_Ssc ? "SSC" : "generic");
              //
              // Non-QSE supported branch would get HDCP off if we honor QSES's result even w/o SSC from it.
              // So to improve compatibility, we honor QSES's result to have HDCP off only if it's fired for SSC.
@@ -228,26 +229,26 @@ StreamEncryptionStatusDetection::handleQSEReplyValidation()
 {
     if (parent->streamIndex != qseMessage.getStreamId())
     {
-        DP_LOG(("DP-QSE> Query the active Stream ID %d, but reply Stream ID %d mismatch.", parent->streamIndex, qseMessage.getStreamId()));
+        DP_PRINTF(DP_ERROR, "DP-QSE> Query the active Stream ID %d, but reply Stream ID %d mismatch.", parent->streamIndex, qseMessage.getStreamId());
         parent->hdcpSetEncrypted(false, NV0073_CTRL_SPECIFIC_HDCP_CTRL_HDCP22_TYPE_0, NV_TRUE, NV_TRUE);
         return false;
     }
 
     NvU16 streamStatus = 0;
     streamStatus = qseMessage.getStreamStatus();
-    DP_LOG(("DP-QSE> Query the active Stream ID %d. The reply streamStatus: %d", parent->streamIndex, streamStatus));
+    DP_PRINTF(DP_NOTICE, "DP-QSE> Query the active Stream ID %d. The reply streamStatus: %d", parent->streamIndex, streamStatus);
 
     NvU16 streamState = DRF_VAL(_DP, _HDCP, _STREAM_STATE, streamStatus);
     if ((streamState == NV_DP_HDCP_STREAM_STATE_NO_EXIST) ||
         (streamState == NV_DP_HDCP_STREAM_STATE_ERROR))
     {
-        DP_LOG(("DP-QSE> Query the active Stream ID %d, but reply as Stream does not exist or Error/Reserved", parent->streamIndex));
+        DP_PRINTF(DP_ERROR, "DP-QSE> Query the active Stream ID %d, but reply as Stream does not exist or Error/Reserved", parent->streamIndex);
         parent->hdcpSetEncrypted(false, NV0073_CTRL_SPECIFIC_HDCP_CTRL_HDCP22_TYPE_0, NV_TRUE, NV_TRUE);
         return false;
     }
     else if (streamState == NV_DP_HDCP_STREAM_STATE_NOT_ACTIVE)
     {
-        DP_LOG(("DP-QSE> Query the active Stream ID %d, but reply as Stream does not exist or Error/Reserved", parent->streamIndex));
+        DP_PRINTF(DP_ERROR, "DP-QSE> Query the active Stream ID %d, but reply as Stream not active", parent->streamIndex);
         parent->hdcpSetEncrypted(false, NV0073_CTRL_SPECIFIC_HDCP_CTRL_HDCP22_TYPE_0, NV_TRUE, NV_TRUE);
         return false;
     }
@@ -255,7 +256,7 @@ StreamEncryptionStatusDetection::handleQSEReplyValidation()
     NvU16 streamAuth = DRF_VAL(_DP, _HDCP, _STREAM_AUTHENTICATION, streamStatus);
     if (streamAuth == NV_DP_HDCP_STREAM_AUTHENTICATION_OFF)
     {
-        DP_LOG(("DP-QSE> Query the Stream ID %d, reply as not authentication all the way down", parent->streamIndex));
+        DP_PRINTF(DP_ERROR, "DP-QSE> Query the Stream ID %d, reply as failed authentication all the way down", parent->streamIndex);
 
         parent->hdcpSetEncrypted(false, NV0073_CTRL_SPECIFIC_HDCP_CTRL_HDCP22_TYPE_0, NV_TRUE, NV_TRUE);
         return false;
@@ -267,7 +268,7 @@ StreamEncryptionStatusDetection::handleQSEReplyValidation()
     {
         if (parent->hdcpEnabled)
         {
-            DP_LOG(("DP-QSE> Query the Stream ID %d, reply as not encryption all the way down", parent->streamIndex));
+            DP_PRINTF(DP_ERROR, "DP-QSE> Query the Stream ID %d, reply as not encryption all the way down", parent->streamIndex);
             parent->qseEncryptionStatusMismatch = parent->hdcpEnabled;
             parent->hdcpSetEncrypted(false, NV0073_CTRL_SPECIFIC_HDCP_CTRL_HDCP22_TYPE_0, NV_TRUE, NV_TRUE);
         }

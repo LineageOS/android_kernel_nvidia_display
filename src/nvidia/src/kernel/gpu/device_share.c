@@ -31,7 +31,6 @@
 #include "class/cl00f2.h"  // IO_VASPACE_A
 #include "rmapi/rs_utils.h"
 #include "gpu/device/device.h"
-#include "gpu/subdevice/subdevice.h"
 #include "gpu/mem_mgr/mem_mgr.h"
 
 #include "gpu_mgr/gpu_mgr.h"

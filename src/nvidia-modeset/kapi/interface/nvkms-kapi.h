@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -24,6 +24,7 @@
 #if !defined(__NVKMS_KAPI_H__)
 
 #include "nvtypes.h"
+#include "nv_mig_types.h"
 
 #include "nv-gpu-info.h"
 #include "nv_dpy_id.h"
@@ -125,6 +126,14 @@ struct NvKmsKapiDisplayMode {
 #define NVKMS_KAPI_LAYER_INVALID_IDX           0xff
 #define NVKMS_KAPI_LAYER_PRIMARY_IDX              0
 
+struct NvKmsKapiLutCaps {
+    struct {
+        struct NvKmsLUTCaps ilut;
+        struct NvKmsLUTCaps tmo;
+    } layer[NVKMS_KAPI_LAYER_MAX];
+    struct NvKmsLUTCaps olut;
+};
+
 struct NvKmsKapiDeviceResourcesInfo {
 
     NvU32 numHeads;
@@ -159,13 +168,25 @@ struct NvKmsKapiDeviceResourcesInfo {
 
         NvU32 hasVideoMemory;
 
+        NvU32 numDisplaySemaphores;
+
         NvU8  genericPageKind;
 
         NvBool  supportsSyncpts;
+
+        NvBool requiresVrrSemaphores;
+
+        NvBool  supportsInputColorRange;
+        NvBool  supportsInputColorSpace;
     } caps;
 
     NvU64 supportedSurfaceMemoryFormats[NVKMS_KAPI_LAYER_MAX];
-    NvBool supportsHDR[NVKMS_KAPI_LAYER_MAX];
+    NvBool supportsICtCp[NVKMS_KAPI_LAYER_MAX];
+
+    struct NvKmsKapiLutCaps lutCaps;
+
+    NvU64 vtFbBaseAddress;
+    NvU64 vtFbSize;
 };
 
 #define NVKMS_KAPI_LAYER_MASK(layerType) (1 << (layerType))
@@ -214,18 +235,26 @@ struct NvKmsKapiStaticDisplayInfo {
     NvBool isDpMST;
 };
 
-struct NvKmsKapiSyncpt {
+struct NvKmsKapiSyncParams {
+    union {
+        struct {
+            /*!
+             * Possible syncpt use case in kapi.
+             * For pre-syncpt, use only id and value
+             * and for post-syncpt, use only fd.
+             */
+            NvU32   preSyncptId;
+            NvU32   preSyncptValue;
+        } syncpt;
 
-    /*!
-     * Possible syncpt use case in kapi.
-     * For pre-syncpt, use only id and value
-     * and for post-syncpt, use only fd.
-     */
-    NvBool  preSyncptSpecified;
-    NvU32   preSyncptId;
-    NvU32   preSyncptValue;
+        struct {
+            NvU32 index;
+        } semaphore;
+    } u;
 
-    NvBool  postSyncptRequested;
+    NvBool preSyncptSpecified;
+    NvBool postSyncptRequested;
+    NvBool semaphoreSpecified;
 };
 
 struct NvKmsKapiLayerConfig {
@@ -235,12 +264,15 @@ struct NvKmsKapiLayerConfig {
         NvU8 surfaceAlpha;
     } compParams;
     struct NvKmsRRParams rrParams;
-    struct NvKmsKapiSyncpt syncptParams;
+    struct NvKmsKapiSyncParams syncParams;
 
-    struct NvKmsHDRStaticMetadata hdrMetadata;
-    NvBool hdrMetadataSpecified;
+    struct {
+        struct NvKmsHDRStaticMetadata val;
+        NvBool enabled;
+    } hdrMetadata;
 
-    enum NvKmsOutputTf tf;
+    enum NvKmsInputTf inputTf;
+    enum NvKmsOutputTf outputTf;
 
     NvU8 minPresentInterval;
     NvBool tearing;
@@ -253,19 +285,57 @@ struct NvKmsKapiLayerConfig {
 
     enum NvKmsInputColorSpace inputColorSpace;
     enum NvKmsInputColorRange inputColorRange;
+
+    struct {
+        NvBool enabled;
+        struct NvKmsKapiSurface *lutSurface;
+        NvU64 offset;
+        NvU32 vssSegments;
+        NvU32 lutEntries;
+    } ilut;
+
+    struct {
+        NvBool enabled;
+        struct NvKmsKapiSurface *lutSurface;
+        NvU64 offset;
+        NvU32 vssSegments;
+        NvU32 lutEntries;
+    } tmo;
+
     struct NvKmsCscMatrix csc;
     NvBool cscUseMain;
+
+    struct {
+        struct NvKmsCscMatrix lmsCtm;
+        struct NvKmsCscMatrix lmsToItpCtm;
+        struct NvKmsCscMatrix itpToLmsCtm;
+        struct NvKmsCscMatrix blendCtm;
+        struct {
+            NvBool lmsCtm      : 1;
+            NvBool lmsToItpCtm : 1;
+            NvBool itpToLmsCtm : 1;
+            NvBool blendCtm    : 1;
+        } enabled;
+    } matrixOverrides;
 };
 
 struct NvKmsKapiLayerRequestedConfig {
     struct NvKmsKapiLayerConfig config;
     struct {
-        NvBool surfaceChanged : 1;
-        NvBool srcXYChanged   : 1;
-        NvBool srcWHChanged   : 1;
-        NvBool dstXYChanged   : 1;
-        NvBool dstWHChanged   : 1;
-        NvBool cscChanged     : 1;
+        NvBool surfaceChanged          : 1;
+        NvBool srcXYChanged            : 1;
+        NvBool srcWHChanged            : 1;
+        NvBool dstXYChanged            : 1;
+        NvBool dstWHChanged            : 1;
+        NvBool cscChanged              : 1;
+        NvBool inputTfChanged          : 1;
+        NvBool outputTfChanged         : 1;
+        NvBool inputColorSpaceChanged  : 1;
+        NvBool inputColorRangeChanged  : 1;
+        NvBool hdrMetadataChanged      : 1;
+        NvBool matrixOverridesChanged  : 1;
+        NvBool ilutChanged             : 1;
+        NvBool tmoChanged              : 1;
     } flags;
 };
 
@@ -310,19 +380,51 @@ struct NvKmsKapiHeadModeSetConfig {
 
     NvBool vrrEnabled;
 
+    struct {
+        NvBool enabled;
+        enum NvKmsInfoFrameEOTF eotf;
+        struct NvKmsHDRStaticMetadata staticMetadata;
+    } hdrInfoFrame;
+
     enum NvKmsOutputColorimetry colorimetry;
 
-    enum NvKmsDpyAttributeColorRangeValue outputColorRange;
+    struct {
+        struct {
+            NvU32 depth;
+            NvU32 start;
+            NvU32 end;
+            struct NvKmsLutRamps *pRamps;
+        } input;
+
+        struct {
+            NvBool enabled;
+            struct NvKmsLutRamps *pRamps;
+        } output;
+    } lut;
+
+    struct {
+        NvBool enabled;
+        struct NvKmsKapiSurface *lutSurface;
+        NvU64 offset;
+        NvU32 vssSegments;
+        NvU32 lutEntries;
+    } olut;
+
+    NvU32 olutFpNormScale;
 };
 
 struct NvKmsKapiHeadRequestedConfig {
     struct NvKmsKapiHeadModeSetConfig modeSetConfig;
     struct {
-        NvBool activeChanged   : 1;
-        NvBool displaysChanged : 1;
-        NvBool modeChanged     : 1;
-        NvBool colorrangeChanged: 1;
-        NvBool colorimetryChanged  : 1;
+        NvBool activeChanged          : 1;
+        NvBool displaysChanged        : 1;
+        NvBool modeChanged            : 1;
+        NvBool hdrInfoFrameChanged    : 1;
+        NvBool colorimetryChanged     : 1;
+        NvBool legacyIlutChanged      : 1;
+        NvBool legacyOlutChanged      : 1;
+        NvBool olutChanged            : 1;
+        NvBool olutFpNormScaleChanged : 1;
     } flags;
 
     struct NvKmsKapiCursorRequestedConfig cursorRequestedConfig;
@@ -347,22 +449,15 @@ struct NvKmsKapiHeadReplyConfig {
 };
 
 struct NvKmsKapiModeSetReplyConfig {
+    enum NvKmsFlipResult flipResult;
+    NvBool vrrFlip;
+    NvS32 vrrSemaphoreIndex;
     struct NvKmsKapiHeadReplyConfig
         headReplyConfig[NVKMS_KAPI_MAX_HEADS];
 };
 
 struct NvKmsKapiEventDisplayChanged {
     NvKmsKapiDisplay display;
-};
-
-struct NvKmsKapiEventDisplayCpChanged {
-    NvKmsKapiDisplay display;
-    enum NvKmsContentProtection cp;
-};
-
-struct NvKmsKapiEventDisplayCpTopologyChanged {
-    NvKmsKapiDisplay display;
-    struct NvKmsHdcpTopology *topology;
 };
 
 struct NvKmsKapiEventDynamicDisplayConnected {
@@ -396,14 +491,14 @@ struct NvKmsKapiEvent {
         struct NvKmsKapiEventDisplayChanged displayChanged;
         struct NvKmsKapiEventDynamicDisplayConnected dynamicDisplayConnected;
         struct NvKmsKapiEventFlipOccurred flipOccurred;
-        struct NvKmsKapiEventDisplayCpChanged displayCpChanged;
-        struct NvKmsKapiEventDisplayCpTopologyChanged displayCpTopologyChanged;
     } u;
 };
 
 struct NvKmsKapiAllocateDeviceParams {
     /* [IN] GPU ID obtained from enumerateGpus() */
     NvU32 gpuId;
+    /* [IN] MIG device if requested */
+    MIGDeviceId migDevice;
 
     /* [IN] Private data of device allocator */
     void *privateData;
@@ -435,14 +530,6 @@ struct NvKmsKapiDynamicDisplayParams {
 
     /* [IN] Set true to force disconnect status */
     NvBool forceDisconnected;
-};
-
-struct NvKmsKapiVtFbParams {
-    /* [OUT] VT framebuffer memory base address */
-    NvU64 baseAddress;
-
-    /* [OUT] VT framebuffer memory size */
-    NvU64 size;
 };
 
 struct NvKmsKapiCreateSurfaceParams {
@@ -483,6 +570,28 @@ enum NvKmsKapiAllocationType {
     NVKMS_KAPI_ALLOCATION_TYPE_OFFSCREEN = 2,
 };
 
+struct NvKmsKapiAllocateMemoryParams {
+    /* [IN] BlockLinear or Pitch */
+    enum NvKmsSurfaceMemoryLayout layout;
+
+    /* [IN] Allocation type */
+    enum NvKmsKapiAllocationType type;
+
+    /* [IN] Size, in bytes, of the memory to allocate */
+    NvU64 size;
+
+    /* [IN] Whether memory can be updated directly on the screen */
+    NvBool noDisplayCaching;
+
+    /* [IN] Whether to allocate memory from video memory or system memory */
+    NvBool useVideoMemory;
+
+    /* [IN/OUT] For input, non-zero if compression backing store should be
+     * allocated for the memory, for output, non-zero if compression backing
+     * store was allocated for the memory */
+    NvU8 *compressible;
+};
+
 typedef enum NvKmsKapiRegisterWaiterResultRec {
     NVKMS_KAPI_REG_WAITER_FAILED,
     NVKMS_KAPI_REG_WAITER_SUCCESS,
@@ -490,6 +599,11 @@ typedef enum NvKmsKapiRegisterWaiterResultRec {
 } NvKmsKapiRegisterWaiterResult;
 
 typedef void NvKmsKapiSuspendResumeCallbackFunc(NvBool suspend);
+
+struct NvKmsKapiGpuInfo {
+    nv_gpu_info_t gpuInfo;
+    MIGDeviceId   migDevice;
+};
 
 struct NvKmsKapiFunctionsTable {
 
@@ -507,14 +621,19 @@ struct NvKmsKapiFunctionsTable {
     } systemInfo;
 
     /*!
-     * Enumerate the available physical GPUs that can be used with NVKMS.
+     * Enumerate the available GPUs that can be used with NVKMS.
      *
-     * \param [out]  gpuInfo  The information of the enumerated GPUs.
-     *                        It is an array of NVIDIA_MAX_GPUS elements.
+     * The gpuCallback will be called with a NvKmsKapiGpuInfo for each
+     * physical and MIG GPU currently available in the system.
+     *
+     * \param [in] gpuCallback          Client function to handle each GPU.
      *
      * \return  Count of enumerated gpus.
      */
-    NvU32 (*enumerateGpus)(nv_gpu_info_t *gpuInfo);
+    NvU32 (*enumerateGpus)
+    (
+        void (*gpuCallback)(const struct NvKmsKapiGpuInfo *info)
+    );
 
     /*!
      * Allocate an NVK device using which you can query/allocate resources on
@@ -744,80 +863,22 @@ struct NvKmsKapiFunctionsTable {
     );
 
     /*!
-     * Get VT framebuffer information.
+     * Allocate some unformatted video or system memory of the specified size.
      *
-     * \param [out]  params    Parameters containing the base address and size
-     *                         of VT framebuffer memory
+     * This function allocates video or system memory on the specified GPU. It
+     * should be suitable for mapping on the CPU as a pitch linear or
+     * block-linear surface.
      *
-     * \return NV_TRUE on success, NV_FALSE on failure.
-     */
-    NvBool (*getVtFbInfo)
-    (
-        struct NvKmsKapiDevice *device,
-        struct NvKmsKapiVtFbParams *params
-    );
-
-    /*!
-     * Allocate some unformatted video memory of the specified size.
+     * \param [in]     device  A device allocated using allocateDevice().
      *
-     * This function allocates video memory on the specified GPU.
-     * It should be suitable for mapping on the CPU as a pitch
-     * linear or block-linear surface.
-     *
-     * \param [in] device  A device allocated using allocateDevice().
-     *
-     * \param [in] layout  BlockLinear or Pitch.
-     * 
-     * \param [in] type    Allocation type.
-     *
-     * \param [in] size    Size, in bytes, of the memory to allocate.
-     *
-     * \param [in/out] compressible For input, non-zero if compression
-     *                              backing store should be allocated for
-     *                              the memory, for output, non-zero if
-     *                              compression backing store was
-     *                              allocated for the memory.
+     * \param [in/out] params  Parameters required for memory allocation.
      *
      * \return An valid memory handle on success, NULL on failure.
      */
-    struct NvKmsKapiMemory* (*allocateVideoMemory)
+    struct NvKmsKapiMemory* (*allocateMemory)
     (
         struct NvKmsKapiDevice *device,
-        enum NvKmsSurfaceMemoryLayout layout,
-        enum NvKmsKapiAllocationType type,
-        NvU64 size,
-        NvU8 *compressible
-    );
-
-    /*!
-     * Allocate some unformatted system memory of the specified size.
-     *
-     * This function allocates system memory . It should be suitable
-     * for mapping on the CPU as a pitch linear or block-linear surface.
-     *
-     * \param [in] device  A device allocated using allocateDevice().
-     *
-     * \param [in] layout  BlockLinear or Pitch.
-     * 
-     * \param [in] type    Allocation type.
-     *
-     * \param [in] size    Size, in bytes, of the memory to allocate.
-     *
-     * \param [in/out] compressible For input, non-zero if compression
-     *                              backing store should be allocated for
-     *                              the memory, for output, non-zero if
-     *                              compression backing store was
-     *                              allocated for the memory.
-     *
-     * \return An valid memory handle on success, NULL on failure.
-     */
-    struct NvKmsKapiMemory* (*allocateSystemMemory)
-    (
-        struct NvKmsKapiDevice *device,
-        enum NvKmsSurfaceMemoryLayout layout,
-        enum NvKmsKapiAllocationType type,
-        NvU64 size,
-        NvU8 *compressible
+        struct NvKmsKapiAllocateMemoryParams *params
     );
 
     /*!
@@ -954,6 +1015,17 @@ struct NvKmsKapiFunctionsTable {
         const struct NvKmsKapiDevice *device,
         const struct NvKmsKapiMemory *memory, NvKmsKapiMappingType type,
         const void *pLinearAddress
+    );
+
+    /*!
+     * Check if memory object allocated is video memory.
+     *
+     * \param [in]  memory           Memory allocated using allocateMemory()
+     *
+     * \return NV_TRUE if memory is vidmem, NV_FALSE otherwise.
+     */
+    NvBool (*isVidmem)(
+        const struct NvKmsKapiMemory *memory
     );
 
     /*!
@@ -1170,21 +1242,6 @@ struct NvKmsKapiFunctionsTable {
     void (*freeMemoryPages)
     (
         NvU64 *pPages
-    );
-
-     /*!
-     * Check if this memory object can be scanned out for display.
-     *
-     * \param [in]  device  A device allocated using allocateDevice().
-     *
-     * \param [in]  memory  The memory object to check for display support.
-     *
-     * \return NV_TRUE if this memory can be displayed, NV_FALSE if not.
-     */
-    NvBool (*isMemoryValidForDisplay)
-    (
-        const struct NvKmsKapiDevice *device,
-        const struct NvKmsKapiMemory *memory
     );
 
     /*
@@ -1424,17 +1481,116 @@ struct NvKmsKapiFunctionsTable {
         NvKmsKapiSuspendResumeCallbackFunc *function
     );
 
-    struct NvKmsKapiVblankIntrCallback*
-    (*RegisterVblankIntrCallback)(struct NvKmsKapiDevice *device,
-                                  const NvU32 head,
-                                  NVVBlankIntrCallbackProc pCallback,
-                                  NvU64 param1,
-                                  NvU64 param2);
-
-    void (*UnregisterVblankIntrCallback)(
+    /*!
+     * Immediately initialize the specified display semaphore to the pending state.
+     *
+     * Must be called prior to applying a mode set that utilizes the specified
+     * display semaphore for synchronization.
+     *
+     * \param [in] device         The device which will utilize the semaphore.
+     *
+     * \param [in] semaphoreIndex Index of the desired semaphore within the
+     *                            NVKMS semaphore pool. Must be less than
+     *                            NvKmsKapiDeviceResourcesInfo::caps::numDisplaySemaphores
+     *                            for the specified device.
+     */
+    NvBool
+    (*tryInitDisplaySemaphore)
+    (
         struct NvKmsKapiDevice *device,
-        const NvU32 head,
-        struct NvKmsKapiVblankIntrCallback *pCallback);
+        NvU32 semaphoreIndex
+    );
+
+    /*!
+     * Immediately set the specified display semaphore to the displayable state.
+     *
+     * Must be called after \ref tryInitDisplaySemaphore to indicate a mode
+     * configuration change that utilizes the specified display semaphore for
+     * synchronization may proceed.
+     *
+     * \param [in] device         The device which will utilize the semaphore.
+     *
+     * \param [in] semaphoreIndex Index of the desired semaphore within the
+     *                            NVKMS semaphore pool. Must be less than
+     *                            NvKmsKapiDeviceResourcesInfo::caps::numDisplaySemaphores
+     *                            for the specified device.
+     */
+    void
+    (*signalDisplaySemaphore)
+    (
+        struct NvKmsKapiDevice *device,
+        NvU32 semaphoreIndex
+    );
+
+    /*!
+     * Immediately cancel use of a display semaphore by resetting its value to
+     * its initial state.
+     *
+     * This can be used by clients to restore a semaphore to a consistent state
+     * when they have prepared it for use by previously calling
+     * \ref tryInitDisplaySemaphore() on it, but are then prevented from
+     * submitting the associated hardware operations to consume it due to the
+     * subsequent failure of some software or hardware operation.
+     *
+     * \param [in] device         The device which will utilize the semaphore.
+     *
+     * \param [in] semaphoreIndex Index of the desired semaphore within the
+     *                            NVKMS semaphore pool. Must be less than
+     *                            NvKmsKapiDeviceResourcesInfo::caps::numDisplaySemaphores
+     *                            for the specified device.
+     */
+    void
+    (*cancelDisplaySemaphore)
+    (
+        struct NvKmsKapiDevice *device,
+        NvU32 semaphoreIndex
+    );
+
+    /*!
+     * Signal the VRR semaphore at the specified index from the CPU.
+     * If device does not support VRR semaphores, this is a no-op.
+     * Returns true if signal is success or no-op, otherwise returns false.
+     *
+     * \param [in]  device  A device allocated using allocateDevice().
+     *
+     * \param [in]  index   The VRR semaphore index to be signalled.
+     */
+    NvBool
+    (*signalVrrSemaphore)
+    (
+        struct NvKmsKapiDevice *device,
+        NvS32 index
+    );
+
+    /*!
+     * Check or wait on a head's LUT notifier.
+     *
+     * \param [in]  device              A device allocated using allocateDevice().
+     *
+     * \param [in]  head                The head to check for LUT completion.
+     *
+     * \param [in]  waitForCompletion   If true, wait for the notifier in NvKms
+     *                                  before returning.
+     *
+     * \param [out] complete            Returns whether the notifier has completed.
+     */
+    NvBool
+    (*checkLutNotifier)
+    (
+        struct NvKmsKapiDevice *device,
+        NvU32 head,
+        NvBool waitForCompletion
+    );
+
+    /*
+     * Notify NVKMS that the system's framebuffer console has been disabled and
+     * the reserved allocation for the old framebuffer console can be unmapped.
+     */
+    void
+    (*framebufferConsoleDisabled)
+    (
+        struct NvKmsKapiDevice *device
+    );
 };
 
 /** @} */
@@ -1448,6 +1604,20 @@ NvBool nvKmsKapiGetFunctionsTable
 (
     struct NvKmsKapiFunctionsTable *funcsTable
 );
+
+NvU32 nvKmsKapiF16ToF32(NvU16 a);
+
+NvU16 nvKmsKapiF32ToF16(NvU32 a);
+
+NvU32 nvKmsKapiF32Mul(NvU32 a, NvU32 b);
+
+NvU32 nvKmsKapiF32Div(NvU32 a, NvU32 b);
+
+NvU32 nvKmsKapiF32Add(NvU32 a, NvU32 b);
+
+NvU32 nvKmsKapiF32ToUI32RMinMag(NvU32 a, NvBool exact);
+
+NvU32 nvKmsKapiUI32ToF32(NvU32 a);
 
 /** @} */
 

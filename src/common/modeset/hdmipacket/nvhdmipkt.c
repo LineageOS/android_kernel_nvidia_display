@@ -47,6 +47,12 @@
 #include "class/clc57d.h"
 #include "class/clc670.h"
 #include "class/clc67d.h"
+#include "class/clc870.h"
+#include "class/clc87d.h"
+#include "class/clc970.h"
+#include "class/clc97d.h"
+#include "class/clcc70.h"
+#include "class/clcc7d.h"
 
 #include "hdmi_spec.h"
 
@@ -170,25 +176,37 @@ static const NVHDMIPKT_CLASS_HIERARCHY hierarchy[] =
         NVC670_DISPLAY,                   // displayClass
         NVC67D_CORE_CHANNEL_DMA           // coreDmaClass
     },
+    [NVHDMIPKT_C871_CLASS] = {// Index 9==NVHDMIPKT_C871_CLASS
+        NVHDMIPKT_C871_CLASS,             // classId
+        NVHDMIPKT_C671_CLASS,             // parentClassId
+        NV_FALSE,                         // isRootClass
+        initializeHdmiPktInterfaceC871,   // initInterface
+        hdmiConstructorC871,              // constructor
+        hdmiDestructorC871,               // destructor
+        NVC870_DISPLAY,                   // displayClass
+        NVC87D_CORE_CHANNEL_DMA           // coreDmaClass
+    },
+    [NVHDMIPKT_C971_CLASS] = {// Index 10==NVHDMIPKT_C971_CLASS
+        NVHDMIPKT_C971_CLASS,             // classId
+        NVHDMIPKT_C871_CLASS,             // parentClassId
+        NV_FALSE,                         // isRootClass
+        initializeHdmiPktInterfaceC971,   // initInterface
+        hdmiConstructorC971,              // constructor
+        hdmiDestructorC971,               // destructor
+        NVC970_DISPLAY,                   // displayClass
+        NVC97D_CORE_CHANNEL_DMA           // coreDmaClass
+    },
+    [NVHDMIPKT_CC71_CLASS] = {// Index 13==NVHDMIPKT_CC71_CLASS
+        NVHDMIPKT_CC71_CLASS,             // classId
+        NVHDMIPKT_C971_CLASS,             // parentClassId
+        NV_FALSE,                         // isRootClass
+        initializeHdmiPktInterfaceCC71,   // initInterface
+        hdmiConstructorC971,              // constructor
+        hdmiDestructorC971,               // destructor
+        NVCC70_DISPLAY,                   // displayClass
+        NVCC7D_CORE_CHANNEL_DMA           // coreDmaClass
+    },
 };
-
-#if defined(DSC_CALLBACK_MODIFIED)
-// Callbacks for DSC PPS library
-void *hdmipktMallocCb(const void *clientHandle, NvLength size);
-void  hdmipktFreeCb(const void *clientHandle, void *pMemPtr);
-
-void *hdmipktMallocCb(const void *clientHandle, NvLength size)
-{
-    const NVHDMIPKT_CLASS *pClass = (const NVHDMIPKT_CLASS*)(clientHandle);
-    return pClass->callback.malloc(pClass->cbHandle, size);
-}
-
-void hdmipktFreeCb(const void *clientHandle, void *pMemPtr)
-{
-    const NVHDMIPKT_CLASS *pClass = (const NVHDMIPKT_CLASS*)(clientHandle);
-    pClass->callback.free(pClass->cbHandle, pMemPtr);
-}
-#endif // DSC_CALLBACK_MODIFIED
 
 /********************************** HDMI Library interfaces *************************************/
 /*
@@ -250,7 +268,7 @@ NvHdmiPkt_PacketWrite(NvHdmiPkt_Handle  libHandle,
         ((infoframeType == hdmi_pktType_GamutMetadata)                  && (packetLen < sizeof(NVT_GAMUT_METADATA)))                    ||
         ((infoframeType == hdmi_pktType_ExtendedMetadata)               && (packetLen < sizeof(NVT_EXTENDED_METADATA_PACKET_INFOFRAME)))||
         ((infoframeType == hdmi_pktType_VendorSpecInfoFrame)            && (packetLen < 8))                                             ||
-        ((infoframeType == hdmi_pktType_AviInfoFrame)                   && (packetLen < sizeof(NVT_VIDEO_INFOFRAME)))                   ||
+        ((infoframeType == hdmi_pktType_AviInfoFrame)                   && (packetLen < 13))                                            ||
         ((infoframeType == hdmi_pktType_SrcProdDescInfoFrame)           && (packetLen < sizeof(NVT_SPD_INFOFRAME)))                     ||
         ((infoframeType == hdmi_pktType_DynamicRangeMasteringInfoFrame) && (packetLen < sizeof(NVT_HDR_INFOFRAME))))
         //  Unused: hdmi_pktType_AudioClkRegeneration
@@ -267,6 +285,61 @@ NvHdmiPkt_PacketWrite(NvHdmiPkt_Handle  libHandle,
                                    transmitControl,
                                    packetLen,
                                    pPacket);
+}
+
+/*
+ * NvHdmiPkt_PacketRead
+ */
+NVHDMIPKT_RESULT
+NvHdmiPkt_PacketRead(NvHdmiPkt_Handle    libHandle,
+                     NvU32               subDevice,
+                     NvU32               head,
+                     NVHDMIPKT_TYPE      packetReg,
+                     NvU32               bufferLen,
+                     NvU8 *const         pOutPktBuffer)
+{
+    if (libHandle == NVHDMIPKT_INVALID_HANDLE)
+    {
+        return NVHDMIPKT_LIBRARY_INIT_FAIL;
+    }
+
+    NVHDMIPKT_CLASS* pClass = fromHdmiPktHandle(libHandle);
+
+    if ((pOutPktBuffer == NULL) || (bufferLen == 0))
+    {
+        return NVHDMIPKT_INVALID_ARG;
+    }
+
+    return pClass->hdmiPacketRead(pClass,
+                                  subDevice,
+                                  head,
+                                  packetReg,
+                                  bufferLen,
+                                  pOutPktBuffer);
+}
+
+/*
+ * NvHdmiPkt_SetupAdvancedInfoframe
+ */
+NVHDMIPKT_RESULT
+NvHdmiPkt_SetupAdvancedInfoframe(NvHdmiPkt_Handle          libHandle,
+                                 NvU32                     subDevice,
+                                 NvU32                     head,
+                                 NVHDMIPKT_TYPE            packetReg,
+                                 ADVANCED_INFOFRAME const *pInfoframe)
+{
+    if (libHandle == NVHDMIPKT_INVALID_HANDLE)
+    {
+        return NVHDMIPKT_LIBRARY_INIT_FAIL;
+    }
+
+    NVHDMIPKT_CLASS* pClass = fromHdmiPktHandle(libHandle);
+
+    return pClass->programAdvancedInfoframe(pClass,
+                                            subDevice,
+                                            head,
+                                            packetReg,
+                                            pInfoframe);
 }
 
 NVHDMIPKT_RESULT
@@ -588,15 +661,6 @@ NvHdmiPkt_InitializeLibrary(NvU32                              const hwClass,
 
     // 2. Constructor calls
     result = NvHdmiPkt_CallConstructors(thisClassId, pClass);
-
-#if defined(DSC_CALLBACK_MODIFIED)
-    DSC_CALLBACK callbacks;
-    NVMISC_MEMSET(&callbacks, 0, sizeof(DSC_CALLBACK));
-    callbacks.clientHandle = pClass;
-    callbacks.dscMalloc    = hdmipktMallocCb;
-    callbacks.dscFree      = hdmipktFreeCb;
-    DSC_InitializeCallback(callbacks);
-#endif // DSC_CALLBACK_MODIFIED
 
 NvHdmiPkt_InitializeLibrary_exit:
     if (result)

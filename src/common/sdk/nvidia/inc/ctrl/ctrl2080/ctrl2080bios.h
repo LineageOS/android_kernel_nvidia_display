@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2005-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2005-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -353,6 +353,8 @@ typedef struct NV2080_CTRL_BIOS_GET_NBSI_OBJ_PARAMS {
  *    This field returns the sku for the current chip.
  *  chipSKUMod
  *    This field returns the SKU modifier.
+ *  skuConfigVersion
+ *    Version number for the SKU configuration detailing pstate, thermal, VF curve and so on.
  *  project
  *    This field returns the Project (Board) number.
  *  projectSKU
@@ -369,15 +371,13 @@ typedef struct NV2080_CTRL_BIOS_GET_NBSI_OBJ_PARAMS {
  */
 #define NV2080_CTRL_CMD_BIOS_GET_SKU_INFO (0x20800808) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_BIOS_INTERFACE_ID << 8) | NV2080_CTRL_BIOS_GET_SKU_INFO_PARAMS_MESSAGE_ID" */
 
-/* maximum length of parameter strings */
-
-
 #define NV2080_CTRL_BIOS_GET_SKU_INFO_PARAMS_MESSAGE_ID (0x8U)
 
 typedef struct NV2080_CTRL_BIOS_GET_SKU_INFO_PARAMS {
     NvU32 BoardID;
-    char  chipSKU[4];
-    char  chipSKUMod[2];
+    char  chipSKU[9];
+    char  chipSKUMod[5];
+    NvU32 skuConfigVersion;
     char  project[5];
     char  projectSKU[5];
     char  CDP[6];
@@ -443,6 +443,13 @@ typedef struct NV2080_CTRL_CMD_BIOS_GET_POST_TIME_PARAMS {
  *             This value indicates that UEFI is not running.
  *           NV2080_CTRL_BIOS_UEFI_SUPPORT_FLAGS_RUNNING_TRUE
  *             This value indicates that UEFI is running.
+ *       NV2080_CTRL_BIOS_UEFI_SUPPORT_FLAGS_IS_EFI_INIT
+ *         This field indicates the EFI running value. Legal values for
+ *         this parameter include:
+ *           NV2080_CTRL_BIOS_UEFI_SUPPORT_FLAGS_IS_EFI_INIT_FALSE
+ *             This value indicates that display is in vbios mode.
+ *           NV2080_CTRL_BIOS_UEFI_SUPPORT_FLAGS_IS_EFI_INIT_TRUE
+ *             This value indicates that display is in EFI mode.
  *
  * Possible status values returned are:
  *   NV_OK
@@ -468,6 +475,9 @@ typedef struct NV2080_CTRL_BIOS_GET_UEFI_SUPPORT_PARAMS {
 #define NV2080_CTRL_BIOS_UEFI_SUPPORT_FLAGS_RUNNING                2:2
 #define NV2080_CTRL_BIOS_UEFI_SUPPORT_FLAGS_RUNNING_FALSE        (0x00000000)
 #define NV2080_CTRL_BIOS_UEFI_SUPPORT_FLAGS_RUNNING_TRUE         (0x00000001)
+#define NV2080_CTRL_BIOS_UEFI_SUPPORT_FLAGS_IS_EFI_INIT            3:3
+#define NV2080_CTRL_BIOS_UEFI_SUPPORT_FLAGS_IS_EFI_INIT_FALSE    (0x00000000)
+#define NV2080_CTRL_BIOS_UEFI_SUPPORT_FLAGS_IS_EFI_INIT_TRUE     (0x00000001)
 
 
 

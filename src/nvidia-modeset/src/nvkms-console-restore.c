@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2016 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2016 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -165,9 +165,15 @@ static void FlipBaseToNull(NVDevEvoPtr pDevEvo)
             i++;
             nvAssert(i <= numFlipApiHeads);
 
+            // Disable HDR on head
+            pRequestApiHead->tf.specified = TRUE;
+            pRequestApiHead->tf.val = NVKMS_OUTPUT_TF_NONE;
+
+            pRequestApiHead->hdrInfoFrame.specified = TRUE;
+            pRequestApiHead->hdrInfoFrame.enabled = FALSE;
+
             pRequestApiHead->colorimetry.specified = TRUE;
             pRequestApiHead->colorimetry.val = NVKMS_OUTPUT_COLORIMETRY_DEFAULT;
-
 
             for (layer = 0; layer < pDevEvo->apiHead[apiHead].numLayers; layer++) {
                 pRequestApiHead->layer[layer].surface.specified = TRUE;
@@ -176,14 +182,17 @@ static void FlipBaseToNull(NVDevEvoPtr pDevEvo)
                 pRequestApiHead->layer[layer].completionNotifier.specified = TRUE;
                 pRequestApiHead->layer[layer].syncObjects.specified = TRUE;
 
-                // Disable HDR
-                pRequestApiHead->tf.val = NVKMS_OUTPUT_TF_NONE;
-                pRequestApiHead->tf.specified = TRUE;
+                // Disable HDR on layers
                 pRequestApiHead->layer[layer].hdr.enabled = FALSE;
                 pRequestApiHead->layer[layer].hdr.specified = TRUE;
+
                 pRequestApiHead->layer[layer].colorSpace.val =
-                    NVKMS_INPUT_COLORSPACE_NONE;
+                    NVKMS_INPUT_COLOR_SPACE_NONE;
                 pRequestApiHead->layer[layer].colorSpace.specified = TRUE;
+
+                pRequestApiHead->layer[layer].tf.val =
+                    NVKMS_INPUT_TF_LINEAR;
+                pRequestApiHead->layer[layer].tf.specified = TRUE;
             }
         }
     }
@@ -192,7 +201,6 @@ static void FlipBaseToNull(NVDevEvoPtr pDevEvo)
                     pFlipApiHead,
                     numFlipApiHeads,
                     TRUE  /* commit */,
-                    FALSE /* allowVrr */,
                     NULL  /* pReply */,
                     FALSE /* skipUpdate */,
                     FALSE /* allowFlipLock */);
@@ -239,6 +247,8 @@ static NvU32 PickApiHead(const NVDpyEvoRec *pDpyEvo,
     const NvU32 activeApiHeadsMask =
         GetActiveApiHeadMask(pDpyEvo->pDispEvo);
 
+    NvU32 head;
+
     if (possibleApiHeads == 0) {
         return NV_INVALID_HEAD;
     }
@@ -249,11 +259,17 @@ static NvU32 PickApiHead(const NVDpyEvoRec *pDpyEvo,
     }
 
     if ((possibleApiHeads & ~activeApiHeadsMask) != 0x0) {
-        return BIT_IDX_32(LOWESTBIT(possibleApiHeads &
-            ~activeApiHeadsMask));
+        head = BIT_IDX_32(LOWESTBIT(possibleApiHeads &
+                                    ~activeApiHeadsMask));
+    } else {
+        head = BIT_IDX_32(LOWESTBIT(possibleApiHeads));
     }
-
-    return BIT_IDX_32(LOWESTBIT(possibleApiHeads));
+    
+    if (head >= NV_MAX_HEADS) {
+        return NV_INVALID_HEAD;
+    }
+    
+    return head;
 }
 
 static NvBool InitModeOneHeadRequest(
@@ -325,9 +341,9 @@ static NvBool InitModeOneHeadRequest(
 
     // Disable other features.
     pFlip->cursor.imageSpecified = TRUE;
-    pRequestHead->lut.input.specified = TRUE;
-    pRequestHead->lut.output.specified = TRUE;
-    pRequestHead->lut.synchronous = TRUE;
+    pFlip->lut.input.specified = TRUE;
+    pFlip->lut.output.specified = TRUE;
+    pFlip->lut.synchronous = TRUE;
     pRequestHead->allowGsync = FALSE;
     pRequestHead->allowAdaptiveSync =
         NVKMS_ALLOW_ADAPTIVE_SYNC_DISABLED;
@@ -954,7 +970,10 @@ done:
 
     /* If console restore failed then simply shut down all heads */
     if (!ret) {
-        nvShutDownApiHeads(pDevEvo, NULL /* pTestFunc, shut down all heads */);
+        nvShutDownApiHeads(pDevEvo, pDevEvo->pNvKmsOpenDev,
+                           NULL /* pTestFunc, shut down all heads */,
+                           NULL /* pData */,
+                           FALSE /* doRasterLock */);
     }
 
     // If restoring the console from here succeeded, then skip triggering RM's

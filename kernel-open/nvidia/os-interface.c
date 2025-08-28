@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -25,35 +25,52 @@
 
 #include "os-interface.h"
 #include "nv-linux.h"
+#include <linux/iommu.h>
+#include "nv-caps-imex.h"
+
+#include "nv-platform.h"
 
 #include "nv-time.h"
 
-#if defined(NV_SOC_TEGRA_CHIP_ID_H_PRESENT)
-#include <soc/tegra/chip-id.h>
-#elif defined(NV_SOC_TEGRA_FUSE_H_PRESENT)
-#include <soc/tegra/fuse.h>
-#endif
+#include <linux/mmzone.h>
+#include <linux/numa.h>
+#include <linux/cpuset.h>
+#include <linux/sys_soc.h>
+
+#include <linux/pid.h>
+#include <linux/pid_namespace.h>
+#if defined(CONFIG_LOCKDEP)
+#include <linux/lockdep.h>
+#endif // CONFIG_LOCKDEP
 
 extern char *NVreg_TemporaryFilePath;
 
-#define MAX_ERROR_STRING 512
+#define MAX_ERROR_STRING 528
 static char nv_error_string[MAX_ERROR_STRING];
-nv_spinlock_t nv_error_string_lock;
+static NV_DEFINE_SPINLOCK(nv_error_string_lock);
 
 extern nv_linux_state_t nv_ctl_device;
 
 extern nv_kthread_q_t nv_kthread_q;
 
-NvU32 os_page_size  = PAGE_SIZE;
-NvU64 os_page_mask  = NV_PAGE_MASK;
-NvU8  os_page_shift = PAGE_SHIFT;
+NvU64 os_page_size     = PAGE_SIZE;
+NvU64 os_max_page_size = PAGE_SIZE << NV_MAX_PAGE_ORDER;
+NvU64 os_page_mask     = NV_PAGE_MASK;
+NvU8  os_page_shift    = PAGE_SHIFT;
+
 NvBool os_cc_enabled = 0;
+NvBool os_cc_sev_snp_enabled = 0;
+NvBool os_cc_snp_vtom_enabled = 0;
+NvBool os_cc_tdx_enabled = 0;
+NvBool os_cc_sme_enabled = 0;
 
 #if defined(CONFIG_DMA_SHARED_BUFFER)
 NvBool os_dma_buf_enabled = NV_TRUE;
 #else
 NvBool os_dma_buf_enabled = NV_FALSE;
 #endif // CONFIG_DMA_SHARED_BUFFER
+
+NvBool os_imex_channel_is_supported = NV_TRUE;
 
 void NV_API_CALL os_disable_console_access(void)
 {
@@ -238,7 +255,20 @@ NV_STATUS NV_API_CALL os_release_semaphore
     return NV_OK;
 }
 
-typedef struct rw_semaphore os_rwlock_t;
+typedef struct
+{
+    struct rw_semaphore sem;
+
+#if defined(CONFIG_LOCKDEP)
+    /**
+     * A key of lock class. It would be registered to Lockdep validator so all
+     * instances' usages and dependencies will contribute to constructing correct
+     * locking rules and this lock will be tracked by the Lockdep validator.
+     *
+     */
+    struct lock_class_key key;
+#endif // CONFIG_LOCKDEP
+} os_rwlock_t;
 
 void* NV_API_CALL os_alloc_rwlock(void)
 {
@@ -247,11 +277,17 @@ void* NV_API_CALL os_alloc_rwlock(void)
     NV_STATUS rmStatus = os_alloc_mem((void *)&os_rwlock, sizeof(os_rwlock_t));
     if (rmStatus != NV_OK)
     {
-        nv_printf(NV_DBG_ERRORS, "NVRM: failed to allocate rw_semaphore!\n");
+        nv_printf(NV_DBG_ERRORS, "NVRM: failed to allocate a struct os_rwlock_t!\n");
         return NULL;
     }
 
-    init_rwsem(os_rwlock);
+    init_rwsem(&os_rwlock->sem);
+
+#if defined(CONFIG_LOCKDEP)
+    // Register the dynamically allocated key to Lockdep.
+    lockdep_register_key(&os_rwlock->key);
+    lockdep_set_class(&os_rwlock->sem, &os_rwlock->key);
+#endif // CONFIG_LOCKDEP
 
     return os_rwlock;
 }
@@ -259,6 +295,12 @@ void* NV_API_CALL os_alloc_rwlock(void)
 void NV_API_CALL os_free_rwlock(void *pRwLock)
 {
     os_rwlock_t *os_rwlock = (os_rwlock_t *)pRwLock;
+
+#if defined(CONFIG_LOCKDEP)
+    // Unregister the dynamically allocated key.
+    lockdep_unregister_key(&os_rwlock->key);
+#endif // CONFIG_LOCKDEP
+
     os_free_mem(os_rwlock);
 }
 
@@ -270,7 +312,7 @@ NV_STATUS NV_API_CALL os_acquire_rwlock_read(void *pRwLock)
     {
         return NV_ERR_INVALID_REQUEST;
     }
-    down_read(os_rwlock);
+    down_read(&os_rwlock->sem);
     return NV_OK;
 }
 
@@ -282,7 +324,7 @@ NV_STATUS NV_API_CALL os_acquire_rwlock_write(void *pRwLock)
     {
         return NV_ERR_INVALID_REQUEST;
     }
-    down_write(os_rwlock);
+    down_write(&os_rwlock->sem);
     return NV_OK;
 }
 
@@ -290,7 +332,7 @@ NV_STATUS NV_API_CALL os_cond_acquire_rwlock_read(void *pRwLock)
 {
     os_rwlock_t *os_rwlock = (os_rwlock_t *)pRwLock;
 
-    if (down_read_trylock(os_rwlock))
+    if (down_read_trylock(&os_rwlock->sem))
     {
         return NV_ERR_TIMEOUT_RETRY;
     }
@@ -302,7 +344,7 @@ NV_STATUS NV_API_CALL os_cond_acquire_rwlock_write(void *pRwLock)
 {
     os_rwlock_t *os_rwlock = (os_rwlock_t *)pRwLock;
 
-    if (down_write_trylock(os_rwlock))
+    if (down_write_trylock(&os_rwlock->sem))
     {
         return NV_ERR_TIMEOUT_RETRY;
     }
@@ -313,13 +355,13 @@ NV_STATUS NV_API_CALL os_cond_acquire_rwlock_write(void *pRwLock)
 void NV_API_CALL os_release_rwlock_read(void *pRwLock)
 {
     os_rwlock_t *os_rwlock = (os_rwlock_t *)pRwLock;
-    up_read(os_rwlock);
+    up_read(&os_rwlock->sem);
 }
 
 void NV_API_CALL os_release_rwlock_write(void *pRwLock)
 {
     os_rwlock_t *os_rwlock = (os_rwlock_t *)pRwLock;
-    up_write(os_rwlock);
+    up_write(&os_rwlock->sem);
 }
 
 NvBool NV_API_CALL os_semaphore_may_sleep(void)
@@ -338,14 +380,27 @@ NvBool NV_API_CALL os_is_administrator(void)
     return NV_IS_SUSER();
 }
 
-NvBool NV_API_CALL os_allow_priority_override(void)
+NvBool NV_API_CALL os_check_access(RsAccessRight accessRight)
 {
-    return capable(CAP_SYS_NICE);
-}
-
-NvU64 NV_API_CALL os_get_num_phys_pages(void)
-{
-    return (NvU64)NV_NUM_PHYSPAGES;
+    switch (accessRight)
+    {
+        case RS_ACCESS_PERFMON:
+        {
+#if defined(CAP_PERFMON)
+            return capable(CAP_PERFMON);
+#else
+            return os_is_administrator();
+#endif
+        }
+        case RS_ACCESS_NICE:
+        {
+            return capable(CAP_SYS_NICE);
+        }
+        default:
+        {
+            return NV_FALSE;
+        }
+    }
 }
 
 char* NV_API_CALL os_string_copy(
@@ -373,7 +428,7 @@ NvS32 NV_API_CALL os_string_compare(const char *str1, const char *str2)
     return strcmp(str1, str2);
 }
 
-void *os_mem_copy_custom(
+static void *os_mem_copy_custom(
     void       *dstPtr,
     const void *srcPtr,
     NvU32       length
@@ -423,11 +478,6 @@ void *NV_API_CALL os_mem_copy(
      * When performing memcpy for memory mapped as device, memcpy_[to/from]io
      * must be used. WAR to check the source and destination to determine the
      * correct memcpy_io to use.
-     *
-     * This WAR is limited to just aarch64 for now because the address range used
-     * to map ioremap and vmalloc is different on ppc64le, and is_vmalloc_addr()
-     * does not correctly handle this. is_ioremap_addr() is needed instead. This
-     * will have to be addressed when reorganizing RM to use the new memset model.
      */
     if (is_vmalloc_addr(dst) && !is_vmalloc_addr(src))
     {
@@ -497,11 +547,6 @@ void* NV_API_CALL os_mem_set(
      *
      * WAR to check the destination to determine if the memory is of type Device
      * or Normal, and use the correct memset.
-     *
-     * This WAR is limited to just aarch64 for now because the address range used
-     * to map ioremap and vmalloc is different on ppc64le, and is_vmalloc_addr()
-     * does not correctly handle this. is_ioremap_addr() is needed instead. This
-     * will have to be addressed when reorganizing RM to use the new memset model.
      */
     if (is_vmalloc_addr(dst))
     {
@@ -625,11 +670,11 @@ void NV_API_CALL os_free_mem(void *address)
 
 /*****************************************************************************
 *
-*   Name: osGetCurrentTime
+*   Name: osGetSystemTime
 *
 *****************************************************************************/
 
-NV_STATUS NV_API_CALL os_get_current_time(
+NV_STATUS NV_API_CALL os_get_system_time(
     NvU32 *seconds,
     NvU32 *useconds
 )
@@ -647,16 +692,14 @@ NV_STATUS NV_API_CALL os_get_current_time(
 //
 // Get the High resolution tick count of the system uptime
 //
-NvU64 NV_API_CALL os_get_current_tick_hr(void)
+NvU64 NV_API_CALL os_get_monotonic_time_ns_hr(void)
 {
     struct timespec64 tm;
     ktime_get_raw_ts64(&tm);
     return (NvU64) timespec64_to_ns(&tm);
 }
 
-#if BITS_PER_LONG >= 64
-
-NvU64 NV_API_CALL os_get_current_tick(void)
+NvU64 NV_API_CALL os_get_monotonic_time_ns(void)
 {
 #if defined(NV_JIFFIES_TO_TIMESPEC_PRESENT)
     struct timespec ts;
@@ -669,47 +712,13 @@ NvU64 NV_API_CALL os_get_current_tick(void)
 #endif
 }
 
-NvU64 NV_API_CALL os_get_tick_resolution(void)
+NvU64 NV_API_CALL os_get_monotonic_tick_resolution_ns(void)
 {
     return (NvU64)jiffies_to_usecs(1) * NSEC_PER_USEC;
 }
 
-#else
-
-NvU64 NV_API_CALL os_get_current_tick(void)
-{
-    /*
-     * 'jiffies' overflows regularly on 32-bit builds (unsigned long is 4 bytes
-     * instead of 8 bytes), so it's unwise to build a tick counter on it, since
-     * the rest of the Resman assumes the 'tick' returned from this function is
-     * monotonically increasing and never overflows.
-     *
-     * Instead, use the previous implementation that we've lived with since the
-     * beginning, which uses system clock time to calculate the tick. This is
-     * subject to problems if the system clock time changes dramatically
-     * (more than a second or so) while the Resman is actively tracking a
-     * timeout.
-     */
-    NvU32 seconds, useconds;
-
-    (void) os_get_current_time(&seconds, &useconds);
-
-    return ((NvU64)seconds * NSEC_PER_SEC +
-                 (NvU64)useconds * NSEC_PER_USEC);
-}
-
-NvU64 NV_API_CALL os_get_tick_resolution(void)
-{
-    /*
-     * os_get_current_tick() uses os_get_current_time(), which has
-     * microsecond resolution.
-     */
-    return 1000ULL;
-}
-
-#endif
-
 //---------------------------------------------------------------------------
+
 //
 //  Misc services.
 //
@@ -755,6 +764,50 @@ void NV_API_CALL os_get_current_process_name(char *buf, NvU32 len)
     task_unlock(current);
 }
 
+NV_STATUS NV_API_CALL os_iommu_sva_bind(void *arg, void **handle, NvU32 *pasid)
+{
+    nv_state_t *nv = arg;
+#if defined(CONFIG_IOMMU_SVA) && \
+    (defined(NV_IOASID_GET_PRESENT) || defined(NV_MM_PASID_DROP_PRESENT))
+    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
+    struct iommu_sva *sva_handle;
+
+    if (pasid == NULL || handle == NULL)
+        return NV_ERR_INVALID_ARGUMENT;
+
+    *pasid = 0;
+    *handle = NULL;
+
+    if (nv->ats_support && current && current->mm)
+    {
+#if defined(NV_IOMMU_SVA_BIND_DEVICE_HAS_DRVDATA_ARG)
+        sva_handle = iommu_sva_bind_device(nvl->dev, current->mm, NULL);
+#else
+        sva_handle = iommu_sva_bind_device(nvl->dev, current->mm);
+#endif
+        if (!IS_ERR(sva_handle))
+        {
+            *pasid = iommu_sva_get_pasid(sva_handle);
+            *handle = sva_handle;
+            NV_DEV_PRINTF(NV_DBG_INFO, nv, "PASID: %u\n", *pasid);
+
+            return NV_OK;
+        }
+    }
+#endif
+    NV_DEV_PRINTF(NV_DBG_ERRORS, nv, "IOMMU SVA bind failed\n");
+
+    return NV_ERR_INVALID_STATE;
+}
+
+void NV_API_CALL os_iommu_sva_unbind(void *handle)
+{
+#if defined(CONFIG_IOMMU_SVA) && \
+    (defined(NV_IOASID_GET_PRESENT) || defined(NV_MM_PASID_DROP_PRESENT))
+    iommu_sva_unbind_device(handle);
+#endif
+}
+
 NV_STATUS NV_API_CALL os_get_current_thread(NvU64 *threadId)
 {
     if (in_interrupt())
@@ -782,7 +835,6 @@ inline void NV_API_CALL out_string(const char *str)
     printk("%s", str);
 }
 
-#define NV_PRINT_LOCAL_BUFF_LEN_MAX      528
 /*
  * nv_printf() prints to the kernel log for the driver.
  * Returns the number of characters written.
@@ -791,14 +843,11 @@ int NV_API_CALL nv_printf(NvU32 debuglevel, const char *printf_format, ...)
 {
     va_list arglist;
     int chars_written = 0;
-    // This function is protected by the "_nv_dbg_lock" lock, so it is still
-    // thread-safe to store the print buffer in a static variable, thus
-    // avoiding a problem with kernel stack size.
-    static char buff[NV_PRINT_LOCAL_BUFF_LEN_MAX];
 
     if (debuglevel >= ((cur_debuglevel >> 4) & 0x3))
     {
         size_t length;
+        unsigned long flags;
 
         // When printk is called to extend the output of the previous line
         // (i.e. when the previous line did not end in \n), the printk call
@@ -822,14 +871,18 @@ int NV_API_CALL nv_printf(NvU32 debuglevel, const char *printf_format, ...)
         if (length < 1)
             return 0;
 
+        NV_SPIN_LOCK_IRQSAVE(&nv_error_string_lock, flags);
+
         // KERN_CONT changed in the 3.6 kernel, so we can't assume its
         // composition or size.
-        memcpy(buff, KERN_CONT, sizeof(KERN_CONT) - 1);
-        memcpy(buff + sizeof(KERN_CONT) - 1, printf_format, length + 1);
+        memcpy(nv_error_string, KERN_CONT, sizeof(KERN_CONT) - 1);
+        memcpy(nv_error_string + sizeof(KERN_CONT) - 1, printf_format, length + 1);
 
         va_start(arglist, printf_format);
-        chars_written = vprintk(buff, arglist);
+        chars_written = vprintk(nv_error_string, arglist);
         va_end(arglist);
+
+        NV_SPIN_UNLOCK_IRQRESTORE(&nv_error_string_lock, flags);
     }
 
     return chars_written;
@@ -981,26 +1034,29 @@ void NV_API_CALL os_unmap_kernel_space(
     nv_iounmap(addr, size_bytes);
 }
 
-// flush the cpu's cache, uni-processor version
-NV_STATUS NV_API_CALL os_flush_cpu_cache(void)
+#if NVCPU_IS_AARCH64
+
+static inline void nv_flush_cache_cpu(void *info)
 {
-    CACHE_FLUSH();
-    return NV_OK;
+    if (!nvos_is_chipset_io_coherent())
+    {
+#if defined(NV_FLUSH_CACHE_ALL_PRESENT)
+        flush_cache_all();
+#else
+        WARN_ONCE(0, "kernel does not provide flush_cache_all()\n");
+#endif
+    }
 }
 
 // flush the cache of all cpus
 NV_STATUS NV_API_CALL os_flush_cpu_cache_all(void)
 {
-#if defined(NVCPU_AARCH64)
-    CACHE_FLUSH_ALL();
+    on_each_cpu(nv_flush_cache_cpu, NULL, 1);
     return NV_OK;
-#endif
-    return NV_ERR_NOT_SUPPORTED;
 }
 
 NV_STATUS NV_API_CALL os_flush_user_cache(void)
 {
-#if defined(NVCPU_AARCH64)
     if (!NV_MAY_SLEEP())
     {
         return NV_ERR_NOT_SUPPORTED;
@@ -1011,16 +1067,33 @@ NV_STATUS NV_API_CALL os_flush_user_cache(void)
     // although it is possible. For now, just flush the entire cache to be
     // safe.
     //
-    CACHE_FLUSH_ALL();
+    on_each_cpu(nv_flush_cache_cpu, NULL, 1);
     return NV_OK;
-#else
-    return NV_ERR_NOT_SUPPORTED;
-#endif
 }
+
+#else // NVCPU_IS_AARCH64
+
+NV_STATUS NV_API_CALL os_flush_cpu_cache_all(void)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS NV_API_CALL os_flush_user_cache(void)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+#endif
 
 void NV_API_CALL os_flush_cpu_write_combine_buffer(void)
 {
-    WRITE_COMBINE_FLUSH();
+#if defined(NVCPU_X86_64)
+    asm volatile("sfence" ::: "memory");
+#elif defined(NVCPU_AARCH64)
+    asm volatile("dsb st" : : : "memory");
+#else
+    mb();
+#endif
 }
 
 // override initial debug level from registry
@@ -1028,8 +1101,6 @@ void NV_API_CALL os_dbg_init(void)
 {
     NvU32 new_debuglevel;
     nvidia_stack_t *sp = NULL;
-
-    NV_SPIN_LOCK_INIT(&nv_error_string_lock);
 
     if (nv_kmem_cache_alloc_stack(&sp) != 0)
     {
@@ -1056,7 +1127,7 @@ void NV_API_CALL os_dbg_set_level(NvU32 new_debuglevel)
 
 NvU64 NV_API_CALL os_get_max_user_va(void)
 {
-	return TASK_SIZE;
+    return TASK_SIZE;
 }
 
 NV_STATUS NV_API_CALL os_schedule(void)
@@ -1126,7 +1197,7 @@ NV_STATUS NV_API_CALL os_queue_work_item(struct os_work_queue *queue, void *data
     return NV_OK;
 }
 
-NV_STATUS NV_API_CALL os_flush_work_queue(struct os_work_queue *queue)
+NV_STATUS NV_API_CALL os_flush_work_queue(struct os_work_queue *queue, NvBool is_unload)
 {
     nv_kthread_q_t *kthread;
 
@@ -1135,8 +1206,12 @@ NV_STATUS NV_API_CALL os_flush_work_queue(struct os_work_queue *queue)
 
     if (NV_MAY_SLEEP())
     {
+        kthread->is_unload_flush_ongoing = is_unload;
+
         if (kthread->q_kthread)
             nv_kthread_q_flush(kthread);
+
+        kthread->is_unload_flush_ongoing = NV_FALSE;
 
         return NV_OK;
     }
@@ -1147,6 +1222,13 @@ NV_STATUS NV_API_CALL os_flush_work_queue(struct os_work_queue *queue)
                   "work from an atomic or interrupt context.\n");
         return NV_ERR_ILLEGAL_ACTION;
     }
+}
+
+NvBool NV_API_CALL os_is_queue_flush_ongoing(struct os_work_queue *queue)
+{
+    nv_kthread_q_t *kthread = queue ? &queue->nvk : &nv_kthread_q;
+
+    return kthread->is_unload_flush_ongoing;
 }
 
 extern NvU32 NVreg_EnableDbgBreakpoint;
@@ -1165,8 +1247,6 @@ void NV_API_CALL os_dbg_breakpoint(void)
     __asm__ __volatile__ (".word %c0" :: "i" (KGDB_COMPILED_BREAK));
   #elif defined(NVCPU_AARCH64)
     # warning "Need to implement os_dbg_breakpoint() for aarch64"
-  #elif defined(NVCPU_PPC64LE)
-    __asm__ __volatile__ ("trap");
   #endif // NVCPU_*
 #elif defined(CONFIG_KDB)
     KDB_ENTER();
@@ -1193,86 +1273,6 @@ NvBool NV_API_CALL os_pat_supported(void)
 NvBool NV_API_CALL os_is_efi_enabled(void)
 {
     return efi_enabled(EFI_BOOT);
-}
-
-void NV_API_CALL os_get_screen_info(
-    NvU64 *pPhysicalAddress,
-    NvU32 *pFbWidth,
-    NvU32 *pFbHeight,
-    NvU32 *pFbDepth,
-    NvU32 *pFbPitch,
-    NvU64 *pFbSize,
-    NvU64 consoleBar1Address,
-    NvU64 consoleBar2Address
-)
-{
-    *pPhysicalAddress = 0;
-    *pFbWidth = *pFbHeight = *pFbDepth = *pFbPitch = *pFbSize = 0;
-
-#if defined(CONFIG_FB) && defined(NV_NUM_REGISTERED_FB_PRESENT)
-    if (num_registered_fb > 0)
-    {
-        int i;
-
-        for (i = 0; i < num_registered_fb; i++)
-        {
-            if (!registered_fb[i])
-                continue;
-
-            {
-                *pPhysicalAddress = registered_fb[i]->fix.smem_start;
-                *pFbWidth = registered_fb[i]->var.xres;
-                *pFbHeight = registered_fb[i]->var.yres;
-                *pFbDepth = registered_fb[i]->var.bits_per_pixel;
-                *pFbPitch = registered_fb[i]->fix.line_length;
-                *pFbSize = registered_fb[i]->fix.smem_len;
-                return;
-            }
-        }
-    }
-#endif
-
-    /*
-     * If the screen info is not found in the registered FBs then fallback
-     * to the screen_info structure.
-     *
-     * The SYSFB_SIMPLEFB option, if enabled, marks VGA/VBE/EFI framebuffers as
-     * generic framebuffers so the new generic system-framebuffer drivers can
-     * be used instead. DRM_SIMPLEDRM drives the generic system-framebuffers
-     * device created by SYSFB_SIMPLEFB.
-     *
-     * SYSFB_SIMPLEFB registers a dummy framebuffer which does not contain the
-     * information required by os_get_screen_info(), therefore you need to
-     * fall back onto the screen_info structure.
-     */
-
-#if NV_IS_EXPORT_SYMBOL_PRESENT_screen_info
-    /*
-     * If there is not a framebuffer console, return 0 size.
-     *
-     * orig_video_isVGA is set to 1 during early Linux kernel
-     * initialization, and then will be set to a value, such as
-     * VIDEO_TYPE_VLFB or VIDEO_TYPE_EFI if an fbdev console is used.
-     */
-    if (screen_info.orig_video_isVGA > 1)
-    {
-        NvU64 physAddr = screen_info.lfb_base;
-#if defined(VIDEO_CAPABILITY_64BIT_BASE)
-        physAddr |= (NvU64)screen_info.ext_lfb_base << 32;
-#endif
-
-        /* Make sure base address is mapped to GPU BAR */
-        if ((physAddr == consoleBar1Address) ||
-            (physAddr == consoleBar2Address))
-        {
-            *pPhysicalAddress = physAddr;
-            *pFbWidth = screen_info.lfb_width;
-            *pFbHeight = screen_info.lfb_height;
-            *pFbDepth = screen_info.lfb_depth;
-            *pFbPitch = screen_info.lfb_linelength;
-        }
-    }
-#endif
 }
 
 void NV_API_CALL os_dump_stack(void)
@@ -1356,6 +1356,16 @@ NV_STATUS NV_API_CALL os_get_version_info(os_version_info * pOsVersionInfo)
 #endif
 
     return status;
+}
+
+NV_STATUS NV_API_CALL os_get_is_openrm(NvBool *bIsOpenRm)
+{
+#if defined(NVCPU_X86_64) || defined(NVCPU_AARCH64)
+    *bIsOpenRm = NV_TRUE;
+    return NV_OK;
+#else // defined(NVCPU_X86_64) || defined(NVCPU_AARCH64)
+    return NV_ERR_NOT_SUPPORTED;
+#endif // defined(NVCPU_X86_64) || defined(NVCPU_AARCH64)
 }
 
 NvBool NV_API_CALL os_is_xen_dom0(void)
@@ -1503,7 +1513,7 @@ static NV_STATUS os_get_smbios_header_legacy(NvU64 *pSmbsAddr)
 }
 
 // This function is needed only if "efi" is enabled.
-#if (defined(NV_LINUX_EFI_H_PRESENT) && defined(CONFIG_EFI))
+#if defined(CONFIG_EFI)
 static NV_STATUS os_verify_smbios_header_uefi(NvU64 smbsAddr)
 {
     NV_STATUS status = NV_ERR_OBJECT_NOT_FOUND;
@@ -1546,8 +1556,7 @@ static NV_STATUS os_get_smbios_header_uefi(NvU64 *pSmbsAddr)
 {
     NV_STATUS status = NV_ERR_OPERATING_SYSTEM;
 
-// Make sure that efi.h is present before using "struct efi".
-#if (defined(NV_LINUX_EFI_H_PRESENT) && defined(CONFIG_EFI))
+#if defined(CONFIG_EFI)
 
 // Make sure that efi.h has SMBIOS3_TABLE_GUID present.
 #if defined(SMBIOS3_TABLE_GUID)
@@ -1614,9 +1623,7 @@ NV_STATUS NV_API_CALL os_get_acpi_rsdp_from_uefi
 
     *pRsdpAddr = 0;
 
-// Make sure that efi.h is present before using "struct efi".
-#if (defined(NV_LINUX_EFI_H_PRESENT) && defined(CONFIG_EFI))
-
+#if defined(CONFIG_EFI)
     if (efi.acpi20 != EFI_INVALID_TABLE_ADDR)
     {
         *pRsdpAddr = efi.acpi20;
@@ -1663,7 +1670,7 @@ NV_STATUS NV_API_CALL os_alloc_pages_node
     NV_STATUS status = NV_ERR_NOT_SUPPORTED;
 
 #if defined(__GFP_THISNODE) && defined(GFP_HIGHUSER_MOVABLE) && \
-    defined(__GFP_COMP) && defined(__GFP_NORETRY) && defined(__GFP_NOWARN)
+    defined(__GFP_COMP) && defined(__GFP_NOWARN)
     gfp_t gfp_mask;
     struct page *alloc_addr;
     unsigned int order = get_order(size);
@@ -1680,14 +1687,12 @@ NV_STATUS NV_API_CALL os_alloc_pages_node
      *                              pages, which is needed in order to use
      *                              vm_insert_page API.
      *
-     * 4. __GFP_NORETRY:            Used to avoid the Linux kernel OOM killer.
-     *
-     * 5. __GFP_NOWARN:             Used to avoid a WARN_ON in the slowpath if
+     * 4. __GFP_NOWARN:             Used to avoid a WARN_ON in the slowpath if
      *                              the requested order is too large (just fail
      *                              instead).
      *
-     * 6. (Optional) __GFP_RECLAIM: Used to allow/forbid reclaim.
-     *                              This is part of GFP_USER and consequently 
+     * 5. (Optional) __GFP_RECLAIM: Used to allow/forbid reclaim.
+     *                              This is part of GFP_USER and consequently
      *                              GFP_HIGHUSER_MOVABLE.
      *
      * Some of these flags are relatively more recent, with the last of them
@@ -1700,7 +1705,30 @@ NV_STATUS NV_API_CALL os_alloc_pages_node
      */
 
     gfp_mask = __GFP_THISNODE | GFP_HIGHUSER_MOVABLE | __GFP_COMP |
-               __GFP_NORETRY | __GFP_NOWARN;
+               __GFP_NOWARN;
+    
+#if defined(__GFP_RETRY_MAYFAIL)
+
+    /*
+     * __GFP_RETRY_MAYFAIL :  Used to avoid the Linux kernel OOM killer.
+     *                        To help PMA on paths where UVM might be
+     *                        in memory over subscription. This gives UVM 
+     *                        a chance to free memory before invoking any 
+     *                        action from the OOM killer.
+     *                        Freeing non-essential memory will also benefit 
+     *                        the system as a whole.
+     */
+
+    gfp_mask |= __GFP_RETRY_MAYFAIL;
+#elif defined(__GFP_NORETRY)
+
+    /*
+     *  __GFP_NORETRY :       Use __GFP_NORETRY on older kernels where
+     *                        __GFP_RETRY_MAYFAIL is not present.
+     */
+
+    gfp_mask |= __GFP_NORETRY;
+#endif
 
 #if defined(__GFP_RECLAIM)
     if (flag & NV_ALLOC_PAGES_NODE_SKIP_RECLAIM)
@@ -1789,6 +1817,10 @@ NV_STATUS NV_API_CALL os_numa_memblock_size
     NvU64 *memblock_size
 )
 {
+#if NV_IS_EXPORT_SYMBOL_PRESENT_memory_block_size_bytes
+    *memblock_size = memory_block_size_bytes();
+    return NV_OK;
+#endif
     if (nv_ctl_device.numa_memblock_size == 0)
         return NV_ERR_INVALID_STATE;
     *memblock_size = nv_ctl_device.numa_memblock_size;
@@ -1800,6 +1832,7 @@ NV_STATUS NV_API_CALL os_open_temporary_file
     void **ppFile
 )
 {
+#if NV_FILESYSTEM_ACCESS_AVAILABLE
 #if defined(O_TMPFILE)
     struct file *file;
     const char *default_path = "/tmp";
@@ -1845,6 +1878,9 @@ NV_STATUS NV_API_CALL os_open_temporary_file
 #else
     return NV_ERR_NOT_SUPPORTED;
 #endif
+#else
+    return NV_ERR_NOT_SUPPORTED;
+#endif
 }
 
 void NV_API_CALL os_close_file
@@ -1852,7 +1888,9 @@ void NV_API_CALL os_close_file
     void *pFile
 )
 {
+#if NV_FILESYSTEM_ACCESS_AVAILABLE
     filp_close(pFile, NULL);
+#endif
 }
 
 #define NV_MAX_NUM_FILE_IO_RETRIES 10
@@ -1865,16 +1903,13 @@ NV_STATUS NV_API_CALL os_write_file
     NvU64 offset
 )
 {
+#if NV_FILESYSTEM_ACCESS_AVAILABLE
     loff_t f_pos = offset;
     ssize_t num_written;
     int num_retries = NV_MAX_NUM_FILE_IO_RETRIES;
 
 retry:
-#if defined(NV_KERNEL_WRITE_HAS_POINTER_POS_ARG)
     num_written = kernel_write(pFile, pBuffer, size, &f_pos);
-#else
-    num_written = kernel_write(pFile, pBuffer, size, f_pos);
-#endif
     if (num_written < 0)
     {
         return NV_ERR_OPERATING_SYSTEM;
@@ -1895,6 +1930,9 @@ retry:
     }
 
     return NV_OK;
+#else
+    return NV_ERR_NOT_SUPPORTED;
+#endif
 }
 
 NV_STATUS NV_API_CALL os_read_file
@@ -1905,16 +1943,13 @@ NV_STATUS NV_API_CALL os_read_file
     NvU64 offset
 )
 {
+#if NV_FILESYSTEM_ACCESS_AVAILABLE
     loff_t f_pos = offset;
     ssize_t num_read;
     int num_retries = NV_MAX_NUM_FILE_IO_RETRIES;
 
 retry:
-#if defined(NV_KERNEL_READ_HAS_POINTER_POS_ARG)
     num_read = kernel_read(pFile, pBuffer, size, &f_pos);
-#else
-    num_read = kernel_read(pFile, f_pos, pBuffer, size);
-#endif
     if (num_read < 0)
     {
         return NV_ERR_OPERATING_SYSTEM;
@@ -1935,6 +1970,9 @@ retry:
     }
 
     return NV_OK;
+#else
+    return NV_ERR_NOT_SUPPORTED;
+#endif
 }
 
 NV_STATUS NV_API_CALL os_open_readonly_file
@@ -1943,6 +1981,7 @@ NV_STATUS NV_API_CALL os_open_readonly_file
     void       **ppFile
 )
 {
+#if NV_FILESYSTEM_ACCESS_AVAILABLE
     struct file *file;
 
     /*
@@ -1964,6 +2003,9 @@ NV_STATUS NV_API_CALL os_open_readonly_file
     *ppFile = (void *)file;
 
     return NV_OK;
+#else
+    return NV_ERR_NOT_SUPPORTED;
+#endif
 }
 
 NV_STATUS NV_API_CALL os_open_and_read_file
@@ -2012,10 +2054,8 @@ NV_STATUS NV_API_CALL os_get_random_bytes
     NvU16 numBytes
 )
 {
-#if defined NV_WAIT_FOR_RANDOM_BYTES_PRESENT
     if (wait_for_random_bytes() < 0)
         return NV_ERR_NOT_READY;
-#endif
 
     get_random_bytes(bytes, numBytes);
     return NV_OK;
@@ -2067,41 +2107,51 @@ void NV_API_CALL os_wake_up
     complete_all(&wq->q);
 }
 
-/* Define Tegra platform defines locally */
-#define NV_TEGRA_PLATFORM_SILICON 0
-#define NV_TEGRA_PLATFORM_FPGA 2 
-#define NV_TEGRA_PLATFORM_VDK 8
+static bool os_platform_is_fpga(void)
+{
+    const struct soc_device_attribute soc_attrs[] = {
+        { .revision = "*FPGA" },
+        {/* sentinel */}
+    };
 
-/* Below temporary macros will be deleted after tegra_get_platform()
- * is aligned to upstream kernel */
-#define NV_TEMP_TEGRA_PLATFORM_FPGA 3 
-#define NV_TEMP_TEGRA_PLATFORM_VDK 5
+    if (soc_device_match(soc_attrs)) {
+        return true;
+    }
 
-NV_STATUS NV_API_CALL os_get_tegra_platform
+    return false;
+}
+
+static bool os_platform_is_vdk(void)
+{
+    const struct soc_device_attribute soc_attrs[] = {
+        { .revision = "VDK" },
+        {/* sentinel */}
+    };
+
+    if (soc_device_match(soc_attrs)) {
+        return true;
+    }
+
+    return false;
+}
+
+    NV_STATUS NV_API_CALL os_get_tegra_platform
 (
     NvU32 *mode
 )
 {
-#if defined(NV_TEGRA_GET_PLATFORM_PRESENT) && NV_IS_EXPORT_SYMBOL_PRESENT_tegra_get_platform
-    NvU8 platform;
-
-    platform = tegra_get_platform();
-    switch (platform)
+#if NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
+    if (os_platform_is_fpga())
     {
-        case NV_TEMP_TEGRA_PLATFORM_VDK:
-        case NV_TEGRA_PLATFORM_VDK:
-            *mode = NV_OS_TEGRA_PLATFORM_SIM;
-            break;
-        case NV_TEGRA_PLATFORM_FPGA:
-        case NV_TEMP_TEGRA_PLATFORM_FPGA:
-            *mode = NV_OS_TEGRA_PLATFORM_FPGA;
-            break;
-        default:
-            nv_printf(NV_DBG_ERRORS, "Invalid Tegra platform(%d)\n",
-                      platform);
-        case NV_TEGRA_PLATFORM_SILICON:
-            *mode = NV_OS_TEGRA_PLATFORM_SILICON;
-            break;
+        *mode = NV_OS_TEGRA_PLATFORM_FPGA;
+    }
+    else if (os_platform_is_vdk())
+    {
+        *mode = NV_OS_TEGRA_PLATFORM_SIM;
+    }
+    else
+    {
+        *mode = NV_OS_TEGRA_PLATFORM_SILICON;
     }
 
     return NV_OK;
@@ -2163,6 +2213,468 @@ void NV_API_CALL os_nv_cap_close_fd
     nv_cap_close_fd(fd);
 }
 
+NvS32 NV_API_CALL os_imex_channel_count
+(
+    void
+)
+{
+    return nv_caps_imex_channel_count();
+}
+
+NvS32 NV_API_CALL os_imex_channel_get
+(
+    NvU64 descriptor
+)
+{
+    return nv_caps_imex_channel_get((int)descriptor);
+}
+
+NV_STATUS NV_API_CALL os_tegra_igpu_perf_boost
+(
+    void *handle,
+    NvBool enable,
+    NvU32 duration
+)
+{
+#if defined(CONFIG_PM_DEVFREQ) && defined(NV_UPDATE_DEVFREQ_PRESENT)
+    nv_state_t *nv = handle;
+    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
+    int err;
+
+    if (enable)
+    {
+        if (nvl->devfreq_enable_boost == NULL)
+        {
+            return NV_ERR_NOT_SUPPORTED;
+        }
+
+        err = nvl->devfreq_enable_boost(nvl->dev, duration);
+        if (err != 0)
+        {
+            return NV_ERR_OPERATING_SYSTEM;
+        }
+    }
+    else
+    {
+        if (nvl->devfreq_disable_boost == NULL)
+        {
+            return NV_ERR_NOT_SUPPORTED;
+        }
+
+        err = nvl->devfreq_disable_boost(nvl->dev);
+        if (err != 0)
+        {
+            return NV_ERR_OPERATING_SYSTEM;
+        }
+    }
+
+    return NV_OK;
+#else // !defined(CONFIG_PM_DEVFREQ) || !defined(NV_UPDATE_DEVFREQ_PRESENT)
+    return NV_ERR_NOT_SUPPORTED;
+#endif
+}
+
+/*
+ * Reads the total memory and free memory of a NUMA node from the kernel.
+ */
+NV_STATUS NV_API_CALL os_get_numa_node_memory_usage
+(
+    NvS32 node_id,
+    NvU64 *free_memory_bytes,
+    NvU64 *total_memory_bytes
+)
+{
+    struct pglist_data *pgdat;
+    struct zone *zone;
+    NvU32 zone_id;
+
+    if (node_id >= MAX_NUMNODES)
+    {
+        nv_printf(NV_DBG_ERRORS, "Invalid NUMA node ID\n");
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+
+    pgdat = NODE_DATA(node_id);
+
+    *free_memory_bytes = 0;
+    *total_memory_bytes = 0;
+
+    for (zone_id = 0; zone_id < MAX_NR_ZONES; zone_id++)
+    {
+        zone = &(pgdat->node_zones[zone_id]);
+        if (!populated_zone(zone))
+            continue;
+        *free_memory_bytes += (zone_page_state_snapshot(zone, NR_FREE_PAGES) * PAGE_SIZE);
+        *total_memory_bytes += (zone->present_pages * PAGE_SIZE);
+    }
+
+    return NV_OK;
+}
+
+typedef struct os_numa_gpu_mem_hotplug_notifier_s
+{
+    NvU64 start_pa;
+    NvU64 size;
+    nv_pci_info_t pci_info;
+    struct notifier_block memory_notifier;
+} os_numa_gpu_mem_hotplug_notifier_t;
+
+static int os_numa_verify_gpu_memory_zone(struct notifier_block *nb,
+                                          unsigned long action, void *data)
+{
+    os_numa_gpu_mem_hotplug_notifier_t *notifier = container_of(nb,
+        os_numa_gpu_mem_hotplug_notifier_t,
+        memory_notifier);
+    struct memory_notify *mhp = data;
+    NvU64 start_pa = PFN_PHYS(mhp->start_pfn);
+    NvU64 size = PFN_PHYS(mhp->nr_pages);
+
+    if (action == MEM_GOING_ONLINE)
+    {
+        // Check if onlining memory falls in the GPU memory range
+        if ((start_pa >= notifier->start_pa) &&
+            (start_pa + size) <= (notifier->start_pa + notifier->size))
+        {
+            /*
+             * Verify GPU memory NUMA node has memory only in ZONE_MOVABLE before
+             * onlining the memory so that incorrect auto online setting doesn't
+             * cause the memory onlined in a zone where kernel allocations
+             * could happen, resulting in GPU memory hot unpluggable and requiring
+             * system reboot.
+             */
+            if (page_zonenum((pfn_to_page(mhp->start_pfn))) != ZONE_MOVABLE)
+            {
+                nv_printf(NV_DBG_ERRORS, "NVRM: Failing GPU memory onlining as the onlining zone "
+                          "is not movable. pa: 0x%llx size: 0x%llx\n"
+                          "NVRM: The NVIDIA GPU %04x:%02x:%02x.%x installed in the system\n"
+                          "NVRM: requires auto onlining mode online_movable enabled in\n"
+                          "NVRM: /sys/devices/system/memory/auto_online_blocks\n",
+                          start_pa, size, notifier->pci_info.domain, notifier->pci_info.bus,
+                          notifier->pci_info.slot, notifier->pci_info.function);
+                return NOTIFY_BAD;
+            }
+        }
+    }
+    return NOTIFY_OK;
+}
+
+#define ADD_REMOVE_GPU_MEMORY_NUM_SEGMENTS 4
+
+NV_STATUS NV_API_CALL os_numa_add_gpu_memory
+(
+    void *handle,
+    NvU64 offset,
+    NvU64 size,
+    NvU32 *nodeId
+)
+{
+#if defined(NV_ADD_MEMORY_DRIVER_MANAGED_PRESENT)
+    int node = 0;
+    nv_linux_state_t *nvl = pci_get_drvdata(handle);
+    nv_state_t *nv = NV_STATE_PTR(nvl);
+    NvU64 base = offset + nvl->coherent_link_info.gpu_mem_pa;
+    int ret = 0;
+    NvU64 memblock_size;
+    NvU64 size_remaining;
+    NvU64 calculated_segment_size;
+    NvU64 segment_size;
+    NvU64 segment_base;
+    os_numa_gpu_mem_hotplug_notifier_t notifier =
+    {
+        .start_pa = base,
+        .size = size,
+        .pci_info = nv->pci_info,
+        .memory_notifier.notifier_call = os_numa_verify_gpu_memory_zone,
+    };
+
+    if (nodeId == NULL)
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+
+    if (bitmap_empty(nvl->coherent_link_info.free_node_bitmap, MAX_NUMNODES))
+    {
+        return NV_ERR_IN_USE;
+    }
+    node = find_first_bit(nvl->coherent_link_info.free_node_bitmap, MAX_NUMNODES);
+    if (node == MAX_NUMNODES)
+    {
+        return NV_ERR_INVALID_STATE;
+    }
+
+    NV_ATOMIC_SET(nvl->numa_info.status, NV_IOCTL_NUMA_STATUS_ONLINE_IN_PROGRESS);
+
+    ret = register_memory_notifier(&notifier.memory_notifier);
+    if (ret)
+    {
+        nv_printf(NV_DBG_ERRORS, "NVRM: Memory hotplug notifier registration failed\n");
+        goto failed;
+    }
+
+    //
+    // Adding all memory at once can take a long time. Split up memory into segments
+    // with schedule() in between to prevent soft lockups. Memory segments for
+    // add_memory_driver_managed() need to be aligned to memblock size.
+    //
+    // If there are any issues splitting into segments, then add all memory at once.
+    //
+    if (os_numa_memblock_size(&memblock_size) == NV_OK)
+    {
+        calculated_segment_size = NV_ALIGN_UP(size / ADD_REMOVE_GPU_MEMORY_NUM_SEGMENTS, memblock_size);
+    }
+    else
+    {
+        // Don't split into segments, add all memory at once
+        calculated_segment_size = size;
+    }
+
+    segment_size = calculated_segment_size;
+    segment_base = base;
+    size_remaining = size;
+
+    while ((size_remaining > 0) &&
+           (ret == 0))
+    {
+        if (segment_size > size_remaining)
+        {
+            segment_size = size_remaining;
+        }
+
+#ifdef NV_ADD_MEMORY_DRIVER_MANAGED_HAS_MHP_FLAGS_ARG
+        ret = add_memory_driver_managed(node, segment_base, segment_size, "System RAM (NVIDIA)", MHP_NONE);
+#else
+        ret = add_memory_driver_managed(node, segment_base, segment_size, "System RAM (NVIDIA)");
+#endif
+        nv_printf(NV_DBG_SETUP, "NVRM: add_memory_driver_managed() returns: %d for segment_base: 0x%llx, segment_size: 0x%llx\n",
+                  ret, segment_base, segment_size);
+
+        segment_base += segment_size;
+        size_remaining -= segment_size;
+
+        // Yield CPU to prevent soft lockups
+        schedule();
+    }
+    unregister_memory_notifier(&notifier.memory_notifier);
+
+    if (ret == 0)
+    {
+        struct zone *zone = &NODE_DATA(node)->node_zones[ZONE_MOVABLE];
+        NvU64 start_pfn = base >> PAGE_SHIFT;
+        NvU64 end_pfn = (base + size) >> PAGE_SHIFT;
+
+        /* Verify the full GPU memory range passed on is onlined */
+        if (zone->zone_start_pfn != start_pfn ||
+            zone_end_pfn(zone) != end_pfn)
+        {
+            nv_printf(NV_DBG_ERRORS, "NVRM: GPU memory zone movable auto onlining failed!\n");
+
+#ifdef NV_OFFLINE_AND_REMOVE_MEMORY_PRESENT
+            // Since zone movable auto onlining failed, need to remove the added memory.
+            segment_size = calculated_segment_size;
+            segment_base = base;
+            size_remaining = size;
+
+            while (size_remaining > 0)
+            {
+                if (segment_size > size_remaining)
+                {
+                    segment_size = size_remaining;
+                }
+
+#ifdef NV_REMOVE_MEMORY_HAS_NID_ARG
+                ret = offline_and_remove_memory(node, segment_base, segment_size);
+#else
+                ret = offline_and_remove_memory(segment_base, segment_size);
+#endif
+                nv_printf(NV_DBG_SETUP, "NVRM: offline_and_remove_memory() returns: %d for segment_base: 0x%llx, segment_size: 0x%llx\n",
+                          ret, segment_base, segment_size);
+
+                segment_base += segment_size;
+                size_remaining -= segment_size;
+
+                // Yield CPU to prevent soft lockups
+                schedule();
+            }
+#endif
+            goto failed;
+        }
+
+        /*
+         * On systems with cpuset cgroup controller enabled, memory alloc on
+         * this just hotplugged GPU memory node can fail if the
+         * cpuset_hotplug_work is not scheduled yet. cpuset_hotplug_work is
+         * where the current->mems_allowed is updated in the path
+         * cpuset_hotplug_workfn->update_tasks_nodemask. When cpuset is
+         * enabled and current->mems_allowed is not updated, memory allocation
+         * with __GFP_THISNODE and this node id fails. cpuset_wait_for_hotplug
+         * kernel function can be used to wait for the work to finish but that
+         * is not exported. Adding a time loop to wait for
+         * current->mems_allowed to be updated as a WAR while an upstream
+         * kernel fix is being explored. Bug 4385903
+         */
+        if (!node_isset(node, cpuset_current_mems_allowed))
+        {
+            unsigned long delay;
+
+            delay = jiffies + (HZ / 10); // 100ms
+            while(time_before(jiffies, delay) &&
+                  !node_isset(node, cpuset_current_mems_allowed))
+            {
+                os_schedule();
+            }
+
+            if (!node_isset(node, cpuset_current_mems_allowed))
+            {
+                nv_printf(NV_DBG_ERRORS, "NVRM: Hotplugged GPU memory NUMA node: %d "
+                          "not set in current->mems_allowed!\n", node);
+            }
+        }
+
+        *nodeId = node;
+        clear_bit(node, nvl->coherent_link_info.free_node_bitmap);
+        NV_ATOMIC_SET(nvl->numa_info.status, NV_IOCTL_NUMA_STATUS_ONLINE);
+        return NV_OK;
+    }
+    nv_printf(NV_DBG_ERRORS, "NVRM: Memory add failed. base: 0x%lx size: 0x%lx ret: %d\n",
+              base, size, ret);
+failed:
+    NV_ATOMIC_SET(nvl->numa_info.status, NV_IOCTL_NUMA_STATUS_ONLINE_FAILED);
+    return NV_ERR_OPERATING_SYSTEM;
+#endif
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+
+typedef struct {
+    NvU64 base;
+    NvU64 size;
+    NvU32 nodeId;
+    int ret;
+} remove_numa_memory_info_t;
+
+static void offline_numa_memory_callback
+(
+    void *args
+)
+{
+#ifdef NV_OFFLINE_AND_REMOVE_MEMORY_PRESENT
+    remove_numa_memory_info_t *pNumaInfo = (remove_numa_memory_info_t *)args;
+    int ret = 0;
+    NvU64 memblock_size;
+    NvU64 size_remaining;
+    NvU64 calculated_segment_size;
+    NvU64 segment_size;
+    NvU64 segment_base;
+
+    //
+    // Removing all memory at once can take a long time. Split up memory into segments
+    // with schedule() in between to prevent soft lockups. Memory segments for
+    // offline_and_remove_memory() need to be aligned to memblock size.
+    //
+    // If there are any issues splitting into segments, then remove all memory at once.
+    //
+    if (os_numa_memblock_size(&memblock_size) == NV_OK)
+    {
+        calculated_segment_size = NV_ALIGN_UP(pNumaInfo->size / ADD_REMOVE_GPU_MEMORY_NUM_SEGMENTS, memblock_size);
+    }
+    else
+    {
+        // Don't split into segments, remove all memory at once
+        calculated_segment_size = pNumaInfo->size;
+    }
+
+    segment_size = calculated_segment_size;
+    segment_base = pNumaInfo->base;
+    size_remaining = pNumaInfo->size;
+
+    while (size_remaining > 0)
+    {
+        if (segment_size > size_remaining)
+        {
+            segment_size = size_remaining;
+        }
+
+#ifdef NV_REMOVE_MEMORY_HAS_NID_ARG
+        ret = offline_and_remove_memory(pNumaInfo->nodeId,
+                                        segment_base,
+                                        segment_size);
+#else
+        ret = offline_and_remove_memory(segment_base,
+                                        segment_size);
+#endif
+        nv_printf(NV_DBG_SETUP, "NVRM: offline_and_remove_memory() returns: %d for segment_base: 0x%llx, segment_size: 0x%llx\n",
+                  ret, segment_base, segment_size);
+        pNumaInfo->ret |= ret;
+
+        segment_base += segment_size;
+        size_remaining -= segment_size;
+
+        // Yield CPU to prevent soft lockups
+        schedule();
+    }
+#endif
+}
+
+NV_STATUS NV_API_CALL os_numa_remove_gpu_memory
+(
+    void *handle,
+    NvU64 offset,
+    NvU64 size,
+    NvU32 nodeId
+)
+{
+#ifdef NV_ADD_MEMORY_DRIVER_MANAGED_PRESENT
+    nv_linux_state_t *nvl = pci_get_drvdata(handle);
+#ifdef NV_OFFLINE_AND_REMOVE_MEMORY_PRESENT
+    NvU64 base = offset + nvl->coherent_link_info.gpu_mem_pa;
+    remove_numa_memory_info_t numa_info;
+    nv_kthread_q_item_t remove_numa_memory_q_item;
+    int ret;
+#endif
+
+    if (nodeId >= MAX_NUMNODES)
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+    if ((nodeId == NUMA_NO_NODE) || test_bit(nodeId, nvl->coherent_link_info.free_node_bitmap))
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+
+    NV_ATOMIC_SET(nvl->numa_info.status, NV_IOCTL_NUMA_STATUS_OFFLINE_IN_PROGRESS);
+
+#ifdef NV_OFFLINE_AND_REMOVE_MEMORY_PRESENT
+    numa_info.base   = base;
+    numa_info.size   = size;
+    numa_info.nodeId = nodeId;
+    numa_info.ret    = 0;
+
+    nv_kthread_q_item_init(&remove_numa_memory_q_item,
+                           offline_numa_memory_callback,
+                           &numa_info);
+    nv_kthread_q_schedule_q_item(&nvl->remove_numa_memory_q,
+                                 &remove_numa_memory_q_item);
+    nv_kthread_q_flush(&nvl->remove_numa_memory_q);
+
+    ret = numa_info.ret;
+
+    if (ret == 0)
+    {
+        set_bit(nodeId, nvl->coherent_link_info.free_node_bitmap);
+
+        NV_ATOMIC_SET(nvl->numa_info.status, NV_IOCTL_NUMA_STATUS_OFFLINE);
+        return NV_OK;
+    }
+
+    nv_printf(NV_DBG_ERRORS, "NVRM: Memory remove failed. base: 0x%lx size: 0x%lx ret: %d\n",
+              base, size, ret);
+#endif
+    NV_ATOMIC_SET(nvl->numa_info.status, NV_IOCTL_NUMA_STATUS_OFFLINE_FAILED);
+    return NV_ERR_OPERATING_SYSTEM;
+#endif
+    return NV_ERR_NOT_SUPPORTED;
+}
+
 NV_STATUS NV_API_CALL os_offline_page_at_address
 (
     NvU64 address
@@ -2170,7 +2682,6 @@ NV_STATUS NV_API_CALL os_offline_page_at_address
 {
 #if defined(CONFIG_MEMORY_FAILURE)
     int flags = 0;
-    int ret;
     NvU64 pfn;
     struct page *page = NV_GET_PAGE_STRUCT(address);
 
@@ -2195,24 +2706,62 @@ NV_STATUS NV_API_CALL os_offline_page_at_address
     flags |= MF_SW_SIMULATED;
 #endif
 
-#ifdef NV_MEMORY_FAILURE_HAS_TRAPNO_ARG
-    ret = memory_failure(pfn, 0, flags);
-#else
-    ret = memory_failure(pfn, flags);
-#endif
+    nv_printf(NV_DBG_INFO, "NVRM: offlining page at address: 0x%llx pfn: 0x%llx\n",
+              address, pfn);
 
-    if (ret != 0)
-    {
-        nv_printf(NV_DBG_ERRORS, "NVRM: page offlining failed. address: 0x%llx pfn: 0x%llx ret: %d\n",
-                  address, pfn, ret);
-        return NV_ERR_OPERATING_SYSTEM;
-    }
+#ifdef NV_MEMORY_FAILURE_QUEUE_HAS_TRAPNO_ARG
+    memory_failure_queue(pfn, 0, flags);
+#else
+    memory_failure_queue(pfn, flags);
+#endif
 
     return NV_OK;
 #else // !defined(CONFIG_MEMORY_FAILURE)
-    nv_printf(NV_DBG_ERRORS, "NVRM: memory_failure() not supported by kernel. page offlining failed. address: 0x%llx\n",
+    nv_printf(NV_DBG_ERRORS, "NVRM: memory_failure_queue() not supported by kernel. page offlining failed. address: 0x%llx\n",
               address);
     return NV_ERR_NOT_SUPPORTED;
 #endif
 }
 
+void* NV_API_CALL os_get_pid_info(void)
+{
+#if defined(NV_HAS_ENUM_PIDTYPE_TGID)
+    return get_task_pid(current, PIDTYPE_TGID);
+#else
+    return get_task_pid(current->group_leader, PIDTYPE_PID);
+#endif
+}
+
+void NV_API_CALL os_put_pid_info(void *pid_info)
+{
+    if (pid_info != NULL)
+        put_pid(pid_info);
+}
+
+NV_STATUS NV_API_CALL os_find_ns_pid(void *pid_info, NvU32 *ns_pid)
+{
+    if ((pid_info == NULL) || (ns_pid == NULL))
+        return NV_ERR_INVALID_ARGUMENT;
+
+    *ns_pid = pid_vnr((struct pid *)pid_info);
+
+    // The call returns 0 if the PID is not found in the current ns
+    if (*ns_pid == 0)
+        return NV_ERR_OBJECT_NOT_FOUND;
+
+    return NV_OK;
+}
+
+NvBool NV_API_CALL os_is_init_ns(void)
+{
+    return (task_active_pid_ns(current) == &init_pid_ns);
+}
+
+NV_STATUS NV_API_CALL os_device_vm_present(void)
+{
+#if defined(NV_DEVICE_VM_BUILD)
+    return NV_OK;
+#else
+    return NV_ERR_NOT_SUPPORTED;
+#endif
+}

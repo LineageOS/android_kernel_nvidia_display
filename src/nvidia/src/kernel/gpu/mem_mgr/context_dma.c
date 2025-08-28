@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -30,7 +30,7 @@
 
 #include "core/core.h"
 #include "gpu/gpu.h"
-#include "gpu/mem_mgr/mem_mgr.h"
+#include "mem_mgr/mem.h"
 #include "gpu/mem_mgr/virt_mem_allocator_common.h"
 #include "gpu/mem_mgr/context_dma.h"
 #include "gpu/mem_mgr/mem_desc.h"
@@ -44,6 +44,7 @@
 #include "gpu/subdevice/subdevice.h"
 #include "rmapi/rs_utils.h"
 #include "rmapi/mapping_list.h"
+#include "platform/sli/sli.h"
 
 #include "ctrl/ctrl0002.h"
 
@@ -290,7 +291,7 @@ _ctxdmaDestruct
 
         if (pContextDma->KernelVAddr[gpuDevInst])
         {
-            memdescUnmapOld(pContextDma->pMemory->pMemDesc, NV_TRUE, 0,
+            memdescUnmapOld(pContextDma->pMemory->pMemDesc, NV_TRUE,
                     pContextDma->KernelVAddr[gpuDevInst],
                     pContextDma->KernelPriv);
             pContextDma->KernelVAddr[gpuDevInst] = NULL;
@@ -364,7 +365,6 @@ _ctxdmaConstruct
     NV_STATUS           rmStatus        = NV_OK;
     Memory             *pMemory         = NULL;
     OBJGPU             *pGpu            = NULL;
-    MemoryManager      *pMemoryManager  = NULL;
     MEMORY_DESCRIPTOR  *pMemDesc        = NULL;
     NvHandle            hDevice         = 0;
     NvHandle            hClient         = pClient->hClient;
@@ -411,8 +411,6 @@ _ctxdmaConstruct
     hDevice = RES_GET_HANDLE(pDevice);
 
     API_GPU_FULL_POWER_SANITY_CHECK(pGpu, NV_TRUE, NV_FALSE);
-
-    pMemoryManager = GPU_GET_MEMORY_MANAGER(pGpu);
 
     pMemDesc = pMemory->pMemDesc;
 
@@ -464,15 +462,6 @@ _ctxdmaConstruct
             if (rmStatus != NV_OK)
                 goto done;
         }
-    }
-
-    if (FLD_TEST_DRF(OS03, _FLAGS, _PTE_KIND, _BL, flags))
-    {
-        memdescSetPteKind(pContextDma->pMemDesc, memmgrGetPteKindBl_HAL(pGpu, pMemoryManager));
-    }
-    else if (FLD_TEST_DRF(OS03, _FLAGS, _PTE_KIND, _PITCH, flags))
-    {
-        memdescSetPteKind(pContextDma->pMemDesc, memmgrGetPteKindPitch_HAL(pGpu, pMemoryManager));
     }
 
 done:

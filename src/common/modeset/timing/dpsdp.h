@@ -47,6 +47,7 @@ typedef enum tagSDP_PACKET_TYPE
 
 typedef enum tagSDP_VSC_REVNUM
 {
+    SDP_VSC_REVNUM_DISABLED          = 0,
     SDP_VSC_REVNUM_STEREO            = 1,
     SDP_VSC_REVNUM_STEREO_PSR,
     SDP_VSC_REVNUM_STEREO_PSR2,
@@ -58,6 +59,7 @@ typedef enum tagSDP_VSC_REVNUM
 
 typedef enum tagSDP_VSC_VALID_DATA_BYTES
 {
+    SDP_VSC_VALID_DATA_BYTES_DISABLED          = 0,
     SDP_VSC_VALID_DATA_BYTES_STEREO            = 1,
     SDP_VSC_VALID_DATA_BYTES_STEREO_PSR        = 8,
     SDP_VSC_VALID_DATA_BYTES_PSR2              = 12,
@@ -260,6 +262,7 @@ typedef struct tagDPSDP_DP_PR_VSC_SDP_DESCRIPTOR
         NvU8 db6;
         NvU8 db7;
         // DB8 - DB15 are undefined in DP 1.3 spec.
+        NvU8 db8;
         NvU8 db9;
         NvU8 db10;
         NvU8 db11;

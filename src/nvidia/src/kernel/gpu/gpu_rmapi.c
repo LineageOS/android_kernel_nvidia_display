@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -36,7 +36,6 @@
 #include "rmapi/client.h"
 #include "rmapi/resource_fwd_decls.h"
 #include "core/thread_state.h"
-#include "virtualization/hypervisor/hypervisor.h"
 
 NV_STATUS
 gpuSetExternalKernelClientCount_IMPL(OBJGPU *pGpu, NvBool bIncr)
@@ -300,7 +299,7 @@ gpuNotifySubDeviceEvent_IMPL
         NV_ASSERT_OR_RETURN_VOID(!(pCurThread->flags & THREAD_STATE_FLAGS_IS_ISR_LOCKLESS));
     }
 
-    NV_ASSERT(notifyIndex < NV2080_NOTIFIERS_MAXCOUNT);
+    NV_ASSERT_OR_RETURN_VOID(notifyIndex < NV2080_NOTIFIERS_MAXCOUNT);
 
     // search notifiers with events hooked up for this gpu
     for (i = 0; i < pGpu->numSubdeviceBackReferences; i++)
@@ -345,12 +344,6 @@ gpuNotifySubDeviceEvent_IMPL
         // reset if single shot notify action
         if (pSubdevice->notifyActions[localNotifyType] == NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_SINGLE)
         {
-            if (notifyIndex == NV2080_NOTIFIERS_FIFO_EVENT_MTHD)
-            {
-                NV_ASSERT(pGpu->activeFifoEventMthdNotifiers);
-                pGpu->activeFifoEventMthdNotifiers--;
-            }
-
             pSubdevice->notifyActions[localNotifyType] = NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE;
         }
     }
@@ -393,6 +386,20 @@ _gpuiIsPidSavedAlready
     return NV_FALSE;
 }
 
+static NV_STATUS
+_gpuConvertPid
+(
+    RmClient *pClient,
+    NvU32    *pNsPid
+)
+{
+    if (pClient->pOsPidInfo != NULL)
+        return osFindNsPid(pClient->pOsPidInfo, pNsPid);
+
+    *pNsPid = pClient->ProcID;
+    return NV_OK;
+}
+
 //
 // Searches through clients to find processes with clients that have
 // allocated an ElementType of class, defined by elementID. The return values
@@ -419,6 +426,7 @@ gpuGetProcWithObject_IMPL
     RmClient      *pClient;
     RsClient      *pRsClient;
     RsResourceRef *pResourceRef;
+    NV_STATUS     status;
 
     NV_ASSERT_OR_RETURN((pPidArray != NULL), NV_ERR_INVALID_ARGUMENT);
     NV_ASSERT_OR_RETURN((pPidArrayCount != NULL), NV_ERR_INVALID_ARGUMENT);
@@ -485,8 +493,15 @@ gpuGetProcWithObject_IMPL
             }
             if (elementInClient)
             {
-                pPidArray[pidcount] = pClient->ProcID;
-                pidcount++;
+                status = _gpuConvertPid(pClient, &pPidArray[pidcount]);
+                if (status == NV_OK)
+                {
+                    pidcount++;
+                }
+                else if (status != NV_ERR_OBJECT_NOT_FOUND)
+                {
+                    return status;
+                }
 
                 if (pidcount == NV2080_CTRL_GPU_GET_PIDS_MAX_COUNT)
                 {
@@ -555,14 +570,12 @@ _gpuCollectMemInfo
         //    NVOS32_TYPE_UNUSED.
         if ((pResourceRef->externalClassId == NV01_MEMORY_LOCAL_USER ||
                 pResourceRef->externalClassId == NV01_MEMORY_LIST_FBMEM ||
-                pResourceRef->externalClassId == NV01_MEMORY_LIST_OBJECT ||
-                pResourceRef->externalClassId == NV01_MEMORY_HW_RESOURCES) &&
+                pResourceRef->externalClassId == NV01_MEMORY_LIST_OBJECT ) &&
             (pMemory->categoryClassId == NV01_MEMORY_LOCAL_USER) &&
             (bGlobalInfo || (pMemory->pHeap == pTargetedHeap)) &&
             (RES_GET_HANDLE(pMemory->pDevice) == hDevice) &&
             (pMemory->pMemDesc != NULL) &&
-            ((!bIsGuestProcess && (!memdescGetFlag(pMemory->pMemDesc, MEMDESC_FLAGS_LIST_MEMORY))
-             && !(hypervisorIsVgxHyper() && (pResourceRef->externalClassId == NV01_MEMORY_HW_RESOURCES))) ||
+            ((!bIsGuestProcess && (!memdescGetFlag(pMemory->pMemDesc, MEMDESC_FLAGS_LIST_MEMORY))) ||
              (bIsGuestProcess && (memdescGetFlag(pMemory->pMemDesc, MEMDESC_FLAGS_GUEST_ALLOCATED)) && (pMemory->Type != NVOS32_TYPE_UNUSED))))
         {
 
@@ -580,6 +593,23 @@ _gpuCollectMemInfo
             }
         }
     }
+}
+
+static NvBool
+_gpuMatchClientPid
+(
+    RmClient *pClient,
+    NvU32 pid,
+    NvU32 subPid
+)
+{
+    NvU32 clientNsPid; // pClient PID on current's namespace
+
+    if (_gpuConvertPid(pClient, &clientNsPid) != NV_OK)
+        return NV_FALSE;
+
+    return (((subPid == 0) && (clientNsPid == pid)) ||
+            ((subPid != 0) && (clientNsPid == pid)  && (pClient->SubProcessID == subPid)));
 }
 
 //
@@ -622,8 +652,7 @@ gpuFindClientInfoWithPidIterator_IMPL
         pClient = *ppClient;
         pRsClient = staticCast(pClient, RsClient);
 
-        if (((subPid == 0) && (pClient->ProcID == pid)) ||
-            ((subPid != 0) && (pClient->ProcID == pid)  && (pClient->SubProcessID == subPid)))
+        if (_gpuMatchClientPid(pClient, pid, subPid))
         {
             RS_PRIV_LEVEL privLevel = rmclientGetCachedPrivilege(pClient);
             RS_ITERATOR it;

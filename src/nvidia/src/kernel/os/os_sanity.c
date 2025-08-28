@@ -32,7 +32,6 @@
 #include <os/os.h>
 #include <gpu/gpu.h>
 #include <gpu_mgr/gpu_mgr.h>
-#include <objtmr.h>
 
 NV_STATUS osSanityTestIsr(
     OBJGPU *pGpu

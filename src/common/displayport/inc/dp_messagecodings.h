@@ -279,6 +279,7 @@ namespace DisplayPort
             bool     bFECCapability;
             unsigned TotalPBN;
             unsigned FreePBN;
+            unsigned DFPLinkAvailablePBN;
         } reply;
         EnumPathResMessage(const Address & target, unsigned port, bool point);
     };

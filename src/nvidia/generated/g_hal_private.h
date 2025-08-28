@@ -5,7 +5,7 @@
 // Profile:  devel-soc-disp-dce-client
 // Template: templates/gt_hal_private.h
 //
-// Chips:    T234D
+// Chips:    T234D, T26XD, T25XD
 //
 
 //
@@ -25,6 +25,8 @@
 // setup all enabled chip families
 #if defined(RMCFG_HAL_SETUP_ALL)
 #  define RMCFG_HAL_SETUP_T23XD          1
+#  define RMCFG_HAL_SETUP_T26XD          1
+#  define RMCFG_HAL_SETUP_T25XD          1
 #endif   // RMCFG_HAL_SETUP_ALL
 
 //
@@ -34,6 +36,14 @@
 #if defined(RMCFG_HAL_SETUP_T23XD)
 #  define RMCFG_HAL_SETUP_T234D          1
 #endif // T23XD
+
+#if defined(RMCFG_HAL_SETUP_T26XD)
+#  define RMCFG_HAL_SETUP_T264D          1
+#endif // T26XD
+
+#if defined(RMCFG_HAL_SETUP_T25XD)
+#  define RMCFG_HAL_SETUP_T256D          1
+#endif // T25XD
 
 #endif  // RMCFG_ENGINE_SETUP
 
@@ -60,6 +70,34 @@ NV_STATUS registerHalModule_T234D(void)
 }
 
 #endif  // T23XD or T234D
+
+#if defined(RMCFG_HAL_SETUP_T264D)
+
+static const HAL_IFACE_SETUP halIface_T264D = {
+
+
+};
+
+NV_STATUS registerHalModule_T264D(void)
+{
+    return registerHalModule(HAL_IMPL_T264D, &halIface_T264D);
+}
+
+#endif  // T26XD or T264D
+
+#if defined(RMCFG_HAL_SETUP_T256D)
+
+static const HAL_IFACE_SETUP halIface_T256D = {
+
+
+};
+
+NV_STATUS registerHalModule_T256D(void)
+{
+    return registerHalModule(HAL_IMPL_T256D, &halIface_T256D);
+}
+
+#endif  // T25XD or T256D
 
 
 

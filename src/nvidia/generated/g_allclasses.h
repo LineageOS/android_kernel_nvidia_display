@@ -36,23 +36,23 @@
 #include <class/cl0000.h>               // NV01_ROOT
 #include <class/cl0001.h>               // NV01_ROOT_NON_PRIV
 #include <class/cl0041.h>               // NV01_ROOT_CLIENT
-#include <class/cl0020.h>               // NV0020_GPU_MANAGEMENT
 #include <class/cl0080.h>               // NV01_DEVICE_0
 #include <class/cl2080.h>               // NV20_SUBDEVICE_0
-#include <class/cl2081.h>               // NV2081_BINAPI
-#include <class/cl2082.h>               // NV2082_BINAPI_PRIVILEGED
 #include <class/cl0002.h>               // NV01_CONTEXT_DMA
 #include <class/cl003e.h>               // NV01_MEMORY_SYSTEM
 #include <class/cl00c3.h>               // NV01_MEMORY_SYNCPOINT
 #include <class/cl0071.h>               // NV01_MEMORY_SYSTEM_OS_DESCRIPTOR
-#include <class/cl0076.h>               // NV01_MEMORY_FRAMEBUFFER_CONSOLE
 #include <class/cl00f2.h>               // IO_VASPACE_A
 #include <class/cl0005.h>               // NV01_EVENT
 #include <nvos.h>                       // NV01_EVENT_KERNEL_CALLBACK
 #include <nvos.h>                       // NV01_EVENT_OS_EVENT
 #include <nvos.h>                       // NV01_EVENT_KERNEL_CALLBACK_EX
+#include <class/cl0100.h>               // LOCK_STRESS_OBJECT
+#include <class/cl0101.h>               // LOCK_TEST_RELAXED_DUP_OBJECT
 #include <class/clc372sw.h>             // NVC372_DISPLAY_SW
 #include <class/clc673.h>               // NVC673_DISP_CAPABILITIES
+#include <class/clc973.h>               // NVC973_DISP_CAPABILITIES
+#include <class/clcc73.h>               // NVCC73_DISP_CAPABILITIES
 #include <class/cl0073.h>               // NV04_DISPLAY_COMMON
 #include <class/clc670.h>               // NVC670_DISPLAY
 #include <class/clc671.h>               // NVC671_DISP_SF_USER
@@ -61,6 +61,18 @@
 #include <class/clc67d.h>               // NVC67D_CORE_CHANNEL_DMA
 #include <class/clc67e.h>               // NVC67E_WINDOW_CHANNEL_DMA
 #include <class/clc77f.h>               // NVC77F_ANY_CHANNEL_DMA
+#include <class/clc970.h>               // NVC970_DISPLAY
+#include <class/clc971.h>               // NVC971_DISP_SF_USER
+#include <class/clc97a.h>               // NVC97A_CURSOR_IMM_CHANNEL_PIO
+#include <class/clc97b.h>               // NVC97B_WINDOW_IMM_CHANNEL_DMA
+#include <class/clc97d.h>               // NVC97D_CORE_CHANNEL_DMA
+#include <class/clc97e.h>               // NVC97E_WINDOW_CHANNEL_DMA
+#include <class/clcc70.h>               // NVCC70_DISPLAY
+#include <class/clcc71.h>               // NVCC71_DISP_SF_USER
+#include <class/clcc7a.h>               // NVCC7A_CURSOR_IMM_CHANNEL_PIO
+#include <class/clcc7b.h>               // NVCC7B_WINDOW_IMM_CHANNEL_DMA
+#include <class/clcc7d.h>               // NVCC7D_CORE_CHANNEL_DMA
+#include <class/clcc7e.h>               // NVCC7E_WINDOW_CHANNEL_DMA
 #include <class/cl90ec.h>               // GF100_HDACODEC
 
 
@@ -91,24 +103,12 @@
 #define NV01_ROOT_CLIENT                         (0x00000041)
 #endif
 
-#ifndef NV0020_GPU_MANAGEMENT
-#define NV0020_GPU_MANAGEMENT                    (0x00000020)
-#endif
-
 #ifndef NV01_DEVICE_0
 #define NV01_DEVICE_0                            (0x00000080)
 #endif
 
 #ifndef NV20_SUBDEVICE_0
 #define NV20_SUBDEVICE_0                         (0x00002080)
-#endif
-
-#ifndef NV2081_BINAPI
-#define NV2081_BINAPI                            (0x00002081)
-#endif
-
-#ifndef NV2082_BINAPI_PRIVILEGED
-#define NV2082_BINAPI_PRIVILEGED                 (0x00002082)
 #endif
 
 #ifndef NV01_CONTEXT_DMA
@@ -128,10 +128,6 @@
 
 #ifndef NV01_MEMORY_SYSTEM_OS_DESCRIPTOR
 #define NV01_MEMORY_SYSTEM_OS_DESCRIPTOR         (0x00000071)
-#endif
-
-#ifndef NV01_MEMORY_FRAMEBUFFER_CONSOLE
-#define NV01_MEMORY_FRAMEBUFFER_CONSOLE          (0x00000076)
 #endif
 
 #ifndef IO_VASPACE_A
@@ -172,12 +168,28 @@
 #define NV1_EVENT_KERNEL_CALLBACK_EX             (0x0000007e) // alias
 #endif
 
+#ifndef LOCK_STRESS_OBJECT
+#define LOCK_STRESS_OBJECT                       (0x00000100)
+#endif
+
+#ifndef LOCK_TEST_RELAXED_DUP_OBJECT
+#define LOCK_TEST_RELAXED_DUP_OBJECT             (0x00000101)
+#endif
+
 #ifndef NVC372_DISPLAY_SW
 #define NVC372_DISPLAY_SW                        (0x0000c372)
 #endif
 
 #ifndef NVC673_DISP_CAPABILITIES
 #define NVC673_DISP_CAPABILITIES                 (0x0000c673)
+#endif
+
+#ifndef NVC973_DISP_CAPABILITIES
+#define NVC973_DISP_CAPABILITIES                 (0x0000c973)
+#endif
+
+#ifndef NVCC73_DISP_CAPABILITIES
+#define NVCC73_DISP_CAPABILITIES                 (0x0000cc73)
 #endif
 
 #ifndef NV04_DISPLAY_COMMON
@@ -210,6 +222,54 @@
 
 #ifndef NVC77F_ANY_CHANNEL_DMA
 #define NVC77F_ANY_CHANNEL_DMA                   (0x0000c77f)
+#endif
+
+#ifndef NVC970_DISPLAY
+#define NVC970_DISPLAY                           (0x0000c970)
+#endif
+
+#ifndef NVC971_DISP_SF_USER
+#define NVC971_DISP_SF_USER                      (0x0000c971)
+#endif
+
+#ifndef NVC97A_CURSOR_IMM_CHANNEL_PIO
+#define NVC97A_CURSOR_IMM_CHANNEL_PIO            (0x0000c97a)
+#endif
+
+#ifndef NVC97B_WINDOW_IMM_CHANNEL_DMA
+#define NVC97B_WINDOW_IMM_CHANNEL_DMA            (0x0000c97b)
+#endif
+
+#ifndef NVC97D_CORE_CHANNEL_DMA
+#define NVC97D_CORE_CHANNEL_DMA                  (0x0000c97d)
+#endif
+
+#ifndef NVC97E_WINDOW_CHANNEL_DMA
+#define NVC97E_WINDOW_CHANNEL_DMA                (0x0000c97e)
+#endif
+
+#ifndef NVCC70_DISPLAY
+#define NVCC70_DISPLAY                           (0x0000cc70)
+#endif
+
+#ifndef NVCC71_DISP_SF_USER
+#define NVCC71_DISP_SF_USER                      (0x0000cc71)
+#endif
+
+#ifndef NVCC7A_CURSOR_IMM_CHANNEL_PIO
+#define NVCC7A_CURSOR_IMM_CHANNEL_PIO            (0x0000cc7a)
+#endif
+
+#ifndef NVCC7B_WINDOW_IMM_CHANNEL_DMA
+#define NVCC7B_WINDOW_IMM_CHANNEL_DMA            (0x0000cc7b)
+#endif
+
+#ifndef NVCC7D_CORE_CHANNEL_DMA
+#define NVCC7D_CORE_CHANNEL_DMA                  (0x0000cc7d)
+#endif
+
+#ifndef NVCC7E_WINDOW_CHANNEL_DMA
+#define NVCC7E_WINDOW_CHANNEL_DMA                (0x0000cc7e)
 #endif
 
 #ifndef GF100_HDACODEC

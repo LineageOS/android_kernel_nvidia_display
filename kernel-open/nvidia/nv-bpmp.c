@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -68,7 +68,7 @@ nv_bpmp_send_mrq
     NvS32      *api_ret
 )
 {
-#if IS_ENABLED(CONFIG_TEGRA_BPMP)
+#if IS_ENABLED(CONFIG_TEGRA_BPMP) && NV_SUPPORTS_PLATFORM_DEVICE
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     struct tegra_bpmp *bpmp;
     struct tegra_bpmp_message msg;

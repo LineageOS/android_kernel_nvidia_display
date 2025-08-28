@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -30,7 +30,6 @@
 #include "rmapi/resource_fwd_decls.h"
 #include "core/locks.h"
 #include "core/system.h"
-#include "gpu/device/device.h"
 #include "resource_desc.h"
 #include "gpu_mgr/gpu_mgr.h"
 #include "gpu/gpu.h"
@@ -62,8 +61,14 @@ rmclientConstruct_IMPL
     API_SECURITY_INFO *pSecInfo = pParams->pSecInfo;
     OBJGPU            *pGpu = NULL;
 
+    //
     // RM client objects can only be created/destroyed with the RW API lock.
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsWriteOwner());
+    // Bug 4193761 - allow internal clients to be created with the GPU lock,
+    // GR-2409 will remove the possible race condition with the client list.
+    //
+    NV_ASSERT_OR_RETURN(rmapiLockIsWriteOwner() ||
+        (serverIsClientInternal(&g_resServ, pRsClient->hClient) && rmGpuLockIsOwner()),
+        NV_ERR_INVALID_LOCK_STATE);
 
     if (RMCFG_FEATURE_PLATFORM_GSP)
     {
@@ -80,12 +85,15 @@ rmclientConstruct_IMPL
     pClient->pUserInfo       = NULL;
     pClient->pSecurityToken  = NULL;
     pClient->pOSInfo         = pSecInfo->clientOSInfo;
+    pClient->imexChannel     = -1;
+
+    pClient->cachedPrivilege = pSecInfo->privLevel;
 
     {
         pClient->ProcID = osGetCurrentProcess();
+        if (pClient->cachedPrivilege <= RS_PRIV_LEVEL_USER_ROOT)
+            pClient->pOsPidInfo = osGetPidInfo();
     }
-
-    pClient->cachedPrivilege = pSecInfo->privLevel;
 
     // Set user-friendly client name from current process
     osGetCurrentProcessName(pClient->name, NV_PROC_NAME_MAX_LENGTH);
@@ -103,7 +111,7 @@ rmclientConstruct_IMPL
     {
         NV_PRINTF(LEVEL_WARNING,
                   "Failed to set host client restricted resource handle range. Status=%x\n", status);
-        return status;
+        goto out;
     }
 
     if (!rmGpuLockIsOwner())
@@ -112,7 +120,7 @@ rmclientConstruct_IMPL
         if ((status = rmGpuLocksAcquire(GPUS_LOCK_FLAGS_NONE, RM_LOCK_MODULES_CLIENT)) != NV_OK)
         {
             NV_ASSERT(0);
-            return status;
+            goto out;
         }
         bReleaseLock = NV_TRUE;
     }
@@ -170,6 +178,18 @@ rmclientConstruct_IMPL
     if (status == NV_OK && pParams->pAllocParams != NULL)
         *(NvHandle*)(pParams->pAllocParams) = pParams->hClient;
 
+    eventSystemInitEventQueue(&pClient->CliSysEventInfo.eventQueue);
+
+    NV_PRINTF(LEVEL_INFO, "New RM Client: hClient=0x%08x (%c), ProcID=%u, name='%s'\n",
+        pRsClient->hClient, (pRsClient->type == CLIENT_TYPE_USER) ? 'U' : 'K', pClient->ProcID, pClient->name);
+
+out:
+    if (status != NV_OK)
+    {
+        osPutPidInfo(pClient->pOsPidInfo);
+        pClient->pOsPidInfo = NULL;
+    }
+
     return status;
 }
 
@@ -180,39 +200,25 @@ rmclientDestruct_IMPL
 )
 {
     NV_STATUS           status = NV_OK;
-    RsClient           *pRsClient = staticCast(pClient, RsClient);
-    NV_STATUS           tmpStatus;
-    NvHandle            hClient = pRsClient->hClient;
     NvBool              bReleaseLock = NV_FALSE;
-    RS_ITERATOR         it;
-    RM_API             *pRmApi = rmapiGetInterface(RMAPI_GPU_LOCK_INTERNAL);
 
+    //
     // RM client objects can only be created/destroyed with the RW API lock.
-    NV_ASSERT(rmapiLockIsWriteOwner());
+    // Bug 4193761 - allow internal clients to be created with the GPU lock,
+    // GR-2409 will remove the possible race condition with the client list.
+    //
+    NV_ASSERT_OR_ELSE(rmapiLockIsWriteOwner() ||
+        (serverIsClientInternal(&g_resServ, staticCast(pClient, RsClient)->hClient) &&
+         rmGpuLockIsOwner()),
+        return);
 
     NV_PRINTF(LEVEL_INFO, "    type: client\n");
 
     LOCK_METER_DATA(FREE_CLIENT, hClient, 0, 0);
 
-    //
-    // Free all of the devices of the client (do it in reverse order to
-    // facilitate tear down of things like ctxdmas, etc)
-    //
-    it = clientRefIter(pRsClient, NULL, classId(Device), RS_ITERATE_CHILDREN, NV_TRUE);
-    while (clientRefIterNext(it.pClient, &it))
-    {
-        Device *pDeviceInfo = dynamicCast(it.pResourceRef->pResource, Device);
+    osPutPidInfo(pClient->pOsPidInfo);
 
-        // This path is deprecated.
-        NV_ASSERT(0);
-
-        tmpStatus = pRmApi->Free(pRmApi, hClient, RES_GET_HANDLE(pDeviceInfo));
-        if ((tmpStatus != NV_OK) && (status == NV_OK))
-            status = tmpStatus;
-
-        // re-snap iterator as Device list was mutated
-        it = clientRefIter(pRsClient, NULL, classId(Device), RS_ITERATE_CHILDREN, NV_TRUE);
-    }
+    eventSystemClearEventQueue(&pClient->CliSysEventInfo.eventQueue);
 
     // Updating the client list just before client handle unregister //
     // in case child free functions need to iterate over all clients //
@@ -271,12 +277,14 @@ rmclientInterMap_IMPL
     // Use virtual MapTo to perform the class-specific mapping to pMapperRef
     portMemSet(&mapToParams, 0, sizeof(mapToParams));
 
-    mapToParams.pMemoryRef = pMappableRef;
-    mapToParams.offset     = pParams->offset;
-    mapToParams.length     = pParams->length;
-    mapToParams.flags      = pParams->flags;
-    mapToParams.pDmaOffset = &pParams->dmaOffset;
-    mapToParams.ppMemDesc = (MEMORY_DESCRIPTOR**)&pParams->pMemDesc;
+    mapToParams.pMemoryRef   = pMappableRef;
+    mapToParams.offset       = pParams->offset;
+    mapToParams.length       = pParams->length;
+    mapToParams.flags        = pParams->flags;
+    mapToParams.flags2       = pParams->flags2;
+    mapToParams.kindOverride = pParams->kindOverride;
+    mapToParams.pDmaOffset   = &pParams->dmaOffset;
+    mapToParams.ppMemDesc    = (MEMORY_DESCRIPTOR**)&pParams->pMemDesc;
 
     mapToParams.pGpu             = pPrivate->pGpu;
     mapToParams.pSrcGpu          = pPrivate->pSrcGpu;
@@ -285,13 +293,12 @@ rmclientInterMap_IMPL
     mapToParams.hMemoryDevice    = pPrivate->hMemoryDevice;
     mapToParams.gpuMask          = pPrivate->gpuMask;
     mapToParams.bSubdeviceHandleProvided = pPrivate->bSubdeviceHandleProvided;
-    mapToParams.bDmaMapNeeded    = pPrivate->bDmaMapNeeded;
     mapToParams.bFlaMapping      = pPrivate->bFlaMapping;
 
     return resMapTo(pMapperRef->pResource, &mapToParams);
 }
 
-void
+NV_STATUS
 rmclientInterUnmap_IMPL
 (
     RmClient *pClient,
@@ -309,13 +316,14 @@ rmclientInterUnmap_IMPL
     unmapFromParams.hMemory   = pParams->hMappable;
     unmapFromParams.flags     = pParams->flags;
     unmapFromParams.dmaOffset = pParams->dmaOffset;
+    unmapFromParams.size      = pParams->size;
 
     unmapFromParams.pGpu             = pPrivate->pGpu;
     unmapFromParams.hBroadcastDevice = pPrivate->hBroadcastDevice;
     unmapFromParams.gpuMask          = pPrivate->gpuMask;
     unmapFromParams.bSubdeviceHandleProvided = pPrivate->bSubdeviceHandleProvided;
 
-    resUnmapFrom(pMapperRef->pResource, &unmapFromParams);
+    return resUnmapFrom(pMapperRef->pResource, &unmapFromParams);
 }
 
 RS_PRIV_LEVEL
@@ -518,22 +526,15 @@ rmclientPostProcessPendingFreeList_IMPL
     return NV_OK;
 }
 
-RS_PRIV_LEVEL rmclientGetCachedPrivilegeByHandle(NvHandle hClient)
+static inline NvBool rmclientIsKernelOnly(RmClient *pClient)
 {
-    RmClient *pClient = serverutilGetClientUnderLock(hClient);
-    return pClient ? rmclientGetCachedPrivilege(pClient) : RS_PRIV_LEVEL_USER;
-}
-
-NvBool rmclientIsAdminByHandle(NvHandle hClient, RS_PRIV_LEVEL privLevel)
-{
-    RmClient *pClient = serverutilGetClientUnderLock(hClient);
-    return pClient ? rmclientIsAdmin(pClient, privLevel) : NV_FALSE;
+    return (pClient->pSecurityToken == NULL);
 }
 
 NvBool rmclientIsKernelOnlyByHandle(NvHandle hClient)
 {
     RmClient *pClient = serverutilGetClientUnderLock(hClient);
-    return pClient ? (pClient->pSecurityToken == NULL) : NV_FALSE;
+    return (pClient ? rmclientIsKernelOnly(pClient) : NV_FALSE);
 }
 
 NvBool rmclientSetClientFlagsByHandle(NvHandle hClient, NvU32 clientFlags)
@@ -720,6 +721,43 @@ rmclientValidate_IMPL
 }
 
 NV_STATUS
+rmclientValidateLocks_IMPL
+(
+    RmClient *pClient,
+    RsServer *pServer,
+    const CLIENT_ENTRY *pClientEntry
+)
+{
+    // Possessing the client lock means it's always safe to use this client object
+    if (pClientEntry->lockOwnerTid == portThreadGetCurrentThreadId())
+        return NV_OK;
+
+    //
+    // Without the client lock, the API lock in write mode guarantees safety for the
+    // client object since nothing else can execute in parallel when holding it.
+    //
+    if (rmapiLockIsWriteOwner())
+        return NV_OK;
+
+    //
+    // Without the client lock, the API lock in read mode guarantees safety for the
+    // client object IF it's a client that cannot be used directly by user space (i.e.
+    // kernel privileged client and/or internal client).
+    //
+    if (rmapiLockIsOwner() &&
+        (rmclientIsKernelOnly(pClient) ||
+         serverIsClientInternal(pServer, pClientEntry->hClient)))
+    {
+        return NV_OK;
+    }
+
+
+    NV_ASSERT(0);
+    // Otherwise we don't have the required locks to use this RM client
+    return NV_ERR_INVALID_LOCK_STATE;
+}
+
+NV_STATUS
 rmclientFreeResource_IMPL
 (
     RmClient *pClient,
@@ -731,6 +769,7 @@ rmclientFreeResource_IMPL
     OBJGPU *pGpu;
     NvBool bBcState;
     NvBool bRestoreBcState = NV_FALSE;
+    RsClient *pRsClient = staticCast(pClient, RsClient);
 
     if (gpuGetByRef(pRmFreeParams->pResourceRef, NULL, &pGpu) == NV_OK)
     {
@@ -740,7 +779,17 @@ rmclientFreeResource_IMPL
 
     rmapiFreeResourcePrologue(pRmFreeParams);
 
-    status = clientFreeResource_IMPL(staticCast(pClient, RsClient), pServer, pRmFreeParams);
+    //
+    // In the RTD3 case, the API lock isn't taken since it can be initiated
+    // from another thread that holds the API lock and because we now hold
+    // the GPU lock.
+    //
+    if (rmapiInRtd3PmPath())
+    {
+        pRmFreeParams->pLockInfo->flags |= RM_LOCK_FLAGS_NO_API_LOCK;
+    }
+
+    status = clientFreeResource_IMPL(pRsClient, pServer, pRmFreeParams);
 
     if (bRestoreBcState)
     {
@@ -810,26 +859,6 @@ NvBool rmclientIsCapableOrAdmin_IMPL
     return _rmclientIsCapable(hClient, capability);
 }
 
-//
-// RS-TODO: Delete this function once the RM Capabilities framework is in place.
-// JIRA GR-139
-//
-NvBool rmclientIsCapableOrAdminByHandle
-(
-    NvHandle hClient,
-    NvU32 capability,
-    RS_PRIV_LEVEL privLevel
-)
-{
-    RmClient *pClient = serverutilGetClientUnderLock(hClient);
-    if (pClient == NULL)
-    {
-        return NV_FALSE;
-    }
-
-    return rmclientIsCapableOrAdmin(pClient, capability, privLevel);
-}
-
 NvBool rmclientIsCapable_IMPL
 (
     RmClient *pClient,
@@ -840,25 +869,6 @@ NvBool rmclientIsCapable_IMPL
     NvHandle  hClient = pRsClient->hClient;
 
     return _rmclientIsCapable(hClient, capability);
-}
-
-//
-// RS-TODO: Delete this function once the RM Capabilities framework is in place.
-// JIRA GR-139
-//
-NvBool rmclientIsCapableByHandle
-(
-    NvHandle hClient,
-    NvU32 capability
-)
-{
-    RmClient *pClient = serverutilGetClientUnderLock(hClient);
-    if (pClient == NULL)
-    {
-        return NV_FALSE;
-    }
-
-    return rmclientIsCapable(pClient, capability);
 }
 
 /**

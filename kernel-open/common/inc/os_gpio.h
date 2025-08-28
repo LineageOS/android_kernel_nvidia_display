@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -27,6 +27,8 @@ typedef enum
 {
     NV_OS_GPIO_FUNC_HOTPLUG_A,
     NV_OS_GPIO_FUNC_HOTPLUG_B,
+    NV_OS_GPIO_FUNC_HOTPLUG_C,
+    NV_OS_GPIO_FUNC_HOTPLUG_D,
 } NV_OS_GPIO_FUNC_NAMES;
 
 #endif

@@ -1,13 +1,22 @@
+
 #ifndef _G_DISP_INST_MEM_NVOC_H_
 #define _G_DISP_INST_MEM_NVOC_H_
+
+// Version of generated metadata structures
+#ifdef NVOC_METADATA_VERSION
+#undef NVOC_METADATA_VERSION
+#endif
+#define NVOC_METADATA_VERSION 2
+
 #include "nvoc/runtime.h"
+#include "nvoc/rtti.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -29,6 +38,7 @@ extern "C" {
  * DEALINGS IN THE SOFTWARE.
  */
 
+#pragma once
 #include "g_disp_inst_mem_nvoc.h"
 
 #ifndef DISPLAY_INSTANCE_MEMORY_H
@@ -43,6 +53,7 @@ extern "C" {
 
 /* ------------------------ Forward Declaration ---------------------------- */
 typedef struct OBJEHEAP OBJEHEAP;
+
 struct DispChannel;
 
 #ifndef __NVOC_CLASS_DispChannel_TYPEDEF__
@@ -53,6 +64,7 @@ typedef struct DispChannel DispChannel;
 #ifndef __nvoc_class_id_DispChannel
 #define __nvoc_class_id_DispChannel 0xbd2ff3
 #endif /* __nvoc_class_id_DispChannel */
+
 
 
 struct ContextDma;
@@ -82,16 +94,38 @@ typedef struct
     struct DispChannel *pDispChannel;
 } SW_HASH_TABLE_ENTRY;
 
+
+// Private field names are wrapped in PRIVATE_FIELD, which does nothing for
+// the matching C source file, but causes diagnostics to be issued if another
+// source file references the field.
 #ifdef NVOC_DISP_INST_MEM_H_PRIVATE_ACCESS_ALLOWED
 #define PRIVATE_FIELD(x) x
 #else
 #define PRIVATE_FIELD(x) NVOC_PRIVATE_FIELD(x)
 #endif
+
+
+// Metadata with per-class RTTI with ancestor(s)
+struct NVOC_METADATA__DisplayInstanceMemory;
+struct NVOC_METADATA__Object;
+
+
 struct DisplayInstanceMemory {
-    const struct NVOC_RTTI *__nvoc_rtti;
+
+    // Metadata starts with RTTI structure.
+    union {
+         const struct NVOC_METADATA__DisplayInstanceMemory *__nvoc_metadata_ptr;
+         const struct NVOC_RTTI *__nvoc_rtti;
+    };
+
+    // Parent (i.e. superclass or base class) objects
     struct Object __nvoc_base_Object;
-    struct Object *__nvoc_pbase_Object;
-    struct DisplayInstanceMemory *__nvoc_pbase_DisplayInstanceMemory;
+
+    // Ancestor object pointers for `staticCast` feature
+    struct Object *__nvoc_pbase_Object;    // obj super
+    struct DisplayInstanceMemory *__nvoc_pbase_DisplayInstanceMemory;    // instmem
+
+    // Data members
     NV_ADDRESS_SPACE instMemAddrSpace;
     NvU32 instMemAttr;
     NvU64 instMemBase;
@@ -105,6 +139,13 @@ struct DisplayInstanceMemory {
     OBJEHEAP *pInstHeap;
 };
 
+
+// Metadata with per-class RTTI with ancestor(s)
+struct NVOC_METADATA__DisplayInstanceMemory {
+    const struct NVOC_RTTI rtti;
+    const struct NVOC_METADATA__Object metadata__Object;
+};
+
 #ifndef __NVOC_CLASS_DisplayInstanceMemory_TYPEDEF__
 #define __NVOC_CLASS_DisplayInstanceMemory_TYPEDEF__
 typedef struct DisplayInstanceMemory DisplayInstanceMemory;
@@ -114,18 +155,18 @@ typedef struct DisplayInstanceMemory DisplayInstanceMemory;
 #define __nvoc_class_id_DisplayInstanceMemory 0x8223e2
 #endif /* __nvoc_class_id_DisplayInstanceMemory */
 
+// Casting support
 extern const struct NVOC_CLASS_DEF __nvoc_class_def_DisplayInstanceMemory;
 
 #define __staticCast_DisplayInstanceMemory(pThis) \
     ((pThis)->__nvoc_pbase_DisplayInstanceMemory)
 
 #ifdef __nvoc_disp_inst_mem_h_disabled
-#define __dynamicCast_DisplayInstanceMemory(pThis) ((DisplayInstanceMemory*)NULL)
+#define __dynamicCast_DisplayInstanceMemory(pThis) ((DisplayInstanceMemory*) NULL)
 #else //__nvoc_disp_inst_mem_h_disabled
 #define __dynamicCast_DisplayInstanceMemory(pThis) \
-    ((DisplayInstanceMemory*)__nvoc_dynamicCast(staticCast((pThis), Dynamic), classInfo(DisplayInstanceMemory)))
+    ((DisplayInstanceMemory*) __nvoc_dynamicCast(staticCast((pThis), Dynamic), classInfo(DisplayInstanceMemory)))
 #endif //__nvoc_disp_inst_mem_h_disabled
-
 
 NV_STATUS __nvoc_objCreateDynamic_DisplayInstanceMemory(DisplayInstanceMemory**, Dynamic*, NvU32, va_list);
 
@@ -133,6 +174,10 @@ NV_STATUS __nvoc_objCreate_DisplayInstanceMemory(DisplayInstanceMemory**, Dynami
 #define __objCreate_DisplayInstanceMemory(ppNewObj, pParent, createFlags) \
     __nvoc_objCreate_DisplayInstanceMemory((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
 
+
+// Wrapper macros
+
+// Dispatch functions
 void instmemGetSize_v03_00(OBJGPU *pGpu, struct DisplayInstanceMemory *pInstMem, NvU32 *pTotalInstMemSize, NvU32 *pHashTableSize);
 
 
@@ -346,28 +391,6 @@ static inline void instmemUnbindDispChannelContextDmas(OBJGPU *pGpu, struct Disp
 #define instmemUnbindDispChannelContextDmas(pGpu, pInstMem, pDispChannel) instmemUnbindDispChannelContextDmas_IMPL(pGpu, pInstMem, pDispChannel)
 #endif //__nvoc_disp_inst_mem_h_disabled
 
-NV_STATUS instmemReserveContextDma_IMPL(OBJGPU *pGpu, struct DisplayInstanceMemory *pInstMem, NvU32 *offset);
-
-#ifdef __nvoc_disp_inst_mem_h_disabled
-static inline NV_STATUS instmemReserveContextDma(OBJGPU *pGpu, struct DisplayInstanceMemory *pInstMem, NvU32 *offset) {
-    NV_ASSERT_FAILED_PRECOMP("DisplayInstanceMemory was disabled!");
-    return NV_ERR_NOT_SUPPORTED;
-}
-#else //__nvoc_disp_inst_mem_h_disabled
-#define instmemReserveContextDma(pGpu, pInstMem, offset) instmemReserveContextDma_IMPL(pGpu, pInstMem, offset)
-#endif //__nvoc_disp_inst_mem_h_disabled
-
-NV_STATUS instmemFreeContextDma_IMPL(OBJGPU *pGpu, struct DisplayInstanceMemory *pInstMem, NvU32 offset);
-
-#ifdef __nvoc_disp_inst_mem_h_disabled
-static inline NV_STATUS instmemFreeContextDma(OBJGPU *pGpu, struct DisplayInstanceMemory *pInstMem, NvU32 offset) {
-    NV_ASSERT_FAILED_PRECOMP("DisplayInstanceMemory was disabled!");
-    return NV_ERR_NOT_SUPPORTED;
-}
-#else //__nvoc_disp_inst_mem_h_disabled
-#define instmemFreeContextDma(pGpu, pInstMem, offset) instmemFreeContextDma_IMPL(pGpu, pInstMem, offset)
-#endif //__nvoc_disp_inst_mem_h_disabled
-
 #undef PRIVATE_FIELD
 
 
@@ -376,4 +399,5 @@ static inline NV_STATUS instmemFreeContextDma(OBJGPU *pGpu, struct DisplayInstan
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
 #endif // _G_DISP_INST_MEM_NVOC_H_

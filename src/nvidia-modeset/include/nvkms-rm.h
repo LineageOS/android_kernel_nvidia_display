@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2013-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2013-2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -28,19 +28,17 @@
 extern "C" {
 #endif
 
+#include <nvlimits.h>
 #include "nvkms-types.h"
 #include <class/cl0092.h> /* NV0092_REGISTER_RG_LINE_CALLBACK_FN */
 #include <class/cl9010.h> /* OSVBLANKCALLBACKPROC */
 
+#define NVKMS_RM_HANDLE_SPACE_DEVICE(_i)    ((_i) + 1)
+#define NVKMS_RM_HANDLE_SPACE_FRAMELOCK(_i) (NV_MAX_DEVICES + (_i) + 1)
+
 NvBool nvWriteDPCDReg(NVConnectorEvoPtr pConnectorEvo,
                       NvU32 dpcdAddr,
                       NvU8 dpcdData);
-
-void nvGetContentProtectionState(NVConnectorEvoPtr pConnectorEvo,
-                                 enum NvKmsContentProtection *cp);
-
-void nvGetContentProtectionTopology(NVConnectorEvoPtr pConnectorEvo,
-                                    struct NvKmsHdcpTopology *topology);
 
 NvBool nvRmRegisterCallback(const NVDevEvoRec *pDevEvo,
                             NVOS10_EVENT_KERNEL_CALLBACK_EX *cb,
@@ -107,11 +105,14 @@ NvBool nvRmEvoMapVideoMemory(NVDevEvoPtr pDevEvo,
 NvBool nvRmAllocDeviceEvo(NVDevEvoPtr pDevEvo,
                           const struct NvKmsAllocDeviceRequest *pRequest);
 void nvRmFreeDeviceEvo(NVDevEvoPtr pDevEvo);
+NvBool nvRmRegisterDIFREventHandler(NVDevEvoPtr pDevEvo);
+void nvRmUnregisterDIFREventHandler(NVDevEvoPtr pDevEvo);
 NvBool nvRmIsPossibleToActivateDpyIdList(NVDispEvoPtr pDispEvo,
                                          const NVDpyIdList dpyIdList);
 NvBool nvRmVTSwitch(NVDevEvoPtr pDevEvo, NvU32 cmd);
 NvBool nvRmGetVTFBInfo(NVDevEvoPtr pDevEvo);
 void nvRmImportFbConsoleMemory(NVDevEvoPtr pDevEvo);
+void nvRmUnmapFbConsoleMemory(NVDevEvoPtr pDevEvo);
 NvBool nvRmAllocEvoDma(NVDevEvoPtr pDevEvo,
                        NVEvoDmaPtr pDma,
                        NvU64 limit,
@@ -153,7 +154,8 @@ NvU32 nvRmAllocAndBindSurfaceDescriptor(
     NvU32 hMemory,
     const enum NvKmsSurfaceMemoryLayout layout,
     NvU64 limit,
-    NVSurfaceDescriptor *pSurfaceDesc);
+    NVSurfaceDescriptor *pSurfaceDesc,
+    NvBool mapToDisplayRm);
 
 #ifdef __cplusplus
 };

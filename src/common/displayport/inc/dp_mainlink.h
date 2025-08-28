@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -103,7 +103,6 @@ namespace DisplayPort
     {
     public:
         virtual bool physicalLayerSetTestPattern(PatternInfo * patternInfo) = 0;
-
         //
         //  Wrappers for existing link training RM control calls
         //
@@ -144,6 +143,9 @@ namespace DisplayPort
         // Check if we should skip power down eDP when head detached.
         virtual bool skipPowerdownEdpPanelWhenHeadDetach() = 0;
 
+        // Check if we should skip reading PCON Caps in MST case.
+        virtual bool isMSTPCONCapsReadDisabled() = 0;
+
         // Get GPU DSC capabilities
         virtual void getDscCaps(bool *pbDscSupported = NULL,
                                 unsigned *pEncoderColorFormatMask = NULL,
@@ -160,7 +162,9 @@ namespace DisplayPort
         //       we cannot rely on the DPCD registers being correct or sane)
         //
         virtual void getLinkConfig(unsigned &laneCount, NvU64 & linkRate) = 0;
-
+        
+        // Get the current link config with FEC
+        virtual void getLinkConfigWithFEC(unsigned &laneCount, NvU64 &linkRate, bool &bFECEnable) {};
         // Get the max link config from UEFI.
         virtual bool getMaxLinkConfigFromUefi(NvU8 &linkRate, NvU8 &laneCount) = 0;
         //
@@ -173,6 +177,7 @@ namespace DisplayPort
         virtual bool isPC2Disabled() = 0;
         virtual NvU32 getGpuDpSupportedVersions() = 0;
         virtual bool isStreamCloningEnabled() = 0;
+        virtual bool isDpTunnelingHwBugWarEnabled() = 0;
         virtual NvU32 maxLinkRateSupported() = 0;
         virtual bool isLttprSupported() = 0;
         virtual bool isFECSupported() = 0;
@@ -201,9 +206,7 @@ namespace DisplayPort
         virtual void triggerACT() = 0;
         virtual void configureHDCPGetHDCPState(HDCPState &hdcpState) = 0;
 
-        virtual NvU32 streamToHead(NvU32 streamId,
-            DP_SINGLE_HEAD_MULTI_STREAM_PIPELINE_ID streamIdentifier = DP_SINGLE_HEAD_MULTI_STREAM_PIPELINE_ID_PRIMARY) = 0;
-        virtual NvU32 headToStream(NvU32 head,
+        virtual NvU32 headToStream(NvU32 head, bool bSidebandMessageSupported,
             DP_SINGLE_HEAD_MULTI_STREAM_PIPELINE_ID streamIdentifier = DP_SINGLE_HEAD_MULTI_STREAM_PIPELINE_ID_PRIMARY) = 0;
 
         virtual void configureSingleStream(NvU32 head,
@@ -254,7 +257,8 @@ namespace DisplayPort
         virtual NvU32 getRootDisplayId() = 0;
         virtual NvU32 allocDisplayId() = 0;
         virtual bool freeDisplayId(NvU32 displayId) = 0;
-        virtual void queryGPUCapability() = 0;
+        virtual bool queryGPUCapability() {return false;}
+        virtual bool isAvoidHBR3WAREnabled() = 0;
         virtual bool queryAndUpdateDfpParams() = 0;
         virtual bool getEdpPowerData(bool *panelPowerOn, bool *bDPCDPowerStateD0) = 0;
         virtual bool vrrRunEnablementStage(unsigned stage, NvU32 *status) = 0;

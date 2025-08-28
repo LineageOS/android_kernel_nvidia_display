@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2013-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2013-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -35,6 +35,7 @@
 #define _NV_GPU_OPS_H_
 #include "nvgputypes.h"
 #include "nv_uvm_types.h"
+#include "nv_uvm_user_types.h"
 
 typedef struct gpuSession       *gpuSessionHandle;
 typedef struct gpuDevice        *gpuDeviceHandle;
@@ -44,6 +45,11 @@ typedef struct gpuChannel       *gpuChannelHandle;
 typedef struct gpuObject        *gpuObjectHandle;
 
 typedef struct gpuRetainedChannel_struct gpuRetainedChannel;
+
+
+NV_STATUS calculatePCIELinkRateMBps(NvU32 lanes,
+                                    NvU32 pciLinkMaxSpeed,
+                                    NvU32 *pcieLinkRate);
 
 NV_STATUS nvGpuOpsCreateSession(struct gpuSession **session);
 
@@ -60,6 +66,7 @@ NV_STATUS nvGpuOpsDeviceDestroy(struct gpuDevice *device);
 NV_STATUS nvGpuOpsAddressSpaceCreate(struct gpuDevice *device,
                                      NvU64 vaBase,
                                      NvU64 vaSize,
+                                     NvBool enableAts,
                                      gpuAddressSpaceHandle *vaSpace,
                                      UvmGpuAddressSpaceInfo *vaSpaceInfo);
 
@@ -92,11 +99,6 @@ NV_STATUS nvGpuOpsPmaPinPages(void *pPma,
                               NvLength pageCount,
                               NvU64 pageSize,
                               NvU32 flags);
-
-NV_STATUS nvGpuOpsPmaUnpinPages(void *pPma,
-                                NvU64 *pPages,
-                                NvLength pageCount,
-                                NvU64 pageSize);
 
 NV_STATUS nvGpuOpsTsgAllocate(gpuAddressSpaceHandle vaSpace,
                               const gpuTsgAllocParams *params,
@@ -172,7 +174,8 @@ NV_STATUS nvGpuOpsCheckEccErrorSlowpath(struct gpuChannel * channel, NvBool *bEc
 
 NV_STATUS nvGpuOpsSetPageDirectory(struct gpuAddressSpace * vaSpace,
                                    NvU64 physAddress, unsigned numEntries,
-                                   NvBool bVidMemAperture, NvU32 pasid);
+                                   NvBool bVidMemAperture, NvU32 pasid,
+                                   NvU64 *dmaAdress);
 
 NV_STATUS nvGpuOpsUnsetPageDirectory(struct gpuAddressSpace * vaSpace);
 
@@ -183,6 +186,8 @@ NV_STATUS nvGpuOpsInvalidateTlb(struct gpuAddressSpace * vaSpace);
 NV_STATUS nvGpuOpsGetFbInfo(struct gpuDevice *device, gpuFbInfo * fbInfo);
 
 NV_STATUS nvGpuOpsGetEccInfo(struct gpuDevice *device, gpuEccInfo * eccInfo);
+
+NV_STATUS nvGpuOpsGetNvlinkInfo(struct gpuDevice *device, gpuNvlinkInfo * nvlinkInfo);
 
 NV_STATUS nvGpuOpsInitFaultInfo(struct gpuDevice *device, gpuFaultInfo *pFaultInfo);
 
@@ -214,7 +219,7 @@ NV_STATUS nvGpuOpsOwnAccessCntrIntr(struct gpuSession *session,
 
 NV_STATUS nvGpuOpsEnableAccessCntr(struct gpuDevice *device,
                                    gpuAccessCntrInfo *pAccessCntrInfo,
-                                   gpuAccessCntrConfig *pAccessCntrConfig);
+                                   const gpuAccessCntrConfig *pAccessCntrConfig);
 
 NV_STATUS nvGpuOpsDisableAccessCntr(struct gpuDevice *device, gpuAccessCntrInfo *pAccessCntrInfo);
 
@@ -230,6 +235,12 @@ NV_STATUS nvGpuOpsGetExternalAllocPtes(struct gpuAddressSpace *vaSpace,
                                        NvU64 offset,
                                        NvU64 size,
                                        gpuExternalMappingInfo *pGpuExternalMappingInfo);
+
+NV_STATUS nvGpuOpsGetExternalAllocPhysAddrs(struct gpuAddressSpace *vaSpace,
+                                            NvHandle hDupedMemory,
+                                            NvU64 offset,
+                                            NvU64 size,
+                                            gpuExternalPhysAddrInfo *pGpuExternalPhysAddrInfo);
 
 NV_STATUS nvGpuOpsRetainChannel(struct gpuAddressSpace *vaSpace,
                                 NvHandle hClient,
@@ -283,13 +294,20 @@ NV_STATUS nvGpuOpsPagingChannelPushStream(UvmGpuPagingChannel *channel,
                                           char *methodStream,
                                           NvU32 methodStreamSize);
 
-NV_STATUS nvGpuOpsFlushReplayableFaultBuffer(struct gpuDevice *device);
+NV_STATUS nvGpuOpsFlushReplayableFaultBuffer(gpuFaultInfo *pFaultInfo,
+                                             NvBool bCopyAndFlush);
+
+NV_STATUS nvGpuOpsTogglePrefetchFaults(gpuFaultInfo *pFaultInfo,
+                                       NvBool bEnable);
+
+void nvGpuOpsReportFatalError(NV_STATUS error);
 
 // Interface used for CCSL
-
 NV_STATUS nvGpuOpsCcslContextInit(struct ccslContext_t **ctx,
                                   gpuChannelHandle channel);
 NV_STATUS nvGpuOpsCcslContextClear(struct ccslContext_t *ctx);
+NV_STATUS nvGpuOpsCcslRotateKey(UvmCslContext *contextList[],
+                                NvU32 contextListCount);
 NV_STATUS nvGpuOpsCcslRotateIv(struct ccslContext_t *ctx,
                                NvU8 direction);
 NV_STATUS nvGpuOpsCcslEncrypt(struct ccslContext_t *ctx,
@@ -307,6 +325,7 @@ NV_STATUS nvGpuOpsCcslDecrypt(struct ccslContext_t *ctx,
                               NvU32 bufferSize,
                               NvU8 const *inputBuffer,
                               NvU8 const *decryptIv,
+                              NvU32 keyRotationId,
                               NvU8 *outputBuffer,
                               NvU8 const *addAuthData,
                               NvU32 addAuthDataSize,
@@ -322,5 +341,8 @@ NV_STATUS nvGpuOpsIncrementIv(struct ccslContext_t *ctx,
                               NvU8 direction,
                               NvU64 increment,
                               NvU8 *iv);
+NV_STATUS nvGpuOpsLogEncryption(struct ccslContext_t *ctx,
+                                NvU8 direction,
+                                NvU32 bufferSize);
 
 #endif /* _NV_GPU_OPS_H_*/

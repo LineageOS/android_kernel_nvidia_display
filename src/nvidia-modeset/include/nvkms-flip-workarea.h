@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -29,14 +29,13 @@
 typedef struct {
     struct {
         enum NvKmsOutputTf tf;
-        enum NvKmsOutputColorimetry colorimetry;
-        enum NvKmsDpyAttributeColorRangeValue outputColorRange;
-        enum NvKmsDpyAttributeCurrentColorSpaceValue colorSpace;
-        enum NvKmsDpyAttributeColorBpcValue colorBpc;
-        enum NvKmsDpyAttributeColorRangeValue colorRange;
+        NVDpyAttributeColor dpyColor;
+        NvBool infoFrameOverride;
+        NvU32 staticMetadataLayerMask;
     } hdr;
 
     struct NvKmsPoint viewPortPointIn;
+    struct NvKmsSetLutCommonParams lut;
 
     struct {
         NvU32 viewPortPointIn  : 1;

@@ -51,6 +51,8 @@
 #define DRM_NVIDIA_SEMSURF_FENCE_CTX_CREATE         0x14
 #define DRM_NVIDIA_SEMSURF_FENCE_CREATE             0x15
 #define DRM_NVIDIA_SEMSURF_FENCE_WAIT               0x16
+#define DRM_NVIDIA_SEMSURF_FENCE_ATTACH             0x17
+#define DRM_NVIDIA_GET_DRM_FILE_UNIQUE_ID           0x18
 
 #define DRM_IOCTL_NVIDIA_GEM_IMPORT_NVKMS_MEMORY                           \
     DRM_IOWR((DRM_COMMAND_BASE + DRM_NVIDIA_GEM_IMPORT_NVKMS_MEMORY),      \
@@ -70,7 +72,7 @@
  *
  * 'warning: suggest parentheses around arithmetic in operand of |'
  */
-#if defined(NV_LINUX)
+#if defined(NV_LINUX) || defined(NV_BSD)
 #define DRM_IOCTL_NVIDIA_FENCE_SUPPORTED                         \
     DRM_IO(DRM_COMMAND_BASE + DRM_NVIDIA_FENCE_SUPPORTED)
 #define DRM_IOCTL_NVIDIA_DMABUF_SUPPORTED                        \
@@ -151,6 +153,16 @@
               DRM_NVIDIA_SEMSURF_FENCE_WAIT),                           \
               struct drm_nvidia_semsurf_fence_wait_params)
 
+#define DRM_IOCTL_NVIDIA_SEMSURF_FENCE_ATTACH                           \
+    DRM_IOW((DRM_COMMAND_BASE +                                         \
+              DRM_NVIDIA_SEMSURF_FENCE_ATTACH),                         \
+              struct drm_nvidia_semsurf_fence_attach_params)
+
+#define DRM_IOCTL_NVIDIA_GET_DRM_FILE_UNIQUE_ID                         \
+    DRM_IOWR((DRM_COMMAND_BASE +                                        \
+              DRM_NVIDIA_GET_DRM_FILE_UNIQUE_ID),                       \
+              struct drm_nvidia_get_drm_file_unique_id_params)
+
 struct drm_nvidia_gem_import_nvkms_memory_params {
     uint64_t mem_size;           /* IN */
 
@@ -170,13 +182,18 @@ struct drm_nvidia_gem_import_userspace_memory_params {
 
 struct drm_nvidia_get_dev_info_params {
     uint32_t gpu_id;             /* OUT */
+    uint32_t mig_device;         /* OUT */
     uint32_t primary_index;      /* OUT; the "card%d" value */
 
-    /* See DRM_FORMAT_MOD_NVIDIA_BLOCK_LINEAR_2D definitions of these */
+    uint32_t supports_alloc;     /* OUT */
+    /* The generic_page_kind, page_kind_generation, and sector_layout
+     * fields are only valid if supports_alloc is true.
+     * See DRM_FORMAT_MOD_NVIDIA_BLOCK_LINEAR_2D definitions of these. */
     uint32_t generic_page_kind;    /* OUT */
     uint32_t page_kind_generation; /* OUT */
     uint32_t sector_layout;        /* OUT */
     uint32_t supports_sync_fd;     /* OUT */
+    uint32_t supports_semsurf;     /* OUT */
 };
 
 struct drm_nvidia_prime_fence_context_create_params {
@@ -356,6 +373,27 @@ struct drm_nvidia_semsurf_fence_wait_params {
     uint64_t post_wait_value;       /* IN Signal the semaphore represented by
                                      * fence_context to this value after waiting
                                      * for the sync file */
+};
+
+struct drm_nvidia_semsurf_fence_attach_params {
+    uint32_t handle;                /* IN GEM handle of buffer */
+
+    uint32_t fence_context_handle;  /* IN GEM handle of fence context */
+
+    uint32_t timeout_value_ms;      /* IN Timeout value in ms for the fence
+                                     * after which the fence will be signaled
+                                     * with its error status set to -ETIMEDOUT.
+                                     * Default timeout value is 5000ms */
+
+    uint32_t shared;                /* IN If true, fence will reserve shared
+                                     * access to the buffer, otherwise it will
+                                     * reserve exclusive access */
+
+    uint64_t wait_value;            /* IN Semaphore value to reach before signal */
+};
+
+struct drm_nvidia_get_drm_file_unique_id_params {
+    uint64_t id;                    /* OUT Unique ID of the DRM file */
 };
 
 #endif /* _UAPI_NVIDIA_DRM_IOCTL_H_ */

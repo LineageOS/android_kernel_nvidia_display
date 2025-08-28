@@ -41,6 +41,7 @@ CFLAGS += -I $(SRC_COMMON)/shared/inc
 CFLAGS += -I $(SRC_COMMON)/shared/msgq/inc
 CFLAGS += -I $(SRC_COMMON)/inc
 
+CFLAGS += -I $(SRC_COMMON)/inc/swref
 CFLAGS += -I $(SRC_COMMON)/inc/swref/published
 
 CFLAGS += -I generated
@@ -56,9 +57,10 @@ CFLAGS += -I src/libraries
 CFLAGS += -I inc/kernel
 
 #if NV_USE_MBEDTLS
-CFLAGS += -I $(SRC_COMMON)/mbedtls/include
-CFLAGS += -I $(SRC_COMMON)/mbedtls/nvidia
-CFLAGS += -DMBEDTLS_USER_CONFIG_FILE=\"nvrm_mbedtls_config.h\"
+MBEDTLS_VERSION ?= 3.6.2
+CFLAGS += -I $(SRC_COMMON)/mbedtls/$(MBEDTLS_VERSION)/include
+CFLAGS += -I $(SRC_COMMON)/mbedtls/$(MBEDTLS_VERSION)/nvidia
+CFLAGS += -D"MBEDTLS_USER_CONFIG_FILE=<nvrm_mbedtls_config.h>"
 #endif
 
 CFLAGS += -Werror-implicit-function-declaration
@@ -82,7 +84,15 @@ ifeq ($(TARGET_ARCH),aarch64)
   CFLAGS += -mgeneral-regs-only
   CFLAGS += -march=armv8-a
   CFLAGS += -mstrict-align
+  CFLAGS += -ffixed-x18
   CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -mno-outline-atomics)
+endif
+
+ifeq ($(TARGET_ARCH),riscv64)
+  CFLAGS += -march=rv64imac_zicsr_zifencei
+  CFLAGS += -mabi=lp64
+  CFLAGS += -mcmodel=medany
+  CFLAGS += -mno-relax
 endif
 
 CFLAGS += -fno-pic
@@ -93,7 +103,7 @@ CFLAGS += -DNVRM
 CFLAGS += -DLOCK_VAL_ENABLED=0
 CFLAGS += -DPORT_ATOMIC_64_BIT_SUPPORTED=1
 CFLAGS += -DPORT_IS_KERNEL_BUILD=1
-CFLAGS += -DPORT_IS_CHECKED_BUILD=1
+CFLAGS += -DPORT_IS_CHECKED_BUILD=0
 CFLAGS += -DPORT_MODULE_atomic=1
 CFLAGS += -DPORT_MODULE_core=1
 CFLAGS += -DPORT_MODULE_cpu=1
@@ -164,7 +174,7 @@ ifeq ($(TARGET_ARCH),x86_64)
   endif
   CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -fno-jump-tables)
   CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -mindirect-branch-register)
-  CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -mindirect-branch=thunk-extern)
+    CONDITIONAL_CFLAGS += $(call TEST_CC_ARG, -mindirect-branch=thunk-extern)
 endif
 
 CFLAGS += $(CONDITIONAL_CFLAGS)
@@ -189,6 +199,8 @@ all: $(NV_KERNEL_O)
 
 LINKER_SCRIPT = nv-kernel.ld
 
+NV_KERNEL_O_LDFLAGS += $(LDFLAGS)
+
 $(NV_KERNEL_O): $(OBJS) $(EXPORTS_LINK_COMMAND) $(LINKER_SCRIPT)
 	$(call quiet_cmd,LD) \
 	  $(NV_KERNEL_O_LDFLAGS) \
@@ -197,6 +209,7 @@ $(NV_KERNEL_O): $(OBJS) $(EXPORTS_LINK_COMMAND) $(LINKER_SCRIPT)
 	$(call quiet_cmd,OBJCOPY) \
 	  --localize-symbol=memset \
 	  --localize-symbol=memcpy \
+	  --remove-section=.note.gnu.property \
 	  $@
 
 .PHONY: clean

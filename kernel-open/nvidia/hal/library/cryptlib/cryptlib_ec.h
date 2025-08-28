@@ -28,6 +28,44 @@ extern void *libspdm_ec_new_by_nid(size_t nid);
  * @param[in]  ec_context  Pointer to the EC context to be released.
  **/
 extern void libspdm_ec_free(void *ec_context);
+
+#if LIBSPDM_FIPS_MODE
+/**
+ * Sets the private key component into the established EC context.
+ *
+ * For P-256, the private_key_size is 32 byte.
+ * For P-384, the private_key_size is 48 byte.
+ * For P-521, the private_key_size is 66 byte.
+ *
+ * @param[in, out]  ec_context       Pointer to EC context being set.
+ * @param[in]       private_key      Pointer to the private key buffer.
+ * @param[in]       private_key_size The size of private key buffer in bytes.
+ *
+ * @retval  true   EC private key component was set successfully.
+ * @retval  false  Invalid EC private key component.
+ *
+ **/
+extern bool libspdm_ec_set_priv_key(void *ec_context, const uint8_t *private_key,
+                                    size_t private_key_size);
+
+/**
+ * Sets the public key component into the established EC context.
+ *
+ * For P-256, the public_size is 64. first 32-byte is X, second 32-byte is Y.
+ * For P-384, the public_size is 96. first 48-byte is X, second 48-byte is Y.
+ * For P-521, the public_size is 132. first 66-byte is X, second 66-byte is Y.
+ *
+ * @param[in, out]  ec_context   Pointer to EC context being set.
+ * @param[in]       public       Pointer to the buffer to receive generated public X,Y.
+ * @param[in]       public_size  The size of public buffer in bytes.
+ *
+ * @retval  true   EC public key component was set successfully.
+ * @retval  false  Invalid EC public key component.
+ **/
+extern bool libspdm_ec_set_pub_key(void *ec_context, const uint8_t *public_key,
+                                   size_t public_key_size);
+#endif /* LIBSPDM_FIPS_MODE */
+
 #endif /* (LIBSPDM_ECDHE_SUPPORT) || (LIBSPDM_ECDSA_SUPPORT) */
 
 #if LIBSPDM_ECDHE_SUPPORT
@@ -100,6 +138,29 @@ extern bool libspdm_ec_compute_key(void *ec_context, const uint8_t *peer_public,
 
 #if LIBSPDM_ECDSA_SUPPORT
 /**
+ * Generates Elliptic Curve context from DER-encoded public key data.
+ *
+ * The public key is ASN.1 DER-encoded as RFC7250 describes,
+ * namely, the SubjectPublicKeyInfo structure of a X.509 certificate.
+ *
+ * @param[in]  der_data    Pointer to the DER-encoded public key data.
+ * @param[in]  der_size    Size of the DER-encoded public key data in bytes.
+ * @param[out] ec_context  Pointer to newly generated EC context which contains the
+ *                         EC public key component.
+ *                         Use libspdm_ec_free() function to free the resource.
+ *
+ * If der_data is NULL, then return false.
+ * If ec_context is NULL, then return false.
+ *
+ * @retval  true   EC context was generated successfully.
+ * @retval  false  Invalid DER public key data.
+ *
+ **/
+extern bool libspdm_ec_get_public_key_from_der(const uint8_t *der_data,
+                                               size_t der_size,
+                                               void **ec_context);
+
+/**
  * Carries out the EC-DSA signature.
  *
  * This function carries out the EC-DSA signature.
@@ -131,6 +192,29 @@ extern bool libspdm_ec_compute_key(void *ec_context, const uint8_t *peer_public,
 extern bool libspdm_ecdsa_sign(void *ec_context, size_t hash_nid,
                                const uint8_t *message_hash, size_t hash_size,
                                uint8_t *signature, size_t *sig_size);
+
+#if LIBSPDM_FIPS_MODE
+/**
+ * Carries out the EC-DSA signature with caller input random function. This API can be used for FIPS test.
+ *
+ * @param[in]       ec_context    Pointer to EC context for signature generation.
+ * @param[in]       hash_nid      hash NID
+ * @param[in]       message_hash  Pointer to octet message hash to be signed.
+ * @param[in]       hash_size     Size of the message hash in bytes.
+ * @param[out]      signature     Pointer to buffer to receive EC-DSA signature.
+ * @param[in, out]  sig_size      On input, the size of signature buffer in bytes.
+ *                                On output, the size of data returned in signature buffer in bytes.
+ * @param[in]       random_func   random number function
+ *
+ * @retval  true   signature successfully generated in EC-DSA.
+ * @retval  false  signature generation failed.
+ * @retval  false  sig_size is too small.
+ **/
+extern bool libspdm_ecdsa_sign_ex(void *ec_context, size_t hash_nid,
+                                  const uint8_t *message_hash, size_t hash_size,
+                                  uint8_t *signature, size_t *sig_size,
+                                  int (*random_func)(void *, unsigned char *, size_t));
+#endif/*LIBSPDM_FIPS_MODE*/
 
 /**
  * Verifies the EC-DSA signature.

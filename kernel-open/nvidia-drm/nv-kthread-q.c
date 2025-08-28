@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2016 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -29,12 +29,7 @@
 #include <linux/completion.h>
 #include <linux/module.h>
 #include <linux/mm.h>
-
-#if defined(NV_LINUX_BUG_H_PRESENT)
-    #include <linux/bug.h>
-#else
-    #include <asm/bug.h>
-#endif
+#include <linux/bug.h>
 
 // Today's implementation is a little simpler and more limited than the
 // API description allows for in nv-kthread-q.h. Details include:
@@ -176,7 +171,7 @@ static struct task_struct *thread_create_on_node(int (*threadfn)(void *data),
 {
 
     unsigned i, j;
-    const static unsigned attempts = 3;
+    static const unsigned attempts = 3;
     struct task_struct *thread[3];
 
     for (i = 0;; i++) {
@@ -201,7 +196,7 @@ static struct task_struct *thread_create_on_node(int (*threadfn)(void *data),
 
         // Ran out of attempts - return thread even if its stack may not be
         // allocated on the preferred node
-        if ((i == (attempts - 1)))
+        if (i == (attempts - 1))
             break;
 
         // Get the NUMA node where the first page of the stack is resident. If
@@ -245,6 +240,11 @@ int nv_kthread_q_init_on_node(nv_kthread_q_t *q, const char *q_name, int preferr
     wake_up_process(q->q_kthread);
 
     return 0;
+}
+
+int nv_kthread_q_init(nv_kthread_q_t *q, const char *qname)
+{
+    return nv_kthread_q_init_on_node(q, qname, NV_KTHREAD_NO_NODE);
 }
 
 // Returns true (non-zero) if the item was actually scheduled, and false if the

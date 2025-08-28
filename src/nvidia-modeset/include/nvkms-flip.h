@@ -27,6 +27,14 @@
 
 #include "nvkms-types.h"
 
+
+NvBool nvCheckLayerPermissions(
+    const struct NvKmsPerOpenDev *pOpenDev,
+    const NVDevEvoRec *pDevEvo,
+    const NvU32 sd,
+    const NvU32 apiHead,
+    const NvU8 changedLayersMask);
+
 NvBool nvCheckFlipPermissions(
     const struct NvKmsPerOpenDev *pOpenDev,
     const NVDevEvoRec *pDevEvo,
@@ -39,7 +47,6 @@ NvBool nvFlipEvo(NVDevEvoPtr pDevEvo,
                  const struct NvKmsFlipRequestOneHead *pFlipHead,
                  NvU32 numFlipHeads,
                  NvBool commit,
-                 NvBool allowVrr,
                  struct NvKmsFlipReply *reply,
                  NvBool skipUpdate,
                  NvBool allowFlipLock);
@@ -68,8 +75,6 @@ void nvApiHeadIdleMainLayerChannels(NVDevEvoRec *pDevEvo,
 void nvApiHeadUpdateFlipLock(NVDevEvoRec *pDevEvo,
                              const NvU32 apiHeadMaskPerSd[NVKMS_MAX_SUBDEVICES],
                              const NvBool enable);
-
-void nvCancelSDRTransitionTimer(NVDispApiHeadStateEvoRec *pApiHeadState);
 
 NvBool nvIdleMainLayerChannelCheckIdleOneApiHead(NVDispEvoPtr pDispEvo,
                                                  NvU32 apiHead);

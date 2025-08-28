@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2009-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2009-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -31,6 +31,7 @@
 //
 
 #include "ctrl/ctrl0080/ctrl0080base.h"
+#include "nvcfg_sdk.h"
 
 /*
  * NV0080_CTRL_CMD_BIF_RESET
@@ -47,7 +48,8 @@
  *         to _SBR, a secondary-bus reset is performed. When set to
  *         _FUNDAMENTAL, a fundamental reset is performed.
  *
- *         NOTE: _FUNDAMENTAL is not yet supported.
+ *         NOTE: _FUNDAMENTAL is not supported for Blackwell and later chips.
+ *         Use BOOT_DEVICE_FUSE or BOOT_DEVICE reset type instead.
  *
  * Possible status return values are:
  *   NV_OK
@@ -62,7 +64,8 @@ typedef struct NV0080_CTRL_BIF_RESET_PARAMS {
     NvU32 flags;
 } NV0080_CTRL_BIF_RESET_PARAMS;
 
-#define NV0080_CTRL_BIF_RESET_FLAGS_TYPE                  3:0
+
+#define NV0080_CTRL_BIF_RESET_FLAGS_TYPE                  4:0
 #define NV0080_CTRL_BIF_RESET_FLAGS_TYPE_SW_RESET         0x1
 #define NV0080_CTRL_BIF_RESET_FLAGS_TYPE_SBR              0x2
 #define NV0080_CTRL_BIF_RESET_FLAGS_TYPE_FUNDAMENTAL      0x3
@@ -70,28 +73,9 @@ typedef struct NV0080_CTRL_BIF_RESET_PARAMS {
 #define NV0080_CTRL_BIF_RESET_FLAGS_TYPE_BOOT_DEVICE      0x5
 #define NV0080_CTRL_BIF_RESET_FLAGS_TYPE_PEX              0x6
 #define NV0080_CTRL_BIF_RESET_FLAGS_TYPE_OOBHUB_TRIGGER   0x7
+#define NV0080_CTRL_BIF_RESET_FLAGS_TYPE_BASE             0x8
 
-/*
- * NV0080_CTRL_BIF_GET_DMA_BASE_SYSMEM_ADDR
- *
- * baseDmaSysmemAddr
- *    This parameter represents the base DMA address for sysmem which will be
- *    added to all DMA accesses issued by GPU. Currently GPUs do not support 64-bit physical address,
- *    hence if sysmem is greater than max GPU supported physical address width, this address
- *    will be non-zero
- *
- * Possible status values returned are:
- *   NV_OK
- *   NV_ERR_INVALID_OBJECT_PARENT
- */
 
-#define NV0080_CTRL_CMD_BIF_GET_DMA_BASE_SYSMEM_ADDR      (0x800103) /* finn: Evaluated from "(FINN_NV01_DEVICE_0_BIF_INTERFACE_ID << 8) | NV0080_CTRL_BIF_GET_DMA_BASE_SYSMEM_ADDR_PARAMS_MESSAGE_ID" */
-
-#define NV0080_CTRL_BIF_GET_DMA_BASE_SYSMEM_ADDR_PARAMS_MESSAGE_ID (0x3U)
-
-typedef struct NV0080_CTRL_BIF_GET_DMA_BASE_SYSMEM_ADDR_PARAMS {
-    NV_DECLARE_ALIGNED(NvU64 baseDmaSysmemAddr, 8);
-} NV0080_CTRL_BIF_GET_DMA_BASE_SYSMEM_ADDR_PARAMS;
 
 /*
  * NV0080_CTRL_BIF_SET_ASPM_FEATURE
@@ -103,7 +87,7 @@ typedef struct NV0080_CTRL_BIF_GET_DMA_BASE_SYSMEM_ADDR_PARAMS {
  *   NV_OK
  */
 
-#define NV0080_CTRL_CMD_BIF_SET_ASPM_FEATURE (0x800104) /* finn: Evaluated from "(FINN_NV01_DEVICE_0_BIF_INTERFACE_ID << 8) | NV0080_CTRL_BIF_SET_ASPM_FEATURE_PARAMS_MESSAGE_ID" */
+#define NV0080_CTRL_CMD_BIF_SET_ASPM_FEATURE              (0x800104) /* finn: Evaluated from "(FINN_NV01_DEVICE_0_BIF_INTERFACE_ID << 8) | NV0080_CTRL_BIF_SET_ASPM_FEATURE_PARAMS_MESSAGE_ID" */
 
 #define NV0080_CTRL_BIF_SET_ASPM_FEATURE_PARAMS_MESSAGE_ID (0x4U)
 

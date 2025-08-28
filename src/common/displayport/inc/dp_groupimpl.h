@@ -78,14 +78,14 @@ namespace DisplayPort
               headInFirmware(false),
               bIsHeadShutdownNeeded(true),
               hdcpEnabled(false),
-              hdcpPreviousStatus(false), 
+              hdcpPreviousStatus(false),
               qseEncryptionStatusMismatch(false),
               bWaitForDeAllocACT(false),
               dscModeRequest(DSC_MODE_NONE),
               dscModeActive(DSC_MODE_NONE),
               singleHeadMultiStreamID(DP_SINGLE_HEAD_MULTI_STREAM_PIPELINE_ID_PRIMARY),
               singleHeadMultiStreamMode(DP_SINGLE_HEAD_MULTI_STREAM_MODE_NONE),
-              headAttached(false)
+              headAttached(false), timeslotAllocated(false)
         {
             if (isFirmwareGroup)
                 streamEncryptionStatusDetection = 0;
@@ -112,7 +112,7 @@ namespace DisplayPort
         virtual Device * enumDevices(Device * previousDevice);
 
         void updateVbiosScratchRegister(Device * lastDevice);   // Update the VBIOS scratch register with last lit display
-        
+
         //
         //  Timer callback tags.
         //   (we pass the address of these variables as context to ::expired)
@@ -135,8 +135,12 @@ namespace DisplayPort
         bool            isHeadAttached() { return headAttached; }
         void            setHeadAttached(bool attached);
 
+        bool            isTimeslotAllocated() { return timeslotAllocated; }
+        void            setTimeslotAllocated(bool allocated) {timeslotAllocated = allocated;}
+
     private:
-        bool            headAttached;               // True if modeset started (during NAB). Sets back to False during NDE
+        bool            headAttached;                   // True if modeset started (during NAB). Sets back to False during NDE
+        bool            timeslotAllocated;              // True if timeslot is allocated for the group (beforeAddStream). Sets back to False during afterDeleteStream
     };
 }
 

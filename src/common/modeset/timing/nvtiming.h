@@ -1,6 +1,6 @@
 //****************************************************************************
 //
-//  SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+//  SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //  SPDX-License-Identifier: MIT
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a
@@ -42,7 +42,7 @@
 // Nvidia specific timing extras
 typedef struct tagNVT_HDMIEXT
 {
-    // in the case of stereo, the NVT_TIMING structure will hold the 2D 
+    // in the case of stereo, the NVT_TIMING structure will hold the 2D
     // instance of the timing parameters, and the stereo extension will
     // contain the variants required to produce the stereo frame.
     NvU8                    StereoStructureType;
@@ -114,6 +114,13 @@ typedef union tagNVT_COLORDEPTH
         (_colorFormat).bpc.bpc8 ? NVT_EDID_VIDEOSIGNAL_BPC_8 :     \
         (_colorFormat).bpc.bpc6 ? NVT_EDID_VIDEOSIGNAL_BPC_6 : NVT_EDID_VIDEOSIGNAL_BPC_NOT_DEFINED
 
+#define NVT_COLORDEPTH_LOWEREST_BPC(_colorFormat)                   \
+        (_colorFormat).bpc.bpc6 ? NVT_EDID_VIDEOSIGNAL_BPC_6 :      \
+        (_colorFormat).bpc.bpc8 ? NVT_EDID_VIDEOSIGNAL_BPC_8 :      \
+        (_colorFormat).bpc.bpc10 ? NVT_EDID_VIDEOSIGNAL_BPC_10 :    \
+        (_colorFormat).bpc.bpc12 ? NVT_EDID_VIDEOSIGNAL_BPC_12 :    \
+        (_colorFormat).bpc.bpc16 ? NVT_EDID_VIDEOSIGNAL_BPC_16 : NVT_EDID_VIDEOSIGNAL_BPC_NOT_DEFINED
+
 typedef struct tagNVT_TIMINGEXT
 {
     NvU32            flag;          // reserve for NV h/w based enhancement like double-scan.
@@ -153,8 +160,8 @@ typedef struct tagNVT_TIMINGEXT
 // verical V |                         |      |       |       |       |      |
 //  total  --+-------------------------+      |       |       |       |      |
 //   :     vb         border                  |       |       |       |      |
-//   :     -----------------------------------+       |       |       |      | 
-//   :     vfp        front porch                     |       |       |      | 
+//   :     -----------------------------------+       |       |       |      |
+//   :     vfp        front porch                     |       |       |      |
 //   :     -------------------------------------------+       |       |      |
 //   :     vsw        sync width                              |       |      |
 //   :     ---------------------------------------------------+       |      |
@@ -166,8 +173,8 @@ typedef struct tagNVT_TIMINGEXT
 typedef struct tagNVT_TIMING
 {
     // VESA scan out timing parameters:
-    NvU16 HVisible;         //horizontal visible 
-    NvU16 HBorder;          //horizontal border 
+    NvU16 HVisible;         //horizontal visible
+    NvU16 HBorder;          //horizontal border
     NvU16 HFrontPorch;      //horizontal front porch
     NvU16 HSyncWidth;       //horizontal sync width
     NvU16 HTotal;           //horizontal total
@@ -179,12 +186,13 @@ typedef struct tagNVT_TIMING
     NvU16 VSyncWidth;       //vertical sync width
     NvU16 VTotal;           //vertical total
     NvU8  VSyncPol;         //vertical sync polarity: 1-negative, 0-positive
-    
+
     NvU16 interlaced;       //1-interlaced, 0-progressive
     NvU32 pclk;             //pixel clock in 10KHz
+    NvU32 pclk1khz;         //pixel clock in 1kHz for Type7, CVT RB2, CVT RB3
 
     //other timing related extras
-    NVT_TIMINGEXT etc;          
+    NVT_TIMINGEXT etc;
 }NVT_TIMING;
 
 #define NVT_MAX_TOTAL_TIMING                  128
@@ -210,8 +218,8 @@ typedef struct tagNVT_TIMING
 #define NVT_FRAME_HEIGHT(_vvisible_, _interlaced_) ((_vvisible_) * ((_interlaced_ != 0) ? 2 : 1))
 
 //*************************************
-// The Timing Status encoded in 
-// NVT_TIMING::NVT_TIMINGEXT::status 
+// The Timing Status encoded in
+// NVT_TIMING::NVT_TIMINGEXT::status
 //*************************************
 //
 // TIMING_STATUS has the following kinds of info:
@@ -227,13 +235,13 @@ typedef struct tagNVT_TIMING
 #define NVT_STATUS_TIMING_NATIVE_FLAG_MASK    0x80000000
 #define NVT_STATUS_TIMING_NATIVE_FLAG_SHIFT   31
 #define NVT_IS_NATIVE_TIMING(n)               (((n)&NVT_STATUS_TIMING_NATIVE_FLAG_MASK)>>NVT_STATUS_TIMING_NATIVE_FLAG_SHIFT)
-#define NVT_SET_NATIVE_TIMING_FLAG(n)         ((n)|=1U<< NVT_STATUS_TIMING_NATIVE_FLAG_SHIFT)   
+#define NVT_SET_NATIVE_TIMING_FLAG(n)         ((n)|=1U<< NVT_STATUS_TIMING_NATIVE_FLAG_SHIFT)
 #define NVT_PREFERRED_TIMING_MODE_MASK        0x2
 //
 #define NVT_STATUS_TIMING_CUST_ENTRY_MASK     0x40000000
 #define NVT_STATUS_TIMING_CUST_ENTRY_SHIFT    30
 #define NVT_IS_CUST_ENTRY(n)                  (((n)&NVT_STATUS_TIMING_CUST_ENTRY_MASK)>>NVT_STATUS_TIMING_CUST_ENTRY_SHIFT)
-#define NVT_SET_CUST_ENTRY_FLAG(n)            ((n)|=1<<NVT_STATUS_TIMING_CUST_ENTRY_SHIFT) 
+#define NVT_SET_CUST_ENTRY_FLAG(n)            ((n)|=1<<NVT_STATUS_TIMING_CUST_ENTRY_SHIFT)
 //
 #define NVT_STATUS_TIMING_CEA_FORMAT_MASK     0x3FC00000
 #define NVT_STATUS_TIMING_CEA_FORMAT_SHIFT    22
@@ -249,7 +257,7 @@ typedef struct tagNVT_TIMING
 #define NVT_SET_CEA_DMT_DUAL_STANDARD_FLAG(n) ((n)|=NVT_STATUS_TIMING_CEA_DMT_MASK)
 //
 //
-// 3. the mismatch status 
+// 3. the mismatch status
 #define NVT_STATUS_TIMING_MISMATCH_MASK       0x001F0000
 #define NVT_STATUS_TIMING_MISMATCH_SHIFT      16
 #define NVT_STATUS_TIMING_MISMATCH_SIZE       0x1     //visible width and height don't match with the asked width/height
@@ -269,7 +277,7 @@ typedef struct tagNVT_TIMING
 //
 typedef enum NVT_TIMING_TYPE
 {
-    NVT_TYPE_DMT = 1,                                 // DMT 
+    NVT_TYPE_DMT = 1,                                 // DMT
     NVT_TYPE_GTF,                                     // GTF
     NVT_TYPE_ASPR,                                    // wide aspect ratio timing, for legacy support only
     NVT_TYPE_NTSC_TV,                                 // NTSC TV timing. for legacy support only
@@ -311,13 +319,13 @@ typedef enum NVT_TIMING_TYPE
 }NVT_TIMING_TYPE;
 //
 // 5. the timing sequence number like the TV format and EIA861B predefined timing format
-//    **the numbers are chosen to match with the NV h/w format** 
+//    **the numbers are chosen to match with the NV h/w format**
 //
 #define NVT_STATUS_TIMING_SEQ_MASK            0x000000FF
 //
 typedef enum NVT_TV_FORMAT
 {
-    NVT_NTSC       = 0,    
+    NVT_NTSC       = 0,
     NVT_NTSC_M     = 0,
     NVT_NTSC_J     = 1,
     NVT_PAL        = 2,
@@ -345,7 +353,7 @@ typedef enum NVT_TV_FORMAT
 //
 // macros to set/get the timing type and seq number
 //
-#define NVT_DEF_TIMING_STATUS(type, seq)     ((((type)<<NVT_STATUS_TIMING_TYPE_SHIFT)&NVT_STATUS_TIMING_TYPE_MASK) | ((seq)&NVT_STATUS_TIMING_SEQ_MASK)) 
+#define NVT_DEF_TIMING_STATUS(type, seq)     ((((type)<<NVT_STATUS_TIMING_TYPE_SHIFT)&NVT_STATUS_TIMING_TYPE_MASK) | ((seq)&NVT_STATUS_TIMING_SEQ_MASK))
 #define NVT_SET_TIMING_STATUS_TYPE(n, type)  (((n)&(~NVT_STATUS_TIMING_TYPE_MASK)) | ((type)<<NVT_STATUS_TIMING_TYPE_SHIFT))
 #define NVT_GET_TIMING_STATUS_TYPE(n)        ((n)&NVT_STATUS_TIMING_TYPE_MASK)>>NVT_STATUS_TIMING_TYPE_SHIFT
 #define NVT_GET_TIMING_STATUS_SEQ(n)         ((n)&NVT_STATUS_TIMING_SEQ_MASK)
@@ -430,6 +438,7 @@ typedef enum NVT_TV_FORMAT
 #define NVT_STATUS_CTA861_DID_T7N(n)         NVT_DEF_TIMING_STATUS(NVT_TYPE_CTA861_DID_T7, n)
 #define NVT_STATUS_CTA861_DID_T8N(n)         NVT_DEF_TIMING_STATUS(NVT_TYPE_CTA861_DID_T8, n)
 #define NVT_STATUS_CTA861_DID_T10N(n)        NVT_DEF_TIMING_STATUS(NVT_TYPE_CTA861_DID_T10, n)
+#define NVT_STATUS_CTA861_OVT_Tn(n)          NVT_DEF_TIMING_STATUS(NVT_TYPE_CTA861_OVT, n)
 
 //********************************
 // CEA/EIA 861 related EDID info
@@ -469,7 +478,7 @@ typedef enum NVT_TV_FORMAT
 #define NVT_CEA861_TAG_VENDOR                3    // Vendor Specific Data Block
 #define NVT_CEA861_TAG_SPEAKER_ALLOC         4    // Speaker Allocation Data Block
 #define NVT_CEA861_TAG_VESA_DTC              5    // VESA DTC data block
-#define NVT_CEA861_TAG_RSVD1                 6    // reserved block
+#define NVT_CTA861_TAG_VIDEO_FORMAT          6    // Video Format Data Block in CTA861.6
 #define NVT_CEA861_TAG_EXTENDED_FLAG         7    // use Extended Tag
 //
 // the extended tag codes when NVT_CEA861_TAG_EXTENDED_FLAG
@@ -549,9 +558,9 @@ typedef enum NVT_TV_FORMAT
 #define NVT_CTA861_VIDEO_VIC_MASK            0xFF  //the VIC mask of the short video descriptor
 #define NVT_CTA861_7BIT_VIDEO_VIC_MASK       0x7F  //the 7 bits VIC mask of the short video descriptor
 #define NVT_CTA861_VIDEO_NATIVE_MASK         0x80  //the Native mask of the short video descriptor
-#define NVT_HDMI_YUV_420_PCLK_SUPPORTED_MIN  59000 //the vale shall equal or larger than 590MHz to support YCbCr in HDMI2.1
+#define NVT_HDMI_YUV_420_PCLK_SUPPORTED_MIN  590000//the vale shall equal or larger than 590MHz to support YCbCr in HDMI2.1 , unit of 1khz
 
-// CTA-861G supports more SVDs which is over 0x7F index 
+// CTA-861G supports more SVDs which is over 0x7F index
 // All value below 192 will be treated as 7 bit VIC. Value 128~192 shall be forbidden.
 #define NVT_GET_CTA_8BIT_VIC(vic)            (((vic) <= NVT_CTA861_7BIT_8BIT_SEPARATE_VALUE) ? ((vic) & NVT_CTA861_7BIT_VIDEO_VIC_MASK) : ((vic) & NVT_CTA861_VIDEO_VIC_MASK))
 //
@@ -559,11 +568,11 @@ typedef enum NVT_TV_FORMAT
 // According to CEA-861-E Spec.
 // Note 3. A video timing with a vertical frequency that is an integer multiple
 // of 6.00 Hz (i.e. 24.00, 30.00, 60.00, 120.00 or 240.00 Hz) is considered to
-// be the same as a video timing with the equivalent detailed timing 
-// information but where the vertical frequency is adjusted by a factor of 
+// be the same as a video timing with the equivalent detailed timing
+// information but where the vertical frequency is adjusted by a factor of
 // 1000/1001 (i.e., 24/1.001, 30/1.001, 60/1.001, 120/1.001 or 240/1.001).
 // Excluding ceaIndex 1 640x480 which is a PC Mode.
-#define NVT_CEA861_TIMING_FRR(_VID_, _RR_)   ((_VID_) > 1 && ((_RR_) % 6) == 0) 
+#define NVT_CTA861_TIMING_FRR(_VID_, _RR_)       ((_VID_) > 1 && ((_RR_) % 6) == 0)
 #define NVT_CEA861_640X480P_59940HZ_4X3      1     // Video Identification Code: format 1
 #define NVT_CEA861_720X480P_59940HZ_4X3      2     // Video Identification Code: format 2
 #define NVT_CEA861_720X480P_59940HZ_16X9     3     // Video Identification Code: format 3
@@ -674,7 +683,7 @@ typedef enum NVT_TV_FORMAT
 #define NVT_CEA861_4096X2160P_50000HZ_64X27   106
 #define NVT_CEA861_4096X2160P_59940HZ_64X27   107
 
-// Following modes are from CTA-861G 
+// Following modes are from CTA-861G
 #define NVT_CTA861_1280X720P_47950HZ_16X9     108
 #define NVT_CTA861_1280X720P_47950HZ_64x27    109
 #define NVT_CTA861_1680X720P_47950HZ_64x27    110
@@ -698,41 +707,102 @@ typedef enum NVT_TV_FORMAT
 
 #define NVT_CTA861_7BIT_8BIT_SEPARATE_VALUE   192
 
-#define NVT_CTA861_5120x2160p_119880HZ_64X276 193 
-#define NVT_CTA861_7680x4320p_23980HZ_16X9    194 
-#define NVT_CTA861_7680x4320p_25000HZ_16X9    195 
-#define NVT_CTA861_7680x4320p_29970HZ_16X9    196 
-#define NVT_CTA861_7680x4320p_47950HZ_16X9    197 
-#define NVT_CTA861_7680x4320p_50000HZ_16X9    198 
-#define NVT_CTA861_7680x4320p_59940HZ_16X9    199 
-#define NVT_CTA861_7680x4320p_100000HZ_16X9   200 
-#define NVT_CTA861_7680x4320p_119880HZ_16X9   201 
-#define NVT_CTA861_7680x4320p_23980HZ_64X276  202 
-#define NVT_CTA861_7680x4320p_25000HZ_64X276  203 
-#define NVT_CTA861_7680x4320p_29970HZ_64X276  204 
-#define NVT_CTA861_7680x4320p_47950HZ_64X276  205 
-#define NVT_CTA861_7680x4320p_50000HZ_64X276  206 
-#define NVT_CTA861_7680x4320p_59940HZ_64X276  207 
-#define NVT_CTA861_7680x4320p_100000HZ_64X276 208 
-#define NVT_CTA861_7680x4320p_119880HZ_64X276 209 
-#define NVT_CTA861_10240x4320p_23980HZ_64X276 210 
-#define NVT_CTA861_10240x4320p_25000HZ_64X276 211 
-#define NVT_CTA861_10240x4320p_29970HZ_64X276 212 
-#define NVT_CTA861_10240x4320p_47950HZ_64X276 213 
-#define NVT_CTA861_10240x4320p_50000HZ_64X276 214 
-#define NVT_CTA861_10240x4320p_59940HZ_64X276 215 
-#define NVT_CTA861_10240x4320p_100000HZ_64X276 216  
-#define NVT_CTA861_10240x4320p_119880HZ_64X276 217  
-#define NVT_CTA861_4096x2160p_100000HZ_256X135 218  
-#define NVT_CTA861_4096x2160p_119880HZ_256X135 219  
+#define NVT_CTA861_5120x2160p_119880HZ_64X276 193
+#define NVT_CTA861_7680x4320p_23980HZ_16X9    194
+#define NVT_CTA861_7680x4320p_25000HZ_16X9    195
+#define NVT_CTA861_7680x4320p_29970HZ_16X9    196
+#define NVT_CTA861_7680x4320p_47950HZ_16X9    197
+#define NVT_CTA861_7680x4320p_50000HZ_16X9    198
+#define NVT_CTA861_7680x4320p_59940HZ_16X9    199
+#define NVT_CTA861_7680x4320p_100000HZ_16X9   200
+#define NVT_CTA861_7680x4320p_119880HZ_16X9   201
+#define NVT_CTA861_7680x4320p_23980HZ_64X276  202
+#define NVT_CTA861_7680x4320p_25000HZ_64X276  203
+#define NVT_CTA861_7680x4320p_29970HZ_64X276  204
+#define NVT_CTA861_7680x4320p_47950HZ_64X276  205
+#define NVT_CTA861_7680x4320p_50000HZ_64X276  206
+#define NVT_CTA861_7680x4320p_59940HZ_64X276  207
+#define NVT_CTA861_7680x4320p_100000HZ_64X276 208
+#define NVT_CTA861_7680x4320p_119880HZ_64X276 209
+#define NVT_CTA861_10240x4320p_23980HZ_64X276 210
+#define NVT_CTA861_10240x4320p_25000HZ_64X276 211
+#define NVT_CTA861_10240x4320p_29970HZ_64X276 212
+#define NVT_CTA861_10240x4320p_47950HZ_64X276 213
+#define NVT_CTA861_10240x4320p_50000HZ_64X276 214
+#define NVT_CTA861_10240x4320p_59940HZ_64X276 215
+#define NVT_CTA861_10240x4320p_100000HZ_64X276 216
+#define NVT_CTA861_10240x4320p_119880HZ_64X276 217
+#define NVT_CTA861_4096x2160p_100000HZ_256X135 218
+#define NVT_CTA861_4096x2160p_119880HZ_256X135 219
 
 // When defining new CEA861 format:
 // Search code base to update array of certain category of CEA formats, such as 720p, 1080i, etc...
-// Ideally, it's better to define these groups in one module. However, they should not reside 
+// Ideally, it's better to define these groups in one module. However, they should not reside
 // in this .h file, thus updating these groups in other file is still needed.
-// example of the group: 720p: NVT_CEA861_1280X720P_59940HZ_16X9, 
+// example of the group: 720p: NVT_CEA861_1280X720P_59940HZ_16X9,
 //                             NVT_CEA861_1280X720P_100000HZ_16X9,
 //                             NVT_CEA861_1280X720P_119880HZ_16X9
+
+// According to CEA-861-I Spec.
+// Table 11 - Resoution Identification (RID)
+#define NVT_CTA861_OVT_TIMING_FRR(_FLAG_, _RR_)  (((_FLAG_) & (NVT_FLAG_CTA_OVT_TIMING)) != 0 && ((_RR_) % 6) == 0 && (_RR_) != 300)
+#define NVT_CTA861_RID_NONE                NVT_INFOFRAME_CTRL_DONTCARE
+#define NVT_CTA861_RID_1280x720p_16x9      1
+#define NVT_CTA861_RID_1280x720p_64x27     2
+#define NVT_CTA861_RID_1680x720p_64x27     3
+#define NVT_CTA861_RID_1920x1080p_16x9     4
+#define NVT_CTA861_RID_1920x1080p_64x27    5
+#define NVT_CTA861_RID_2560x1080p_64x27    6
+#define NVT_CTA861_RID_3840x1080p_32x9     7
+#define NVT_CTA861_RID_2560x1440p_16x9     8
+#define NVT_CTA861_RID_3440x1440p_64x27    9
+#define NVT_CTA861_RID_5120x1440p_32x9     10
+#define NVT_CTA861_RID_3840x2160p_16x9     11
+#define NVT_CTA861_RID_3840x2160p_64x27    12
+#define NVT_CTA861_RID_5120x2160p_64x27    13
+#define NVT_CTA861_RID_7680x2160p_32x9     14
+#define NVT_CTA861_RID_5120x2880p_16x9     15
+#define NVT_CTA861_RID_5120x2880p_64x27    16
+#define NVT_CTA861_RID_6880x2880p_64x27    17
+#define NVT_CTA861_RID_10240x2880p_32x9    18
+#define NVT_CTA861_RID_7680x4320p_16x9     19
+#define NVT_CTA861_RID_7680x4320p_64x27    20
+#define NVT_CTA861_RID_10240x4320p_64x27   21
+#define NVT_CTA861_RID_15360x4320p_32x9    22
+#define NVT_CTA861_RID_11520x6480p_16x9    23
+#define NVT_CTA861_RID_11520x6480p_64x27   24
+#define NVT_CTA861_RID_15360x6480p_64x27   25
+#define NVT_CTA861_RID_15360x8640p_16x9    26
+#define NVT_CTA861_RID_15360x8640p_64x27   27
+#define NVT_CTA861_RID_20480x8640p_64x27   28
+#define NVT_CTA861_RID_EXCEED_RESOLUTION   NVT_CTA861_RID_NONE
+
+// Table 12 - AVI InfoFrame Video Format Frame Rate
+#define NVT_CTA861_FR_NO_DATA              NVT_INFOFRAME_CTRL_DONTCARE
+#define NVT_CTA861_FR_2398                 1
+#define NVT_CTA861_FR_2400                 2
+#define NVT_CTA861_FR_2500                 3
+#define NVT_CTA861_FR_2997                 4
+#define NVT_CTA861_FR_3000                 5
+#define NVT_CTA861_FR_4795                 6
+#define NVT_CTA861_FR_4800                 7
+#define NVT_CTA861_FR_5000                 8
+#define NVT_CTA861_FR_5994                 9
+#define NVT_CTA861_FR_6000                 10
+#define NVT_CTA861_FR_10000                11
+#define NVT_CTA861_FR_11988                12
+#define NVT_CTA861_FR_12000                13
+#define NVT_CTA861_FR_14386                14
+#define NVT_CTA861_FR_14400                15
+#define NVT_CTA861_FR_20000                16
+#define NVT_CTA861_FR_23976                17
+#define NVT_CTA861_FR_24000                18
+#define NVT_CTA861_FR_30000                19
+#define NVT_CTA861_FR_35964                20
+#define NVT_CTA861_FR_36000                21
+#define NVT_CTA861_FR_40000                22
+#define NVT_CTA861_FR_47952                23
+#define NVT_CTA861_FR_48000                24
 
 //*************************
 // short audio descriptor
@@ -743,7 +813,7 @@ typedef enum NVT_TV_FORMAT
                                               (NVT_CEA861_MAX_PAYLOAD % NVT_CEA861_SD_TOTAL_SIZE - NVT_CEA861_SD_HEADER_SIZE) / NVT_CEA861_AUDIO_SD_SIZE)
 //
 // short audio descriptor - byte 1
-#define NVT_CEA861_AUDIO_FORMAT_MASK         0x78  //the audio format mask of the CEA short 
+#define NVT_CEA861_AUDIO_FORMAT_MASK         0x78  //the audio format mask of the CEA short
 #define NVT_CEA861_AUDIO_FORMAT_SHIFT        3     //the audio format data shift
 //
 #define NVT_CEA861_AUDIO_FORMAT_RSVD         0     // short audio descriptor format - reserved
@@ -845,7 +915,68 @@ typedef struct VSVDB_DATA
     NvU8       vendor_data[NVT_CEA861_VSVDB_PAYLOAD_MAX_LENGTH];
 } VSVDB_DATA;
 
+//*******************************
+// Video Format Data Block (VFDB)
+//*******************************
+
+#define NVT_CTA861_VF_MAX_BLOCKS         4
+#define NVT_CTA861_VF_MAX_DESCRIPTORS    30
+
+#define NVT_CTA861_VF_RID_MASK           0x3F
+
+typedef struct tagNVT_RID_CODES
+{
+    NvU16 HVisible;   // horizontal visible
+    NvU8  HSyncPol;   // horizontal sync polarity: 1-negative, 0-positive
+    NvU16 VVisible;   // vertical visible
+    NvU8  VSyncPol;   // vertical sync polarity: 1-negative, 0-positive
+    NvU16 interlaced; // 1-interlaced, 0-progressive
+    NvU32 aspect;     // the display aspect ratio Hi(aspect):horizontal-aspect, Low(aspect):vertical-aspect
+    NvU8  rid;        // Resolution Identification (RID)
+} NVT_RID_CODES;
+
 #pragma pack(1)
+typedef struct tagVFD_ONE_BYTE
+{
+    NvU8 rid          : 6;
+    NvU8 fr24         : 1;
+    NvU8 bfr50        : 1;
+} VFD_ONE_BYTE;
+
+typedef struct tagVFD_TWO_BYTE
+{
+    VFD_ONE_BYTE in_onebyte;
+    NvU8 frRate       : 6;
+    NvU8 fr144        : 1;
+    NvU8 bfr60        : 1;
+} VFD_TWO_BYTE;
+
+typedef struct tagVFD_THREE_BYTE
+{
+    VFD_TWO_BYTE in_twobyte;
+    NvU8 fr48         : 1;
+    NvU8 f31_37       : 7;
+} VFD_THREE_BYTE;
+
+typedef struct tagVFD_FOUR_BYTE
+{
+    VFD_THREE_BYTE in_threebyte;
+    NvU8           f40_47;
+} VFD_FOUR_BYTE;
+
+typedef struct tagVFDB_DATA
+{
+    struct {
+        NvU8 vfd_len  : 2;
+        NvU8 f22_25   : 4;
+        NvU8 ntsc     : 1;
+        NvU8 y420     : 1;
+    } info;
+
+    NvU8 total_vfd;
+    NvU8 video_format_desc[NVT_CTA861_VF_MAX_DESCRIPTORS];
+} VFDB_DATA;
+
 typedef struct tagNVT_DV_STATIC_METADATA_TYPE0
 {
     // first byte
@@ -945,7 +1076,7 @@ typedef struct tagNVT_DV_STATIC_METADATA_TYPE1_1
     //sixth byte
     NvU8 unique_Ry_bit_1             : 1;
     NvU8 unique_Gy                   : 7;
-    
+
     //seventh byte
     NvU8 unique_Rx                   : 5;
     NvU8 unique_Ry_bit_2_to_4        : 3;
@@ -975,7 +1106,7 @@ typedef struct tagNVT_DV_STATIC_METADATA_TYPE2
     NvU8 unique_Gx                   : 7;
 
     //fifth byte
-    NvU8 supports_10b_12b_444_bit0   : 1; 
+    NvU8 supports_10b_12b_444_bit0   : 1;
     NvU8 unique_Gy                   : 7;
 
     //sixth byte
@@ -1015,7 +1146,7 @@ typedef struct tagNVT_HDR10PLUS_INFO
 #define NVT_CEA861_COLORIMETRY_BT2020YCC     0x40  // BT2020 Y'CbCr capable
 #define NVT_CEA861_COLORIMETRY_BT2020RGB     0x80  // BT2020 RGB capable
 // Colorimetry capabilities - byte 4
-#define NVT_CEA861_COLORIMETRY_defaultRGB    0x10 // based on the default chromaticity in Basic Display Parameters and Feature Block 
+#define NVT_CEA861_COLORIMETRY_defaultRGB    0x10 // based on the default chromaticity in Basic Display Parameters and Feature Block
 #define NVT_CEA861_COLORIMETRY_sRGB          0x20 // IEC 61966-2-1
 #define NVT_CEA861_COLORIMETRY_ICtCp         0x40 // ITU-R BT.2100 ICtCp
 #define NVT_CEA861_COLORIMETRY_ST2113RGB     0x80 // SMPTE ST 2113 R'G'B'
@@ -1140,7 +1271,7 @@ typedef struct tagNVT_2BYTES
 #define NVT_CTA861_DID_TYPE7_DESCRIPTORS_LENGTH 20
 
 typedef struct tagDID_TYPE7_DATA
-{ 
+{
     struct {
         NvU8 revision : 3;
         NvU8 dsc_pt   : 1;
@@ -1162,7 +1293,7 @@ typedef struct tagDID_TYPE7_DATA
 #define NVT_CTA861_DID_TYPE8_TWO_BYTE_DESCRIPTORS_MAX  14
 
 typedef struct tagDID_TYPE8_DATA
-{ 
+{
     struct {
         NvU8 revision  : 3;
         NvU8 tcs       : 1;
@@ -1182,7 +1313,7 @@ typedef struct tagDID_TYPE8_DATA
 #define NVT_CTA861_DID_TYPE10_DESCRIPTORS_MAX    4
 
 typedef struct tagDID_TYPE10_DATA
-{ 
+{
     struct {
         NvU8 revision : 3;
         NvU8 F33      : 1;
@@ -1217,7 +1348,7 @@ typedef struct tagNATIVE_VIDEO_RESOLUTION_DATA
 
 #pragma pack()
 
-// See CEA-861E, Table 42, 43 Extended Tags; indicates that the corresponding CEA extended data block value is valid, 
+// See CEA-861E, Table 42, 43 Extended Tags; indicates that the corresponding CEA extended data block value is valid,
 // e.g. if colorimetry is set, then NVT_EDID_CEA861_INFO::colorimetry is valid
 typedef struct tagNVT_VALID_EXTENDED_BLOCKS
 {
@@ -1245,14 +1376,14 @@ typedef struct tagNVT_VALID_EXTENDED_BLOCKS
 #define NVT_CEA861_Y420VDB_SD_SIZE              1
 
 // Max number of YUV420 VDBs for each VDB block is 30 per CTA-861-G spec sec. 7.5.10
-// Accomodate 2 blocks 
+// Accomodate 2 blocks
 #define NVT_CEA861_Y420VDB_MAX_DESCRIPTOR       60
 
 #define NVT_CEA861_Y420CMDB_SD_SIZE             1
 
 // Max number of YUV420 SVDs for each VDB block is 30 per CTA-861-G spec sec. 7.5.11
-// Accomodate 2 blocks 
-#define NVT_CEA861_Y420CMDB_MAX_DESCRIPTOR      60 
+// Accomodate 2 blocks
+#define NVT_CEA861_Y420CMDB_MAX_DESCRIPTOR      60
 #define NVT_CEA861_VFPDB_SD_SIZE                1
 #define NVT_CEA861_VFPDB_MAX_DESCRIPTOR         16  // NOTE: Limiting to 16 to not allocate too much space.  The maximum descriptor should be:
                                                     // ((NVT_CEA861_MAX_PAYLOAD / NVT_CEA861_SD_TOTAL_SIZE) * (NVT_CEA861_SD_PAYLOAD_SIZE / NVT_CEA861_VFPDB_SD_SIZE) +
@@ -1290,7 +1421,11 @@ typedef struct tagEDID_CEA861_INFO
     // vendor specific video data
     NvU8       total_vsvdb;
     VSVDB_DATA vsvdb[NVT_CEA861_VSVDB_MAX_BLOCKS];
- 
+
+    // video format data
+    NvU8       total_vfdb;
+    VFDB_DATA  vfdb[NVT_CTA861_VF_MAX_BLOCKS];
+
     // indicates which of the extended data blocks below contain valid data excluding extended blocks with total count
     NVT_VALID_EXTENDED_BLOCKS   valid;
     // extended data blocks
@@ -1409,7 +1544,7 @@ typedef struct _tagNVT_DISPLAYID_INFO
     NvU8    week;
     NvU8    year;
     NvU8    product_string[NVT_DISPLAYID_PRODUCT_STRING_MAX_LEN + 1];
-    
+
     // Display Parameters
     NvU16   horiz_size;
     NvU16   vert_size;
@@ -1470,7 +1605,7 @@ typedef struct _tagNVT_DISPLAYID_INFO
 
     union
     {
-        struct 
+        struct
         {
             NvU8 rsvd          : 3;
             NvU8 color_map     : 1;
@@ -1495,9 +1630,9 @@ typedef struct _tagNVT_DISPLAYID_INFO
 
     // Stereo Interface
     NvU8     stereo_code;
-    union 
+    union
     {
-        struct 
+        struct
         {
             NvU8 stereo_polarity;
         } field_sequential;
@@ -1506,19 +1641,19 @@ typedef struct _tagNVT_DISPLAYID_INFO
         {
             NvU8 view_identity;
         } side_by_side;
-        
-        struct 
+
+        struct
         {
             NvU8 interleave_pattern[8];
         } pixel_interleaved;
-        
+
         struct
         {
             NvU8 rsvd          : 5;
             NvU8 mirroring     : 2;
             NvU8 polarity      : 1;
         } left_right_separate;
-        
+
         struct
         {
             NvU8 num_views;
@@ -1536,7 +1671,7 @@ typedef struct _tagNVT_DISPLAYID_INFO
     } tile_capability;
 
     struct
-    {    
+    {
         NvU32 row;
         NvU32 col;
     } tile_topology;
@@ -1580,7 +1715,7 @@ typedef struct _tagNVT_DISPLAYID_INFO
 
             NvU8    interface_version;
 
-            struct 
+            struct
             {
                 NvU8 rsvd              : 2;
                 NvU8 support_16b       : 1;
@@ -1591,7 +1726,7 @@ typedef struct _tagNVT_DISPLAYID_INFO
                 NvU8 support_6b        : 1;
             } rgb_depth;
 
-            struct 
+            struct
             {
                 NvU8 rsvd              : 2;
                 NvU8 support_16b       : 1;
@@ -1602,7 +1737,7 @@ typedef struct _tagNVT_DISPLAYID_INFO
                 NvU8 support_6b        : 1;
             } ycbcr444_depth;
 
-            struct 
+            struct
             {
                 NvU8 rsvd              : 3;
                 NvU8 support_16b       : 1;
@@ -1621,9 +1756,9 @@ typedef struct _tagNVT_DISPLAYID_INFO
         } display_interface;
 
         //display interface features for DID2.0
-        struct 
+        struct
         {
-            struct 
+            struct
             {
                 NvU8 rsvd              : 2;
                 NvU8 support_16b       : 1;
@@ -1633,8 +1768,8 @@ typedef struct _tagNVT_DISPLAYID_INFO
                 NvU8 support_8b        : 1;
                 NvU8 support_6b        : 1;
             } rgb_depth;
-            
-            struct 
+
+            struct
             {
                 NvU8 rsvd              : 2;
                 NvU8 support_16b       : 1;
@@ -1644,8 +1779,8 @@ typedef struct _tagNVT_DISPLAYID_INFO
                 NvU8 support_8b        : 1;
                 NvU8 support_6b        : 1;
             } ycbcr444_depth;
-            
-            struct 
+
+            struct
             {
                 NvU8 rsvd              : 3;
                 NvU8 support_16b       : 1;
@@ -1655,7 +1790,7 @@ typedef struct _tagNVT_DISPLAYID_INFO
                 NvU8 support_8b        : 1;
             } ycbcr422_depth;
 
-            struct 
+            struct
             {
                 NvU8 rsvd              : 3;
                 NvU8 support_16b       : 1;
@@ -1710,7 +1845,7 @@ typedef struct _tagNVT_DISPLAYID_INFO
 } NVT_DISPLAYID_INFO;
 
 //***********************************
-// EDID 18-byte display descriptors 
+// EDID 18-byte display descriptors
 //***********************************
 //
 //
@@ -1811,7 +1946,7 @@ typedef struct tagNVT_EDID_RANGE_LIMIT
 #define NVT_EDID_CVT_ASPECT_PREFER_16X10    0x02
 #define NVT_EDID_CVT_ASPECT_PREFER_5X4      0x03
 #define NVT_EDID_CVT_ASPECT_PREFER_15X9     0x04
- 
+
 // cvt blanking support
 #define NVT_EDID_CVT_BLANKING_STANDARD      0x01
 #define NVT_EDID_CVT_BLANKING_REDUCED       0x02
@@ -2049,7 +2184,7 @@ typedef struct tagNVT_EDID_18BYTE_DESCRIPTOR
 //
 #define NVT_EDID_MAX_LONG_DISPLAY_DESCRIPTOR 4
 #define NVT_EDID_MAX_STANDARD_TIMINGS        8
-#define NVT_EDID_MAX_TOTAL_TIMING            NVT_MAX_TOTAL_TIMING 
+#define NVT_EDID_MAX_TOTAL_TIMING            NVT_MAX_TOTAL_TIMING
 #define NVT_EDID_VER_1_1                     0x101
 #define NVT_EDID_VER_1_2                     0x102
 #define NVT_EDID_VER_1_3                     0x103
@@ -2110,7 +2245,7 @@ typedef struct _HDMI3DDetails
 typedef struct _SupportMap
 {
     HDMI3DDETAILS map[MAX_3D_VICS_SUPPORTED];
-    NvU32 total;   
+    NvU32 total;
 } HDMI3DSUPPORTMAP;
 
 typedef struct tagNVT_EXT_TIMING
@@ -2250,7 +2385,7 @@ typedef struct tagNVT_HDMI_FORUM_INFO
 
     NvU8  qms_tfr_min               :  1;
     NvU8  qms_tfr_max               :  1;
-    NvU16 dsc_MaxSlices             :  6;    
+    NvU16 dsc_MaxSlices             :  6;
     NvU16 dsc_MaxPclkPerSliceMHz    : 10;
 
     NvU8 dsc_10bpc                  :  1;
@@ -2312,7 +2447,7 @@ typedef struct tagNVT_DV_STATIC_METADATA
 }NVT_DV_STATIC_METADATA;
 
 //***********************************
-// parsed DisplayID 2.0 definitions 
+// parsed DisplayID 2.0 definitions
 //***********************************
 #define NVT_DISPLAYID_2_0_PRODUCT_STRING_MAX_LEN      236
 
@@ -2321,7 +2456,7 @@ typedef struct tagNVT_DV_STATIC_METADATA
 #define NVT_DISPLAY_2_0_CAP_YCbCr_444             0x20 // DTV monitor supports YCbCr4:4:4
 #define NVT_DISPLAY_2_0_CAP_YCbCr_422             0x10 // DTV monitor supports YCbCr4:2:2
 
-// vendor specific 
+// vendor specific
 #define NVT_VESA_VENDOR_SPECIFIC_IEEE_ID                 0x3A0292
 #define NVT_VESA_VENDOR_SPECIFIC_LENGTH                  7
 
@@ -2408,7 +2543,7 @@ typedef struct _tagNVT_DISPLAYID_TILED_DISPLAY_TOPOLOGY
     } capability;
 
     struct
-    {    
+    {
         NvU32 row;
         NvU32 col;
     } topology;
@@ -2516,7 +2651,7 @@ typedef struct _tagNVT_DISPLAYID_DISPLAY_PARAMETERS
     NVT_COLOR_POINT                 white;
     NVT_NATIVE_LUMINANCE_INFO       native_luminance_info;
     NvU16                           native_max_luminance_full_coverage;
-    NvU16                           native_max_luminance_1_percent_rect_coverage;
+    NvU16                           native_max_luminance_10_percent_rect_coverage;
     NvU16                           native_min_luminance;
     NVT_COLORDEPTH                  native_color_depth;
     NvU16                           gamma_x100;
@@ -2533,11 +2668,11 @@ typedef struct _tagNVT_DISPLAYID_ADAPTIVE_SYNC
         struct
         {
             NvU8  adaptive_sync_range       : 1;
-            NvU8  duration_inc_flicker_perf : 1; 
+            NvU8  duration_inc_flicker_perf : 1;
             NvU8  modes                     : 2;
             NvU8  seamless_not_support      : 1;
             NvU8  duration_dec_flicker_perf : 1;
-            NvU8  reserved                  : 2;            
+            NvU8  reserved                  : 2;
         } information;
     } u;
 
@@ -2549,7 +2684,7 @@ typedef struct _tagNVT_DISPLAYID_ADAPTIVE_SYNC
 
 typedef struct _tagVESA_VSDB_PARSED_INFO
 {
-    struct 
+    struct
     {
         NvU8 type                      : 3;
         NvU8 reserved                  : 4;
@@ -2578,7 +2713,7 @@ typedef struct _tagVESA_VSDB_PARSED_INFO
 } VESA_VSDB_PARSED_INFO;
 
 typedef struct _tagNVT_DISPLAYID_VENDOR_SPECIFIC
-{    
+{
     NVT_HDMI_LLC_INFO              hdmiLlc;
     NVT_HDMI_FORUM_INFO            hfvs;
     NVDA_VSDB_PARSED_INFO          nvVsdb;
@@ -2593,6 +2728,14 @@ typedef struct _tagNVT_DISPLAYID_CTA
     NVT_DV_STATIC_METADATA         dvInfo;
     NVT_HDR10PLUS_INFO             hdr10PlusInfo;
 } NVT_DISPLAYID_CTA;
+
+typedef struct _tagNVT_DISPLAYID_BRIGHTNESS_LUMINANCE_RANGE
+{
+    NvU32   revision;
+    NvU16   min_sdr_luminance;
+    NvU16   max_sdr_luminance;
+    NvU16   max_boost_sdr_luminance;
+} NVT_DISPLAYID_BRIGHTNESS_LUMINANCE_RANGE;
 
 typedef struct _tagNVT_VALID_DATA_BLOCKS
 {
@@ -2610,72 +2753,76 @@ typedef struct _tagNVT_VALID_DATA_BLOCKS
     NvBool adaptive_sync_present;
     NvBool arvr_hmd_present;
     NvBool arvr_layer_present;
+    NvBool brightness_luminance_range_present;
     NvBool vendor_specific_present;
     NvBool cta_data_present;
 } NVT_VALID_DATA_BLOCKS;
 
-#define NVT_DISPLAYID_MAX_TOTAL_TIMING            NVT_MAX_TOTAL_TIMING 
+#define NVT_DISPLAYID_MAX_TOTAL_TIMING            NVT_MAX_TOTAL_TIMING
 typedef struct _tagNVT_DISPLAYID_2_0_INFO
 {
-    NvU8                                    revision;
-    NvU8                                    version;
-    
+    NvU8                                      revision;
+    NvU8                                      version;
+
     // support audio/yuv444/yuv422 color for CTA861 compatible
-    NvU8                                    basic_caps;
+    NvU8                                      basic_caps;
 
     // the all extensions that may appear following the base section
-    NvU32                                   extension_count;
+    NvU32                                     extension_count;
 
     // this displayID20 is EDID extension or not
-    NvBool                                  as_edid_extension;
+    NvBool                                    as_edid_extension;
 
     // data blocks present or not
-    NVT_VALID_DATA_BLOCKS                   valid_data_blocks;
+    NVT_VALID_DATA_BLOCKS                     valid_data_blocks;
 
-    NVT_DISPLAYID_PRODUCT_PRIMARY_USE_CASE  primary_use_case;
+    NVT_DISPLAYID_PRODUCT_PRIMARY_USE_CASE    primary_use_case;
 
     // Product Identification Data Block (Mandatory)
-    NVT_DISPLAYID_PRODUCT_IDENTITY          product_identity;
+    NVT_DISPLAYID_PRODUCT_IDENTITY            product_identity;
 
     // Display Parameter Data Block (Mandatory for Display Use)
-    NVT_DISPLAYID_DISPLAY_PARAMETERS        display_param;
+    NVT_DISPLAYID_DISPLAY_PARAMETERS          display_param;
 
     // Detailed Timing Data Block (Mandatory for Display Use)
-    NvU32                                   total_timings;
-    NVT_TIMING                              timing[NVT_DISPLAYID_MAX_TOTAL_TIMING];
+    NvU32                                     total_timings;
+    NVT_TIMING                                timing[NVT_DISPLAYID_MAX_TOTAL_TIMING];
 
     // Enumerated Timing Code Data Block (Not Mandatory)
 
     // Formula-based Timing Data Block (Not Mandatory)
 
     // Dynamic Video Timing Range Limits Data Block (Not Mandatory)
-    NVT_DISPLAYID_RANGE_LIMITS              range_limits;
+    NVT_DISPLAYID_RANGE_LIMITS                range_limits;
 
-    // Display Interface Features Data Block (Mandatory)    
-    NVT_DISPLAYID_INTERFACE_FEATURES        interface_features;
+    // Display Interface Features Data Block (Mandatory)
+    NVT_DISPLAYID_INTERFACE_FEATURES          interface_features;
 
     // Stereo Display Interface Data Block (Not Mandatory)
-    
+
     // Tiled Display Topology Data Block (Not Mandatory)
-    NVT_DISPLAYID_TILED_DISPLAY_TOPOLOGY    tile_topo;
+    NVT_DISPLAYID_TILED_DISPLAY_TOPOLOGY      tile_topo;
 
     // ContainerID Data Block (Mandatory for Multi-function Device)
-    NVT_DISPLAYID_CONTAINERID               container_id;
+    NVT_DISPLAYID_CONTAINERID                 container_id;
 
     // Adaptive-Sync Data Block (Mandatory for display device supports Adaptive-Sync)
-    NvU32                                   total_adaptive_sync_descriptor;
-    NVT_DISPLAYID_ADAPTIVE_SYNC             adaptive_sync_descriptor[NVT_ADAPTIVE_SYNC_DESCRIPTOR_MAX_COUNT];
+    NvU32                                     total_adaptive_sync_descriptor;
+    NVT_DISPLAYID_ADAPTIVE_SYNC               adaptive_sync_descriptor[NVT_ADAPTIVE_SYNC_DESCRIPTOR_MAX_COUNT];
+
+    // Brightness Luminance Range Data Block (Mandatory for display device supports Nits based brightness control)
+    NVT_DISPLAYID_BRIGHTNESS_LUMINANCE_RANGE  luminance_ranges;
 
     // Vendor-specific Data Block (Not Mandatory)
-    NVT_DISPLAYID_VENDOR_SPECIFIC           vendor_specific;
+    NVT_DISPLAYID_VENDOR_SPECIFIC             vendor_specific;
 
     // CTA DisplayID Data Block (Not Mandatory)
-    NVT_DISPLAYID_CTA                       cta;
+    NVT_DISPLAYID_CTA                         cta;
 } NVT_DISPLAYID_2_0_INFO;
 
 #define NVT_EDID_PRIMARY_COLOR_FP2INT_FACTOR 1024  // Per EDID 1.4, 10bit color primary is encoded in floating point as (bit9/2 + bit8/4 + bi7/8 + ... + bit0)
 typedef struct tagNVT_EDID_INFO
-{ 
+{
     // generic edid info
     NvU32  version;
     NvU16  manuf_id;
@@ -2730,7 +2877,7 @@ typedef struct tagNVT_EDID_INFO
             NvU8  support_active_off            : 1;
             NvU8  support_suspend               : 1;
             NvU8  support_standby               : 1;
-            
+
         } feature_ver_1_3;
         struct
         {
@@ -2751,7 +2898,7 @@ typedef struct tagNVT_EDID_INFO
             NvU8  support_ycrcb_422             : 1;
             NvU8  support_active_off            : 1;
             NvU8  support_suspend               : 1;
-            NvU8  support_standby               : 1;   
+            NvU8  support_standby               : 1;
         } feature_ver_1_4_digital;
     }u;
 
@@ -2780,7 +2927,7 @@ typedef struct tagNVT_EDID_INFO
     // the parse timing
     NVT_TIMING timing[NVT_EDID_MAX_TOTAL_TIMING];
 
-    // Note: This contains the timing after validation. 
+    // Note: This contains the timing after validation.
     NvU32  total_timings;
 
     // This contains the count timing that were invalidated because they don't meet
@@ -2791,7 +2938,7 @@ typedef struct tagNVT_EDID_INFO
     NvU32  HDMI3DSupported;
 
     HDMI3DSUPPORTMAP        Hdmi3Dsupport;
- 
+
     // Data parsed from NVDA VSDB - Variable Refresh Rate Monitor capabilities
     NVDA_VSDB_PARSED_INFO   nvdaVsdbInfo;
 
@@ -2846,6 +2993,7 @@ typedef enum
     NVT_PROTOCOL_UNKNOWN = 0,
     NVT_PROTOCOL_DP      = 1,
     NVT_PROTOCOL_HDMI    = 2,
+    NVT_PROTOCOL_DVI     = 3,
 } NVT_PROTOCOL;
 
 // the display interface/connector claimed by the EDID
@@ -2858,14 +3006,14 @@ typedef enum
 
 
 // the EDID extension TAG
-#define NVT_EDID_EXTENSION_CTA                       0x02  // CTA 861 series extensions
-#define NVT_EDID_EXTENSION_VTB                       0x10  // video timing block extension
-#define NVT_EDID_EXTENSION_DI                        0x40  // display information extension
-#define NVT_EDID_EXTENSION_LS                        0x50  // localized string extension
-#define NVT_EDID_EXTENSION_DPVL                      0x60  // digital packet video link extension
-#define NVT_EDID_EXTENSION_DISPLAYID                 0x70  // display id
-#define NVT_EDID_EXTENSION_BM                        0xF0  // extension block map
-#define NVT_EDID_EXTENSION_OEM                       0xFF  // extension defined by the display manufacturer
+#define NVT_EDID_EXTENSION_CTA              0x02  // CTA 861 series extensions
+#define NVT_EDID_EXTENSION_VTB              0x10  // video timing block extension
+#define NVT_EDID_EXTENSION_DI               0x40  // display information extension
+#define NVT_EDID_EXTENSION_LS               0x50  // localized string extension
+#define NVT_EDID_EXTENSION_DPVL             0x60  // digital packet video link extension
+#define NVT_EDID_EXTENSION_DISPLAYID        0x70  // display id
+#define NVT_EDID_EXTENSION_BM               0xF0  // extension block map
+#define NVT_EDID_EXTENSION_OEM              0xFF  // extension defined by the display manufacturer
 
 //************************************
 // Audio and Video Infoframe Control
@@ -2894,6 +3042,9 @@ typedef struct tagNVT_VIDEO_INFOFRAME_CTRL
     NvU16 bottom_bar;
     NvU16 left_bar;
     NvU16 right_bar;
+    NvU8  addition_colorimetry_ext;
+    NvU8  frame_rate;
+    NvU8  rid;
 }NVT_VIDEO_INFOFRAME_CTRL;
 
 //
@@ -2910,8 +3061,8 @@ typedef struct tagNVT_AUDIO_INFOFRAME_CTRL
 
 typedef struct tagNVT_VENDOR_SPECIFIC_INFOFRAME_CTRL
 {
-    NvU32           Enable;
-    NvU8            HDMIRevision;
+    NvU8            Enable;
+    NvU8            VSIFVersion;
     NvU8            HDMIFormat;
     NvU8            HDMI_VIC;
     NvBool          ALLMEnable;
@@ -2924,6 +3075,10 @@ typedef struct tagNVT_VENDOR_SPECIFIC_INFOFRAME_CTRL
 } NVT_VENDOR_SPECIFIC_INFOFRAME_CTRL;
 #define NVT_3D_METADTATA_TYPE_PARALAX   0x00
 #define NVT_3D_METADTATA_PARALAX_LEN    0x08
+#define NVT_VSIF_VERSION_NONE              0
+#define NVT_VSIF_VERSION_H14B_VSIF        14
+#define NVT_VSIF_VERSION_HF_VSIF          20
+
 
 #define NVT_EXTENDED_METADATA_PACKET_INFOFRAME_VER_HDMI21      0x0
 #define NVT_EXTENDED_METADATA_PACKET_INFOFRAME_VER_HDMI21A     0x1
@@ -2936,12 +3091,16 @@ typedef struct tagNVT_EXTENDED_METADATA_PACKET_INFOFRAME_CTRL
     NvU32 ReducedBlanking;
     NvU32 BaseRefreshRate;
     NvU32 EnableQMS;
+    NvU32 NextTFR;
+    NvU32 Sync;
+    NvU32 MConst;
 } NVT_EXTENDED_METADATA_PACKET_INFOFRAME_CTRL;
 
 typedef struct tagNVT_ADAPTIVE_SYNC_SDP_CTRL
 {
     NvU32   minVTotal;
     NvU32   targetRefreshRate;
+    NvU32   srCoastingVTotal;
     NvBool  bFixedVTotal;
     NvBool  bRefreshRateDivider;
 }NVT_ADAPTIVE_SYNC_SDP_CTRL;
@@ -3009,7 +3168,7 @@ typedef struct tagNVT_VIDEO_INFOFRAME
     NvU8 byte4;
     NvU8 byte5;
 
-    // byte 6~13 
+    // byte 6~13
     NvU8 top_bar_low;
     NvU8 top_bar_high;
     NvU8 bottom_bar_low;
@@ -3018,6 +3177,10 @@ typedef struct tagNVT_VIDEO_INFOFRAME
     NvU8 left_bar_high;
     NvU8 right_bar_low;
     NvU8 right_bar_high;
+
+    // byte 14~15
+    NvU8 byte14;
+    NvU8 byte15;
 }NVT_VIDEO_INFOFRAME;
 //
 #define NVT_VIDEO_INFOFRAME_VERSION_1                     1
@@ -3041,26 +3204,27 @@ typedef struct tagNVT_VIDEO_INFOFRAME
 //
 #define NVT_VIDEO_INFOFRAME_BYTE1_A0_MASK                 0x10    // active format info present
 #define NVT_VIDEO_INFOFRAME_BYTE1_A0_SHIFT                4       // active format info present
-#define NVT_VIDEO_INFOFRAME_BYTE1_A0_NO_DATA              0      
+#define NVT_VIDEO_INFOFRAME_BYTE1_A0_NO_DATA              0
 #define NVT_VIDEO_INFOFRAME_BYTE1_A0_VALID                1
 //
 // CTA-861G new requirement - DD changed this policy
 #define NVT_VIDEO_INFOFRAME_BYTE1_Y2_MASK                 8
 #define NVT_VIDEO_INFOFRAME_BYTE1_Y2Y1Y0_MASK             0xE0
 #define NVT_VIDEO_INFOFRAME_BYTE1_Y2Y1Y0_SHIFT            0x5
-#define NVT_VIDEO_INFOFRAME_BYTE1_Y2Y1Y0_RGB              0 
+#define NVT_VIDEO_INFOFRAME_BYTE1_Y2Y1Y0_RGB              0
 #define NVT_VIDEO_INFOFRAME_BYTE1_Y2Y1Y0_YCbCr422         1
-#define NVT_VIDEO_INFOFRAME_BYTE1_Y2Y1Y0_YCbCr444         2 
+#define NVT_VIDEO_INFOFRAME_BYTE1_Y2Y1Y0_YCbCr444         2
 #define NVT_VIDEO_INFOFRAME_BYTE1_Y2Y1Y0_YCbCr420         3
 #define NVT_VIDEO_INFOFRAME_BYTE1_Y2Y1Y0_FUTURE           3 // nvlEscape still uses this line 4266
+// CTA-861I new requirement
 #define NVT_VIDEO_INFOFRAME_BYTE1_Y2Y1Y0_IDODEFINED       7
 // CEA-861-F - Unix still used this one
 #define NVT_VIDEO_INFOFRAME_BYTE1_Y1Y0_MASK               0x60
 #define NVT_VIDEO_INFOFRAME_BYTE1_Y1Y0_SHIFT              0x5
-#define NVT_VIDEO_INFOFRAME_BYTE1_Y1Y0_RGB                0 
+#define NVT_VIDEO_INFOFRAME_BYTE1_Y1Y0_RGB                0
 #define NVT_VIDEO_INFOFRAME_BYTE1_Y1Y0_YCbCr422           1
-#define NVT_VIDEO_INFOFRAME_BYTE1_Y1Y0_YCbCr444           2 
-#define NVT_VIDEO_INFOFRAME_BYTE1_Y1Y0_YCbCr420           3 
+#define NVT_VIDEO_INFOFRAME_BYTE1_Y1Y0_YCbCr444           2
+#define NVT_VIDEO_INFOFRAME_BYTE1_Y1Y0_YCbCr420           3
 #define NVT_VIDEO_INFOFRAME_BYTE1_Y1Y0_FUTURE             3 // nvlEscape still uses this lline 4266
 //
 #define NVT_VIDEO_INFOFRAME_BYTE1_RESERVED_MASK           0x80  // for Inforframe V1 / V2
@@ -3086,7 +3250,7 @@ typedef struct tagNVT_VIDEO_INFOFRAME
 #define NVT_VIDEO_INFOFRAME_BYTE2_C1C0_SMPTE170M_ITU601   1
 #define NVT_VIDEO_INFOFRAME_BYTE2_C1C0_ITU709             2
 #define NVT_VIDEO_INFOFRAME_BYTE2_C1C0_EXT_COLORIMETRY    3
-//  
+//
 #define NVT_VIDEO_INFOFRAME_BYTE3_SC_MASK                 0x03    // non-uniform scaling
 #define NVT_VIDEO_INFOFRAME_BYTE3_SC_SHIFT                0
 #define NVT_VIDEO_INFOFRAME_BYTE3_SC_NONE                 0
@@ -3159,10 +3323,10 @@ typedef struct tagNVT_VIDEO_INFOFRAME
 #define NVT_VIDEO_INFOFRAME_BYTE5_YQ1YQ0_FULL_RANGE       2
 #define NVT_VIDEO_INFOFRAME_BYTE5_YQ1YQ0_RESERVED3        3
 #define NVT_VIDEO_INFOFRAME_BYTE5_YQ1YQ0_RESERVED4        4
-// 
+//
 #define NVT_VIDEO_INFOFRAME_BYTE5_YQ_MASK                 0xc0  // content type
 #define NVT_VIDEO_INFOFRAME_BYTE5_YQ_SHIFT                6
-#define NVT_VIDEO_INFOFRAME_BYTE5_YQ_LIMITED              0    
+#define NVT_VIDEO_INFOFRAME_BYTE5_YQ_LIMITED              0
 #define NVT_VIDEO_INFOFRAME_BYTE5_YQ_FULL                 1
 #define NVT_VIDEO_INFOFRAME_BYTE5_YQ_RSVD1                2
 #define NVT_VIDEO_INFOFRAME_BYTE5_YQ_RSVD2                3
@@ -3172,8 +3336,17 @@ typedef struct tagNVT_VIDEO_INFOFRAME
 #define NVT_VIDEO_INFOFRAME_BYTE5_RESERVED_V1_MASK        0xFF
 #define NVT_VIDEO_INFOFRAME_BYTE5_RESERVED_V1_SHIFT       0
 //
-#define NVT_VIDEO_INFOFRAME_BYTE14_RESERVED_MASK          0x0F
-#define NVT_VIDEO_INFOFRAME_BYTE14_RESERVED_SHIFT         0
+#define NVT_VIDEO_INFOFRAME_BYTE14_FR0_FR3_MASK           0x0F
+#define NVT_VIDEO_INFOFRAME_BYTE14_FR0_FR3_SHIFT          0
+#define NVT_VIDEO_INFOFRAME_BYTE14_FR0_FR3_NODATA         0
+#define NVT_VIDEO_INFOFRAME_BYTE14_FR4_ONE_BIT_MASK       0x10
+#define NVT_VIDEO_INFOFRAME_BYTE15_FR4_MASK               0x40
+#define NVT_VIDEO_INFOFRAME_BYTE15_FR4_NODATA             0
+#define NVT_VIDEO_INFOFRAME_BYTE15_FR4_SHIFT              2
+//
+#define NVT_VIDEO_INFOFRAME_BYTE15_RID_MASK               0x3F
+#define NVT_VIDEO_INFOFRAME_BYTE15_RID_SHIFT              0
+#define NVT_VIDEO_INFOFRAME_BYTE15_RID_NODATA             0
 //
 #define NVT_VIDEO_INFOFRAME_BYTE14_ACE0_3_MASK            0xF0
 #define NVT_VIDEO_INFOFRAME_BYTE14_ACE0_3_SHIFT           4
@@ -3218,14 +3391,14 @@ typedef struct
         NvU8 rgbQuantizationRange    : 2;
         NvU8 extendedColorimetry     : 3;
         NvU8 itContent               : 1;
-    } byte3;    
+    } byte3;
 
     // byte 4
     struct
     {
         NvU8 vic                     : 7;
         NvU8 rsvd_bits_byte4         : 1;
-    } byte4;    
+    } byte4;
 
     // byte 5
     struct
@@ -3233,12 +3406,26 @@ typedef struct
         NvU8 pixelRepeat             : 4;
         NvU8 contentTypes            : 2;
         NvU8 yccQuantizationRange    : 2;
-    } byte5;    
-    
-    NvU16 topBar;    
-    NvU16 bottomBar;    
-    NvU16 leftBar;    
-    NvU16 rightBar;    
+    } byte5;
+
+    NvU16 topBar;
+    NvU16 bottomBar;
+    NvU16 leftBar;
+    NvU16 rightBar;
+
+    // byte 14~15
+    struct
+    {
+        NvU8 fr_low                  : 4;
+        NvU8 ace                     : 4;
+    } byte14;
+
+    struct
+    {
+        NvU8 rid                     : 6;
+        NvU8 fr_hi                   : 1;
+        NvU8 rsvd_bits_byte15        : 1;
+    }byte15;
 } NVT_VIDEO_INFOFRAME_OVERRIDE;
 #pragma pack()
 
@@ -3258,7 +3445,7 @@ typedef struct
     NvU32 activeFormatAspectRatio : 5;
     NvU32 picAspectRatio          : 3;
     NvU32 nonuniformScaling       : 3;
-    NvU32 barInfo                 : 3;    
+    NvU32 barInfo                 : 3;
     NvU32 top_bar                 : 17;
     NvU32 bottom_bar              : 17;
     NvU32 left_bar                : 17;
@@ -3288,7 +3475,12 @@ typedef struct
 #define NVT_VIDEO_INFOFRAME_OVERRIDE_BYTE5_PR_MASK                 0xF    // pixel repetitions
 #define NVT_VIDEO_INFOFRAME_OVERRIDE_BYTE5_CN1CN0_MASK             0x3
 #define NVT_VIDEO_INFOFRAME_OVERRIDE_BYTE5_YQ1YQ0_MASK             0x3    // YCC quantization
- 
+//
+#define NVT_VIDEO_INFOFRAME_OVERRIDE_BYTE14_FR0FR3_MASK            0xF    // Frame rate 0-3 bits in Byte14
+#define NVT_VIDEO_INFOFRAME_OVERRIDE_BYTE14_ACE0ACE3_MASK          0xF    // Additional Colorimetry Extension
+#define NVT_VIDEO_INFOFRAME_OVERRIDE_BYTE15_RID0RID5_MASK          0x3F   // Resolution Identification
+#define NVT_VIDEO_INFOFRAME_OVERRIDE_BYTE15_FR4_MASK               0x1    // Frame rate 4th bit in Byte 15
+
 // audio infoframe structure
 typedef struct tagNVT_AUDIO_INFOFRAME
 {
@@ -3376,10 +3568,10 @@ typedef struct tagNVT_SR_INFOFRAME
 #define NVT_AUDIO_INFOFRAME_BYTE3_CXT_MASK                       0x1F
 #define NVT_AUDIO_INFOFRAME_BYTE3_CXT_SHIFT                      0
 #define NVT_AUDIO_INFOFRAME_BYTE3_CXT_RESERVE31                  31
-// 
+//
 #define NVT_AUDIO_INFOFRAME_BYTE3_RESERVED_MASK                  0xE0
 #define NVT_AUDIO_INFOFRAME_BYTE3_RESERVED_SHIFT                 5
-// 
+//
 #define NVT_AUDIO_INFOFRAME_BYTE4_CA_MASK                        0xFF
 #define NVT_AUDIO_INFOFRAME_BYTE4_CA_SHIFT                       0
 #define NVT_AUDIO_INFOFRAME_BYTE4_CA_FRW_FLW_RR_RL_FC_LFE_FR_FL  49
@@ -3390,7 +3582,7 @@ typedef struct tagNVT_SR_INFOFRAME
 #define NVT_AUDIO_INFOFRAME_BYTE5_LFEPBL_0DB                     1
 #define NVT_AUDIO_INFOFRAME_BYTE5_LFEPBL_PLUS10DB                2
 #define NVT_AUDIO_INFOFRAME_BYTE5_LFEPBL_RESERVED03              3
-// 
+//
 #define NVT_AUDIO_INFOFRAME_BYTE5_RESERVED_MASK                  0x4
 #define NVT_AUDIO_INFOFRAME_BYTE5_RESERVED_SHIFT                 2
 //
@@ -3417,23 +3609,23 @@ typedef struct tagNVT_SR_INFOFRAME
 #define NVT_AUDIO_INFOFRAME_BYTE5_DM_INH_SHIFT                   7
 #define NVT_AUDIO_INFOFRAME_BYTE5_DM_INH_PERMITTED               0
 #define NVT_AUDIO_INFOFRAME_BYTE5_DM_INH_PROHIBITED              1
-// 
+//
 #define NVT_AUDIO_INFOFRAME_BYTE6_RESERVED_MASK                  0xFF
 #define NVT_AUDIO_INFOFRAME_BYTE6_RESERVED_SHIFT                 0
 //
-// 
+//
 #define NVT_AUDIO_INFOFRAME_BYTE7_RESERVED_MASK                  0xFF
 #define NVT_AUDIO_INFOFRAME_BYTE7_RESERVED_SHIFT                 0
 //
-/// 
+///
 #define NVT_AUDIO_INFOFRAME_BYTE8_RESERVED_MASK                  0xFF
 #define NVT_AUDIO_INFOFRAME_BYTE8_RESERVED_SHIFT                 0
 //
-// 
+//
 #define NVT_AUDIO_INFOFRAME_BYTE9_RESERVED_MASK                  0xFF
 #define NVT_AUDIO_INFOFRAME_BYTE9_RESERVED_SHIFT                 0
 //
-// 
+//
 #define NVT_AUDIO_INFOFRAME_BYTE10_RESERVED_MASK                 0xFF
 #define NVT_AUDIO_INFOFRAME_BYTE10_RESERVED_SHIFT                0
 //
@@ -3446,7 +3638,7 @@ typedef struct
         NvU8 channelCount        : 3;
         NvU8 rsvd_bits_byte1     : 1;
         NvU8 codingType          : 4;
-    } byte1;    
+    } byte1;
 
     // byte 2
     struct
@@ -3455,12 +3647,12 @@ typedef struct
         NvU8 sampleRate          : 3;
         NvU8 rsvd_bits_byte2     : 3;
     } byte2;
-    
+
 
     // byte 3
     struct
     {
-        NvU8 codingExtensionType : 5;        
+        NvU8 codingExtensionType : 5;
         NvU8 rsvd_bits_byte3     : 3;
     } byte3;
 
@@ -3474,7 +3666,7 @@ typedef struct
         NvU8 rsvd_bits_byte5     : 1;
         NvU8 levelShift          : 4;
         NvU8 downmixInhibit      : 1;
-    } byte5;    
+    } byte5;
 
     // byte 6~10
     NvU8 rsvd_byte6;
@@ -3668,7 +3860,7 @@ typedef struct tagNVT_VENDOR_SPECIFIC_INFOFRAME
 #define NVT_HDMI_VS_BYTE_OPT1_HDMI_3DEX_SSH_Q_EL_ER     0x07    // Quincunx matrix           Even Left    Even Right
 //0x08-0x0f reserved
 #define NVT_HDMI_VS_BYTE_OPT2_HDMI_METADATA_LEN_MASK    0xf0    // HDMI_VID_FMT = HDMI_VID_FMT_3D; HDMI_3D_META_PRESENT = 1
-#define NVT_HDMI_VS_BYTE_OPT2_HDMI_METADATA_LEN_SHIFT   0x04    // 
+#define NVT_HDMI_VS_BYTE_OPT2_HDMI_METADATA_LEN_SHIFT   0x04    //
 #define NVT_HDMI_VS_BYTE_OPT2_HDMI_METADATA_LEN_NONE    0x00    // length of no metadata
 #define NVT_HDMI_VS_BYTE_OPT2_HDMI_METADATA_LEN_PARALLAX 0x08   // length of paralax data
 
@@ -3764,9 +3956,9 @@ typedef struct tagNVT_EXTENDED_METADATA_PACKET_INFOFRAME
 #define NVT_HDMI_EMP_BYTE8_MD0_VRR_EN_SHIFT                                         0
 #define NVT_HDMI_EMP_BYTE8_MD0_VRR_EN_DISABLE                                       0
 #define NVT_HDMI_EMP_BYTE8_MD0_VRR_EN_ENABLE                                        1
-#define NVT_HDMI_EMP_BYTE8_MD0_M_CONST_MASK                                         0x01
+#define NVT_HDMI_EMP_BYTE8_MD0_M_CONST_MASK                                         0x02
 #define NVT_HDMI_EMP_BYTE8_MD0_M_CONST_SHIFT                                        1
-#define NVT_HDMI_EMP_BYTE8_MD0_QMS_EN_MASK                                          0x01
+#define NVT_HDMI_EMP_BYTE8_MD0_QMS_EN_MASK                                          0x04
 #define NVT_HDMI_EMP_BYTE8_MD0_QMS_EN_SHIFT                                         2
 #define NVT_HDMI_EMP_BYTE8_MD0_QMS_EN_DISABLE                                       0
 #define NVT_HDMI_EMP_BYTE8_MD0_QMS_EN_ENABLE                                        1
@@ -3778,6 +3970,9 @@ typedef struct tagNVT_EXTENDED_METADATA_PACKET_INFOFRAME
 #define NVT_HDMI_EMP_BYTE8_MD2_RB_SHIFT                                             2
 #define NVT_HDMI_EMP_BYTE8_MD2_RB_DISABLE                                           0
 #define NVT_HDMI_EMP_BYTE8_MD2_RB_ENABLE                                            1
+
+#define NVT_HDMI_EMP_BYTE8_MD2_NEXT_TFR_MASK                                        0xf8
+#define NVT_HDMI_EMP_BYTE8_MD2_NEXT_TFR_SHIFT                                       3
 
 #define NVT_HDMI_EMP_BYTE8_MD2_BASE_RR_MSB_MASK                                     0x03
 #define NVT_HDMI_EMP_BYTE8_MD2_BASE_RR_MSB_SHIFT                                    0
@@ -3791,7 +3986,7 @@ typedef struct tagNVT_EXTENDED_METADATA_PACKET_INFOFRAME
 #define NVT_DP_ADAPTIVE_SYNC_SDP_DB0_VARIABLE_FRAME_RATE_MASK                       0x3
 #define NVT_DP_ADAPTIVE_SYNC_SDP_DB0_VARIABLE_FRAME_RATE_SHIFT                      0
 #define NVT_DP_ADAPTIVE_SYNC_SDP_DB0_VARIABLE_FRAME_RATE_AVT_VARIABLE               0
-#define NVT_DP_ADAPTIVE_SYNC_SDP_DB0_VARIABLE_FRAME_RATE_AVT_FIXED                  1      
+#define NVT_DP_ADAPTIVE_SYNC_SDP_DB0_VARIABLE_FRAME_RATE_AVT_FIXED                  1
 #define NVT_DP_ADAPTIVE_SYNC_SDP_DB0_VARIABLE_FRAME_RATE_FAVT_TARGET_NOT_REACHED    2
 #define NVT_DP_ADAPTIVE_SYNC_SDP_DB0_VARIABLE_FRAME_RATE_FAVT_TARGET_REACHED        3
 
@@ -3817,7 +4012,7 @@ typedef struct tagNVT_EXTENDED_METADATA_PACKET_INFOFRAME
 #define NVT_DP_ADAPTIVE_SYNC_SDP_DB3_TARGET_RR_LSB_MASK                             0xff
 #define NVT_DP_ADAPTIVE_SYNC_SDP_DB3_TARGET_RR_LSB_SHIFT                            0
 
-#define NVT_DP_ADAPTIVE_SYNC_SDP_DB4_TARGET_RR_MSB_MASK                             0x01
+#define NVT_DP_ADAPTIVE_SYNC_SDP_DB4_TARGET_RR_MSB_MASK                             0x03
 #define NVT_DP_ADAPTIVE_SYNC_SDP_DB4_TARGET_RR_MSB_SHIFT                            0
 
 #define NVT_DP_ADAPTIVE_SYNC_SDP_DB4_RSVD_MASK                                      0x1c
@@ -3856,7 +4051,7 @@ typedef struct tagNVT_EXTENDED_METADATA_PACKET_INFOFRAME
 typedef struct tagNVT_ADAPTIVE_SYNC_SDP_HEADER
 {
     NvU8 hb0;
-    NvU8 type; 
+    NvU8 type;
     NvU8 version;
     NvU8 length;
 }NVT_ADAPTIVE_SYNC_SDP_HEADER;
@@ -3979,11 +4174,11 @@ typedef struct tagNVT_HDMI_LLC_VSDB_PAYLOAD
     NvU8       I_Latency_Fields_Present : 1;
     NvU8       Latency_Fields_Present   : 1;
 
-    // the rest of the frame may contain optional data as defined 
+    // the rest of the frame may contain optional data as defined
     // in the NVT_CEA861_LATENCY, HDMI_VIDEO, HDMI_VIC, NVT_3D_STRUCT_ALL & 3D_MULTI_LIST structures
     // and as specified by the corresponding control bits
     NvU8       Data[NVT_CEA861_VSDB_PAYLOAD_MAX_LENGTH - 5];
-    
+
 } NVT_HDMI_LLC_VSDB_PAYLOAD;
 
 // HDMI LLC Vendor Specific Data Block
@@ -3995,8 +4190,8 @@ typedef struct tagNVT_HDMI_LLC_DATA
 
 typedef struct tagNVT_NVDA_VSDB_PAYLOAD
 {
-    NvU8    opcode;                     // Nvidia specific opcode - please refer to VRR monitor spec v5
-    NvU8    vrrMinRefreshRate;          // Minimum refresh rate supported by this monitor 
+    NvU8    opcode;                     // Nvidia specific opcode - please refer to VRR monitor spec v17
+    NvU8    vrrMinRefreshRate;          // Minimum refresh rate supported by this monitor
 } NVT_NVDA_VSDB_PAYLOAD;
 
 // NVIDIA Vendor Specific Data Block
@@ -4085,7 +4280,7 @@ typedef struct tagNVT_HDMI_FORUM_DATA
 } NVT_HDMI_FORUM_DATA;
 
 //
-// 
+//
 // Video Capability Data Block (VCDB)
 typedef struct _NV_ESC_MONITOR_CAPS_VCDB
 {
@@ -4096,7 +4291,7 @@ typedef struct _NV_ESC_MONITOR_CAPS_VCDB
     NvU8    scanInfoCEVideoFormats       : 2;
 } NVT_HDMI_VCDB_DATA;
 
-// 
+//
 //
 //***********************************************************
 // Dynamic Range and Mastering Infoframe (HDR)
@@ -4106,7 +4301,7 @@ typedef struct tagNVT_HDR_INFOFRAME_MASTERING_DATA
 {
     NvU16    displayPrimary_x0;                //!< x coordinate of color primary 0 (e.g. Red) of mastering display ([0x0000-0xC350] = [0.0 - 1.0])
     NvU16    displayPrimary_y0;                //!< y coordinate of color primary 0 (e.g. Red) of mastering display ([0x0000-0xC350] = [0.0 - 1.0])
-    
+
     NvU16    displayPrimary_x1;                //!< x coordinate of color primary 1 (e.g. Green) of mastering display ([0x0000-0xC350] = [0.0 - 1.0])
     NvU16    displayPrimary_y1;                //!< y coordinate of color primary 1 (e.g. Green) of mastering display ([0x0000-0xC350] = [0.0 - 1.0])
 
@@ -4125,7 +4320,7 @@ typedef struct tagNVT_HDR_INFOFRAME_MASTERING_DATA
 
 #define NVT_CEA861_HDR_INFOFRAME_EOTF_SDR_GAMMA  0      //SDR Luminance Range
 #define NVT_CEA861_HDR_INFOFRAME_EOTF_HDR_GAMMA  1      //HDR Luminance Range
-#define NVT_CEA861_HDR_INFOFRAME_EOTF_ST2084     2      
+#define NVT_CEA861_HDR_INFOFRAME_EOTF_ST2084     2
 #define NVT_CEA861_HDR_INFOFRAME_EOTF_Future     3
 #define NVT_CEA861_STATIC_METADATA_TYPE1_PRIMARY_COLOR_NORMALIZE_FACTOR 0xC350  // Per CEA-861.3 spec
 
@@ -4149,7 +4344,7 @@ typedef struct tagNVT_HDR_INFOFRAME
 } NVT_HDR_INFOFRAME;
 #pragma pack()
 
-// 
+//
 //
 //***********************************************************
 // Gamut Metadata Range and Vertices structures
@@ -4222,7 +4417,7 @@ typedef struct tagNVT_GAMUT_METADATA_RANGE_10BIT{
     NvU8    Min_Blue_Data_LO:2;
 
     NvU8    Data_Rsvd:4;
-    NvU8    Max_Blue_Data_LO:4;    
+    NvU8    Max_Blue_Data_LO:4;
 
 } NVT_GAMUT_METADATA_RANGE_10BIT;
 
@@ -4242,8 +4437,8 @@ typedef struct tagNVT_GAMUT_METADATA_RANGE_12BIT{
 
     NvU8    Max_Red_Data_LO:8;
 
-    NvU8    Min_Green_Data_HI:8;    
-    
+    NvU8    Min_Green_Data_HI:8;
+
     NvU8    Max_Green_Data_HI:4;
     NvU8    Min_Green_Data_LO:4;
 
@@ -4297,43 +4492,43 @@ typedef struct tagNVT_GAMUT_METADATA_VERTICES_10BIT
 
     // Packaged data
     NvU8    Black_Y_R_HI;
-    
+
     NvU8    Black_Cb_G_HI:6;
     NvU8    Black_Y_R_LO:2;
-    
+
     NvU8    Black_Cr_B_HI:4;
     NvU8    Black_Cb_G_LO:4;
-    
+
     NvU8    Red_Y_R_HI:2;
     NvU8    Black_Cr_B_LO:6;
-    
+
     NvU8    Red_Y_R_LO;
-    
+
     NvU8    Red_Cb_G_HI;
-    
+
     NvU8    Red_Cr_B_HI:6;
     NvU8    Red_Cb_G_LO:2;
-    
+
     NvU8    Green_Y_R_HI:4;
     NvU8    Red_Cr_B_LO:4;
-    
+
     NvU8    Green_Cb_G_HI:2;
     NvU8    Green_Y_R_LO:6;
-    
+
     NvU8    Green_Cb_G_LO;
-    
+
     NvU8    Green_Cr_B_HI;
-    
+
     NvU8    Blue_Y_R_HI:6;
     NvU8    Green_Cr_B_LO:2;
-    
+
     NvU8    Blue_Cb_G_HI:4;
     NvU8    Blue_Y_R_LO:4;
-    
+
     NvU8    Blue_Cr_B_HI:2;
     NvU8    Blue_Cb_G_LO:6;
-    
-    NvU8    Blue_Cr_B_LO;    
+
+    NvU8    Blue_Cr_B_LO;
 } NVT_GAMUT_METADATA_VERTICES_10BIT;
 
 typedef struct tagNVT_GAMUT_METADATA_VERTICES_12BIT
@@ -4349,50 +4544,50 @@ typedef struct tagNVT_GAMUT_METADATA_VERTICES_12BIT
 
     // Packaged data
     NvU8    Black_Y_R_HI;
-    
+
     NvU8    Black_Cb_G_HI:4;
     NvU8    Black_Y_R_LO:4;
-    
+
     NvU8    Black_Cb_G_LO;
-    
+
     NvU8    Black_Cr_B_HI;
-    
+
     NvU8    Red_Y_R_HI:4;
     NvU8    Black_Cr_B_LO:4;
-    
+
     NvU8    Red_Y_R_LO;
-    
+
     NvU8    Red_Cb_G_HI;
-    
+
     NvU8    Red_Cr_B_HI:4;
     NvU8    Red_Cb_G_LO:4;
-    
+
     NvU8    Red_Cr_B_LO;
-    
-    NvU8    Green_Y_R_HI;    
-    
+
+    NvU8    Green_Y_R_HI;
+
     NvU8    Green_Cb_G_HI:4;
     NvU8    Green_Y_R_LO:4;
-    
+
     NvU8    Green_Cb_G_LO;
-    
+
     NvU8    Green_Cr_B_HI;
-    
+
     NvU8    Blue_Y_R_HI:4;
     NvU8    Green_Cr_B_LO:4;
-    
+
     NvU8    Blue_Y_R_LO;
-    
+
     NvU8    Blue_Cb_G_HI;
-    
+
     NvU8    Blue_Cr_B_HI:4;
     NvU8    Blue_Cb_G_LO:4;
-    
-    NvU8    Blue_Cr_B_LO;   
+
+    NvU8    Blue_Cr_B_LO;
 } NVT_GAMUT_METADATA_VERTICES_12BIT;
 
 typedef struct tagNVT_GAMUT_METADATA
-{    
+{
     NVT_GAMUT_HEADER     header;
 
     union
@@ -4437,7 +4632,7 @@ typedef struct tagNVT_GAMUT_METADATA
 // Raw DPCD data format - Receiver Capability Field               // 00000h - 000FFh
 typedef struct tagNVT_DPCD_RECEIVER_CAP
 {
-    NvU8 rev;                                                     // 00000h                                                            
+    NvU8 rev;                                                     // 00000h
     NvU8 max_link_rate;                                           // 00001h
     NvU8 max_lane_count;                                          // 00002h
     NvU8 max_downspread;                                          // 00003h
@@ -4496,7 +4691,7 @@ typedef struct tagNVT_DPCD_LINK_SINK_STATUS
     NvU8 test_link_rate;                                          // 00219h
     NvU8 reserved_1[0x21F - 0x21A + 1];                           // 0021Fh - 0021Ah
     NvU8 test_lane_count;                                         // 00220h
-    NvU8 test_pattern;                                            // 00221h 
+    NvU8 test_pattern;                                            // 00221h
     NvU16 test_h_total;                                           // 00222h - 00223h
     NvU16 test_v_total;                                           // 00224h - 00225h
     NvU16 test_h_start;                                           // 00226h - 00227h
@@ -4509,7 +4704,7 @@ typedef struct tagNVT_DPCD_LINK_SINK_STATUS
     NvU8 test_refresh_rate_numerator;                             // 00234h
     NvU8 reserved_2[0x23F - 0x235 + 1];                           // 00235h - 0023Fh
     NvU16 test_crc_R_Cr;                                          // 00240h - 00241h
-    NvU16 test_crc_G_Y;                                           // 00242h - 00243h          
+    NvU16 test_crc_G_Y;                                           // 00242h - 00243h
     NvU16 test_crc_B_Cb;                                          // 00244h - 00245h
     NvU8 test_sink_misc;                                          // 00246h
     NvU8 reserved_3[0x25F - 0x247 + 1];                           // 00247h - 0025fh
@@ -4535,7 +4730,7 @@ typedef struct tagNVT_DPCD_VENDOR_SPECIFIC_FIELD
     //NvU8 reserved[0x3FF - 0x303 + 1];                             // 003FFh - 00303h
 }NVT_DPCD_VENDOR_SPECIFIC_FIELD;
 //
-// Raw DPCD data format - Dongle Specific Field 
+// Raw DPCD data format - Dongle Specific Field
 typedef struct tagNVT_DPCD_DONGLE_SPECIFIC_FIELD
 {
     NvU8 vendor_b0;                                               // 00300h
@@ -4554,7 +4749,7 @@ typedef struct tagNVT_DPCD_DUALDP_SPECIFIC_FIELD
     NvU8 vendor_b2;                                               // 00302h
     NvU8 model[6];                                                // 00303h - 00308h
     NvU8 chipd_id_version;                                        // 00309h
-    NvU8 reserved_1[0x3AF - 0x30A + 1];                           // 0030Ah - 003AFh 
+    NvU8 reserved_1[0x3AF - 0x30A + 1];                           // 0030Ah - 003AFh
     NvU8 dual_dp_cap;                                             // 003B0h
     NvU8 dual_dp_base_addr[3];                                    // 003B1h - 003B3h
     //NvU8 reserved_2[0x3FF - 0x3B4 + 1];                           // 003B4h - 003FFh
@@ -4605,7 +4800,7 @@ typedef struct tagNVT_DPCD
 #define NVT_DPCD_LANE_COUNT_8                           8
 
 // note: the values of NVT_COLOR_FORMAT_* are fixed in order to match the equivalent NV classes
-typedef enum
+typedef enum _NVT_COLOR_FORMAT
 {
     NVT_COLOR_FORMAT_RGB      = 0,
     NVT_COLOR_FORMAT_YCbCr422 = 1,
@@ -4638,12 +4833,12 @@ typedef enum
     NVT_COLORIMETRY_INVALID    = 0xFF
 } NVT_COLORIMETRY;
 
-#define NVT_DPCD_BPC_DEFAULT                                       0x00  
-#define NVT_DPCD_BPC_6                                             0x01  
-#define NVT_DPCD_BPC_8                                             0x02  
-#define NVT_DPCD_BPC_10                                            0x03  
-#define NVT_DPCD_BPC_12                                            0x04  
-#define NVT_DPCD_BPC_16                                            0x05  
+#define NVT_DPCD_BPC_DEFAULT                                       0x00
+#define NVT_DPCD_BPC_6                                             0x01
+#define NVT_DPCD_BPC_8                                             0x02
+#define NVT_DPCD_BPC_10                                            0x03
+#define NVT_DPCD_BPC_12                                            0x04
+#define NVT_DPCD_BPC_16                                            0x05
 
 #define NVT_DPCD_AUTOMATED_TEST                                    0x02
 #define NVT_DPCD_CP_IRQ                                            0x04
@@ -4686,7 +4881,7 @@ typedef enum
 #define NVT_DPCD_DPCD_REV                                                0x000
 #define NVT_DPCD_DPCD_REV_MINOR_VER                                        3:0
 #define NVT_DPCD_DPCD_REV_MAJOR_VER                                        7:4
-#define NVT_DPCD_DPCD_REV_10                                              0x10 
+#define NVT_DPCD_DPCD_REV_10                                              0x10
 #define NVT_DPCD_DPCD_REV_11                                              0x11
 #define NVT_DPCD_DPCD_REV_12                                              0x12
 
@@ -4858,7 +5053,7 @@ typedef enum
 #define NVT_DPCD_TRAINING_LANE0_SET_MAX_PRE_EMPHASIS_REACHED_YES             1
 #define NVT_DPCD_TRAINING_LANE0_SET_RSVD                                   7:6
 
-// 0x107h - DOWNSPREAD_CTRL 
+// 0x107h - DOWNSPREAD_CTRL
 #define NVT_DPCD_DOWNSPREAD_CTRL                                         0x107
 #define NVT_DPCD_DOWNSPREAD_CTRL_RSVD                                      3:0
 #define NVT_DPCD_DOWNSPREAD_CTRL_SPREAD_AMP                                4:4
@@ -4897,7 +5092,7 @@ typedef enum
 #define NVT_DPCD_PAYLOAD_ALLOCATE_START_TIME_SLOT                        0x1C1
 #define NVT_DPCD_PAYLOAD_ALLOCATE_START_TIME_SLOT_FIELD                    5:0
 
-#define NVT_DPCD_PAYLOAD_ALLOCATE_TIME_SLOT_COUNT                        0x1C2  
+#define NVT_DPCD_PAYLOAD_ALLOCATE_TIME_SLOT_COUNT                        0x1C2
 #define NVT_DPCD_PAYLOAD_ALLOCATE_TIME_SLOT_COUNT_FIELD                    5:0
 
 // 0x200h - SINK_COUNT
@@ -5275,9 +5470,9 @@ typedef enum
 //
 // HDMI/DP common definitions
 
-#define NVT_DYNAMIC_RANGE_VESA                                     0x00  
-#define NVT_DYNAMIC_RANGE_CEA                                      0x01  
-#define NVT_DYNAMIC_RANGE_AUTO                                     0xFF  
+#define NVT_DYNAMIC_RANGE_VESA                                     0x00
+#define NVT_DYNAMIC_RANGE_CEA                                      0x01
+#define NVT_DYNAMIC_RANGE_AUTO                                     0xFF
 
 
 typedef struct tagNVT_PARSED_DPCD_INFO_DOWNSTREAM_PORT
@@ -5300,7 +5495,7 @@ typedef struct tagNVT_DPCD_PARSED_RECEIVER_INFO
     // downstream port info
     NvU32 downstreamPortCount;                        // the total number of down stream ports
     NvU32 downstreamPort0Type;                        // type of downstream port 0
-    NVT_PARSED_DPCD_INFO_DOWNSTREAM_PORT              downstreamPort[NVT_DPCD_RECEIVER_MAX_DOWNSTREAM_PORT];  
+    NVT_PARSED_DPCD_INFO_DOWNSTREAM_PORT              downstreamPort[NVT_DPCD_RECEIVER_MAX_DOWNSTREAM_PORT];
 
     // other misc info
     NvU32 cap_support0_005DownSpread          : 1;
@@ -5313,7 +5508,7 @@ typedef struct tagNVT_DPCD_PARSED_RECEIVER_INFO
     NvU32 cap_p0AssociatedToPrecedingPort     : 1;
     NvU32 cap_p1HasEDID                       : 1;
     NvU32 cap_p1AssociatedToPrecedingPort     : 1;
-    
+
     // DP 1.2 fields
     NvU32 cap_mstm                            : 1;
     NvU32 cap_reserved                        : 21;
@@ -5322,7 +5517,7 @@ typedef struct tagNVT_DPCD_PARSED_RECEIVER_INFO
 #define NVT_DPCD_NUM_TRAINING_LANES 4
 
 typedef struct tagNVT_TRAINING_LANE_SETTING
-{   
+{
     NvU8 voltageSwing;
     NvU8 maxSwingReached;
     NvU8 preEmphasis;
@@ -5336,7 +5531,7 @@ typedef struct tagNVT_DPCD_PARSED_LINK_CONFIG
     NvU8 laneCount;
 
     NVT_TRAINING_LANE_SETTING trainLaneSetting[NVT_DPCD_NUM_TRAINING_LANES];
-        
+
     NvU32 enhancedFrameEnabled              : 1;
     NvU32 trainingPatternSetting            : 2;
     NvU32 linkQualityPatternSetting         : 2;
@@ -5376,14 +5571,14 @@ typedef struct tagNVT_DPCD_CONFIG
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_MAX_CAP_LANECOUNT_2_LANE  (0x00000001)
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_MAX_CAP_LANECOUNT_4_LANE  (0x00000002)
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_MAX_CAP_LINKRATE                 13:11   // Maximum supported linkRate
-#define  NV_DISPLAYPORT_INFO_FLAGS_DP_MAX_CAP_LINKRATE_1_62GBPS (0x00000000) 
+#define  NV_DISPLAYPORT_INFO_FLAGS_DP_MAX_CAP_LINKRATE_1_62GBPS (0x00000000)
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_MAX_CAP_LINKRATE_2_70GBPS (0x00000001)
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_MAX_CAP_LINKRATE_5_40GBPS (0x00000002)
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_MAX_CAP_LINKRATE_8_10GBPS (0x00000003)
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_MULTISTREAM                      16:16  // Bit to check MST/SST
-#define  NV_DISPLAYPORT_INFO_FLAGS_DP_MULTISTREAM_DISABLED      (0x00000000)                        
+#define  NV_DISPLAYPORT_INFO_FLAGS_DP_MULTISTREAM_DISABLED      (0x00000000)
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_MULTISTREAM_ENABLED       (0x00000001)
-#define  NV_DISPLAYPORT_INFO_FLAGS_DP_ENHANCED_FRAMING                 17:17  // Bit to check enhanced framing support 
+#define  NV_DISPLAYPORT_INFO_FLAGS_DP_ENHANCED_FRAMING                 17:17  // Bit to check enhanced framing support
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_ENHANCED_FRAMING_DISABLED (0x00000000)
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_ENHANCED_FRAMING_ENABLED  (0x00000001)
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_DOWNSPREAD                       18:18  // Bit to check downspread support
@@ -5393,24 +5588,24 @@ typedef struct tagNVT_DPCD_CONFIG
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_SCRAMBLING_DISABLED       (0x00000000)
 #define  NV_DISPLAYPORT_INFO_FLAGS_DP_SCRAMBLING_ENABLED        (0x00000001)
     NvU32 linkRate;
-    NvU32 laneCount; 
+    NvU32 laneCount;
     NvU32 colorFormat;
     NvU32 dynamicRange;
     NvU32 colorimetry;
     NvU32 bpc;
     NvU32 bpp;
-   
+
     // pre-emphasis and drive current level (EFI might need this information)
     NvU8  laneData[4];
     // DP max pixelClock supported based on DP max laneCount/linkRate
     NvU32 dpMaxPixelClk;
     NvU8  maxCapLinkRate;
     NvU8  maxCapLaneCount;
-   
+
     // B4 (DP2VGA) Vendor Specific I2C Speed Control
     NvU8  dp2vga_i2cCap;
     NvU8  dp2vga_i2cCtrl;
-   
+
     NvU8  bDpOffline;
 }NVT_DPCD_CONFIG;
 
@@ -5463,7 +5658,7 @@ typedef struct tagNVT_DPCD_USB4_DRIVER_ID
 #define NVT_DEFAULT_HDTV_PREFERRED_TIMING(x, y, z, p) \
     if(((x) == 1920) && ((y) == 1080) && ((z) != D3DDDI_VSSLO_PROGRESSIVE )) p = 1;
 
-//Default format for non-DDC displays is 10x7 
+//Default format for non-DDC displays is 10x7
 #define NVT_DEFAULT_NONDCC_PREFERRED_TIMING(x, y, z, p) \
     if(((x) == 1024) && ((y) == 768) && ((z) == 60 )) p = 1;
 
@@ -5517,7 +5712,7 @@ typedef enum
 
 typedef enum
 {
-    // errors returned as a bitmask by NvTiming_EDIDValidationMask()    
+    // errors returned as a bitmask by NvTiming_EDIDValidationMask()
     NVT_EDID_VALIDATION_ERR_EXT = 0,
     NVT_EDID_VALIDATION_ERR_VERSION,
     NVT_EDID_VALIDATION_ERR_SIZE,
@@ -5527,7 +5722,7 @@ typedef enum
     NVT_EDID_VALIDATION_ERR_HEADER,
     NVT_EDID_VALIDATION_ERR_EXT_DTD,
     NVT_EDID_VALIDATION_ERR_EXTENSION_TAG,
-    NVT_EDID_VALIDATION_ERR_EXTENSION_COUNT,    
+    NVT_EDID_VALIDATION_ERR_EXTENSION_COUNT,
     NVT_EDID_VALIDATION_ERR_DESCRIPTOR,
     NVT_EDID_VALIDATION_ERR_EXT_CTA_BASIC,
     NVT_EDID_VALIDATION_ERR_EXT_CTA_DTD,
@@ -5538,7 +5733,7 @@ typedef enum
     NVT_EDID_VALIDATION_ERR_EXT_DID_VERSION,
     NVT_EDID_VALIDATION_ERR_EXT_DID_EXTCOUNT,
     NVT_EDID_VALIDATION_ERR_EXT_DID_CHECKSUM,
-    NVT_EDID_VALIDATION_ERR_EXT_DID_SEC_SIZE,    
+    NVT_EDID_VALIDATION_ERR_EXT_DID_SEC_SIZE,
     NVT_EDID_VALIDATION_ERR_EXT_DID13_TAG,
     NVT_EDID_VALIDATION_ERR_EXT_DID13_TYPE1,
     NVT_EDID_VALIDATION_ERR_EXT_DID2_TAG,
@@ -5559,7 +5754,7 @@ typedef enum
     // errors returned as a bitmask by NvTiming_DisplayID2ValidationMask()
     NVT_DID2_VALIDATION_ERR_VERSION = 0,
     NVT_DID2_VALIDATION_ERR_SIZE,
-    NVT_DID2_VALIDATION_ERR_CHECKSUM,    
+    NVT_DID2_VALIDATION_ERR_CHECKSUM,
     NVT_DID2_VALIDATION_ERR_NO_DATA_BLOCK,
     NVT_EDID_VALIDATION_ERR_TAG,
     NVT_DID2_VALIDATION_ERR_RANGE_LIMIT,
@@ -5587,7 +5782,7 @@ typedef enum
 #define NVT_FLAG_CEA_4X3_TIMING                  0x00000400
 #define NVT_FLAG_CEA_16X9_TIMING                 0x00000800
 #define NVT_FLAG_OS_ADDED_TIMING                 0x00001000
-#define NVT_FLAG_SPECTRUM_SPREAD                 0x00002000
+#define NVT_FLAG_SPECTRUM_SPREAD                 0x00002000 // TODO: remove this
 #define NVT_FLAG_EDID_TIMING_RR_MATCH            0x00004000
 #define NVT_FLAG_EDID_861_ST                     0x00008000
 #define NVT_FLAG_EDID_DTD_EIZO_SPLIT             0x00010000
@@ -5600,6 +5795,8 @@ typedef enum
 #define NVT_FLAG_DISPLAYID_2_0_TIMING            0x00800000  // this one for the CTA861 embedded in DID20
 #define NVT_FLAG_DISPLAYID_T7_T8_EXPLICT_YUV420  0x01000000  // DID2 E7 spec. supported yuv420 indicated
 #define NVT_FLAG_CTA_NATIVE_TIMING               0x02000000  // NVRDB defined
+#define NVT_FLAG_CTA_OVT_TIMING                  0x04000000  // CTA861 CTA OVT Timing
+#define NVT_FLAG_CTA_OVT_FRR_TIMING              0x08000000  // CTA861 CTA OVT Timing supported ntsc
 
 #define NVT_FLAG_INTERLACED_MASK                 (NVT_FLAG_INTERLACED_TIMING | NVT_FLAG_INTERLACED_TIMING2)
 
@@ -5608,14 +5805,17 @@ extern "C" {
 #endif
 
 // Generic timing parameter calculation
-NvU16 NvTiming_CalcRR(NvU32 pclk, NvU16 interlaced, NvU16 HTotal, NvU16 VTotal);
-NvU32 NvTiming_CalcRRx1k(NvU32 pclk, NvU16 interlaced, NvU16 HTotal, NvU16 VTotal);
+NvU16 NvTiming_CalcRR(NvU32 pclk1khz, NvU16 interlaced, NvU16 HTotal, NvU16 VTotal);
+NvU32 NvTiming_CalcRRx1k(NvU32 pclk1khz, NvU16 interlaced, NvU16 HTotal, NvU16 VTotal);
 
 NvU32 NvTiming_IsRoundedRREqual(NvU16 rr1, NvU32 rr1x1k, NvU16 rr2);
 NvU32 NvTiming_IsTimingExactEqual(const NVT_TIMING *pT1, const NVT_TIMING *pT2);
 NvU32 NvTiming_IsTimingExactEqualEx(const NVT_TIMING *pT1, const NVT_TIMING *pT2);
 NvU32 NvTiming_IsTimingRelaxedEqual(const NVT_TIMING *pT1, const NVT_TIMING *pT2);
 NvU16 NvTiming_MaxFrameWidth(NvU16 HVisible, NvU16 rep);
+
+NvU32 NvTiming_GetVrrFmin(const NVT_EDID_INFO *pEdidInfo, const NVT_DISPLAYID_2_0_INFO *pDisplayIdInfo,
+                          NvU32 nominalRefreshRateHz, NVT_PROTOCOL sinkProtocol);
 
 // Establish timing enumeration
 NVT_STATUS NvTiming_EnumEST(NvU32 index, NVT_TIMING *pT);
@@ -5634,9 +5834,13 @@ NVT_STATUS NvTiming_CalcDMT_RB2(NvU32 width, NvU32 height, NvU32 rr, NvU32 flag,
 // CVT timing calculation
 NVT_STATUS NvTiming_CalcCVT(NvU32 width, NvU32 height, NvU32 rr, NvU32 flag, NVT_TIMING *pT);
 NVT_STATUS NvTiming_CalcCVT_RB(NvU32 width, NvU32 height, NvU32 rr, NvU32 flag, NVT_TIMING *pT);
-NVT_STATUS NvTiming_CalcCVT_RB2(NvU32 width, NvU32 height, NvU32 rr, NvBool is1000div1001, NVT_TIMING *pT);
-NVT_STATUS NvTiming_CalcCVT_RB3(NvU32 width, NvU32 height, NvU32 rr, NvU32 deltaHBlank, NvU32 vBlankMicroSec, NvBool isEarlyVSync, NVT_TIMING *pT);
+NVT_STATUS NvTiming_CalcCVT_RB2(NvU32 width, NvU32 height, NvU32 rr, NvBool is1000div1001, NvBool isAltMiniVblankTiming, NVT_TIMING *pT);
+NVT_STATUS NvTiming_CalcCVT_RB3(NvU32 width, NvU32 height, NvU32 rr, NvU32 deltaHBlank, NvU32 vBlankMicroSec, NvBool isAltMiniVblankTiming, NvBool isEarlyVSync, NVT_TIMING *pT);
 NvBool NvTiming_IsTimingCVTRB(const NVT_TIMING *pTiming);
+
+// OVT timing calculation
+NVT_STATUS NvTiming_CalcOVT(NvU32 width, NvU32 height, NvU32 rr, NVT_TIMING *pT);
+NvBool NvTiming_IsTimingOVT(const NVT_TIMING *pTiming);
 
 // CEA/EIA/Psf timing
 NVT_STATUS NvTiming_CalcCEA861bTiming(NvU32 width, NvU32 height, NvU32 rr, NvU32 flag, NvU32 pixelRepeatCount, NVT_TIMING *pT);
@@ -5645,12 +5849,13 @@ NVT_STATUS NvTiming_EnumNvPsfTiming(NvU32 nvPsfFormat, NVT_TIMING *pT);
 NvU32      NvTiming_GetCEA861TimingIndex(NVT_TIMING *pT);
 
 //expose the HDMI extended video timing defined by the HDMI LLC VSDB
-NVT_STATUS NvTiming_EnumHdmiVsdbExtendedTiming(NvU32 hdmi_vic, NVT_TIMING *pT); 
+NVT_STATUS NvTiming_EnumHdmiVsdbExtendedTiming(NvU32 hdmi_vic, NVT_TIMING *pT);
 
 // TV(analog) based timing
 NVT_STATUS NvTiming_GetTvTiming(NvU32 width, NvU32 height, NvU32 rr, NvU32 flag, NvU32 tvFormat, NVT_TIMING *pT);
 
 // Get EDID timing
+NVT_STATUS NvTiming_GetEdidTimingExWithPclk(NvU32 width, NvU32 height, NvU32 rr, NvU32 flag, NVT_EDID_INFO *pEdidInfo, NVT_TIMING *pT, NvU32 rrx1k, NvU32 pclk);
 NVT_STATUS NvTiming_GetEdidTimingEx(NvU32 width, NvU32 height, NvU32 rr, NvU32 flag, NVT_EDID_INFO *pEdidInfo, NVT_TIMING *pT, NvU32 rrx1k);
 NVT_STATUS NvTiming_GetEdidTiming(NvU32 width, NvU32 height, NvU32 rr, NvU32 flag, NVT_EDID_INFO *pEdidInfo, NVT_TIMING *pT);
 
@@ -5661,7 +5866,6 @@ NVT_STATUS NvTiming_GetHDMIStereoMandatoryFormatDetail(const NvU8 vic, NvU16 *pS
 
 // EDID based AspectRatio Timing
 NVT_STATUS NvTiming_GetEDIDBasedASPRTiming(NvU16 width, NvU16 height, NvU16 rr, NVT_EDID_INFO *pEI, NVT_TIMING *ft);
-
 
 // EDID or DISPLAYID2 version
 NvU32 NvTiming_GetVESADisplayDescriptorVersion(NvU8 *rawData, NvU32 *pVer);
@@ -5692,6 +5896,7 @@ NvU32 calculateCRC32(NvU8* pBuf, NvU32 bufsize);
 void  patchChecksum(NvU8* pBuf);
 NvBool isChecksumValid(NvU8* pBuf);
 NvU32 RRx1kToPclk (NVT_TIMING *pT);
+NvU32 RRx1kToPclk1khz (NVT_TIMING *pT);
 
 NVT_STATUS NvTiming_ComposeCustTimingString(NVT_TIMING *pT);
 
@@ -5707,7 +5912,7 @@ void        NvTiming_ConstructAdaptiveSyncSDP(const NVT_ADAPTIVE_SYNC_SDP_CTRL *
 // Get specific timing from parsed EDID
 NVT_STATUS NvTiming_GetDTD1Timing (NVT_EDID_INFO * pEdidInfo, NVT_TIMING * pT);
 
-#define NVT_IS_DTD(d)                               (NVT_GET_TIMING_STATUS_TYPE((d)) == NVT_TYPE_EDID_DTD) 
+#define NVT_IS_DTD(d)                               (NVT_GET_TIMING_STATUS_TYPE((d)) == NVT_TYPE_EDID_DTD)
 #define NVT_IS_EXT_DTD(d)                           (NVT_GET_TIMING_STATUS_TYPE((d)) == NVT_TYPE_EDID_EXT_DTD)
 #define NVT_IS_CTA861(d)                            (NVT_GET_TIMING_STATUS_TYPE((d)) == NVT_TYPE_EDID_861ST)
 #define NVT_IS_CTA861_DID_T7(d)                     (NVT_GET_TIMING_STATUS_TYPE((d)) == NVT_TYPE_CTA861_DID_T7)
@@ -5721,11 +5926,15 @@ NVT_STATUS NvTiming_GetDTD1Timing (NVT_EDID_INFO * pEdidInfo, NVT_TIMING * pT);
 #define NVT_IS_CTA861_DID_T8_1(d)                   ((NVT_IS_CTA861_DID_T8((d)))  && (NVT_GET_TIMING_STATUS_SEQ((d)) == 1))
 #define NVT_IS_CTA861_DID_T10n(d, n)                ((NVT_IS_CTA861_DID_T10((d))) && (NVT_GET_TIMING_STATUS_SEQ((d)) == n))
 
+#define NVT_IS_CTA861_OVT_Tn(flag, status, n)       ((0 != (NVT_FLAG_CTA_OVT_TIMING & (flag))) && (NVT_GET_TIMING_STATUS_SEQ((status)) == n))
+
 #define NVT_DID20_TIMING_IS_CTA861(flag, status)    ((NVT_IS_CTA861((status))) && (0 != (NVT_FLAG_DISPLAYID_2_0_TIMING & (flag))))
 #define NVT_PREFERRED_TIMING_IS_DTD1(flag, status)  ((NVT_IS_DTD1((status)))   && (0 != (NVT_FLAG_DTD1_PREFERRED_TIMING & (flag))))
 #define NVT_PREFERRED_TIMING_IS_DISPLAYID(flag)     (0 != (NVT_FLAG_DISPLAYID_DTD_PREFERRED_TIMING & flag))
 #define NVT_PREFERRED_TIMING_IS_CTA(flag)           (0 != (NVT_FLAG_CTA_PREFERRED_TIMING & flag))
 #define NVT_NATIVE_TIMING_IS_CTA(flag)              (0 != (NVT_FLAG_CTA_NATIVE_TIMING & flag))
+#define NVT_TIMING_IS_OVT(flag)                     (0 != (NVT_FLAG_CTA_OVT_TIMING & flag))
+#define NVT_FRR_TIMING_IS_OVT(flag)                 (0 != (NVT_FLAG_CTA_OVT_FRR_TIMING & flag))
 
 #ifdef __cplusplus
 }

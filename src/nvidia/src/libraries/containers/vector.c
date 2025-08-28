@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -76,7 +76,10 @@ void vectDestroy_IMPL(Vector *pVector)
     NV_ASSERT_OR_RETURN_VOID(pVector != NULL);
     NV_CHECKED_ONLY(pVector->versionNumber++);
 
-    PORT_FREE(pVector->pAllocator, pVector->pHead);
+    if (pVector->pAllocator != NULL)
+    {
+        PORT_FREE(pVector->pAllocator, pVector->pHead);
+    }
     pVector->pHead    = NULL;
     pVector->capacity = 0;
     pVector->size     = 0;
@@ -96,10 +99,12 @@ void *vectAt_IMPL
 )
 {
     NV_ASSERT_OR_RETURN(pVector != NULL, NULL);
-    if ((pVector->size == 0) || !_vectIndexCheck(pVector, index))
+    if (pVector->size == 0)
     {
+        // possible for empty vectors from vectIterAll, don't assert
         return NULL;
     }
+    NV_ASSERT_OR_RETURN(_vectIndexCheck(pVector, index), NULL);
     return (void *)((NvU8 *)pVector->pHead + index * pVector->valueSize);
 }
 
@@ -286,6 +291,8 @@ VectorIterBase vectIterRange_IMPL
     }
 
     NV_CHECKED_ONLY(it.versionNumber = pVector->versionNumber);
+    NV_CHECKED_ONLY(it.bValid = NV_TRUE);
+
     if ((pVector->size == 0) || (pFirst == NULL) || (first >= pVector->size) ||
         (pLast == NULL) || (last >= pVector->size))
     {
@@ -322,7 +329,14 @@ NvBool vectIterNext_IMPL
         return NV_FALSE;
     }
 
-    NV_ASSERT_CHECKED(pIter->versionNumber == pIter->pVector->versionNumber);
+#if PORT_IS_CHECKED_BUILD
+    if (pIter->bValid && !CONT_ITER_IS_VALID(pIter->pVector, pIter))
+    {
+        NV_ASSERT(CONT_ITER_IS_VALID(pIter->pVector, pIter));
+        PORT_DUMP_STACK();
+        pIter->bValid = NV_FALSE;
+    }
+#endif
 
     *ppValue = (void *)((NvU8 *)pIter->pVector->pHead +
                         pIter->nextIndex * pIter->pVector->valueSize);
@@ -357,7 +371,14 @@ NvBool vectIterPrev_IMPL
         return NV_FALSE;
     }
 
-    NV_ASSERT_CHECKED(pIter->versionNumber == pIter->pVector->versionNumber);
+#if PORT_IS_CHECKED_BUILD
+    if (pIter->bValid && !CONT_ITER_IS_VALID(pIter->pVector, pIter))
+    {
+        NV_ASSERT(CONT_ITER_IS_VALID(pIter->pVector, pIter));
+        PORT_DUMP_STACK();
+        pIter->bValid = NV_FALSE;
+    }
+#endif
 
     *ppValue = (void *)((NvU8 *)pIter->pVector->pHead +
                         pIter->prevIndex * pIter->pVector->valueSize);

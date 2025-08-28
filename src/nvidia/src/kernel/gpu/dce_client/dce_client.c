@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -22,7 +22,6 @@
  */
 
 #include "gpu/dce_client/dce_client.h"
-#include "vgpu/rpc.h"
 
 NV_STATUS
 dceclientConstructEngine_IMPL
@@ -33,6 +32,11 @@ dceclientConstructEngine_IMPL
 )
 {
     NV_PRINTF(LEVEL_INFO, "dceclientConstructEngine_IMPL Called\n");
+
+    if (!IS_DCE_CLIENT(pGpu))
+    {
+        return NV_ERR_NOT_SUPPORTED;
+    }
 
     return dceclientInitRpcInfra(pGpu, pDceClient);
 }
@@ -55,21 +59,10 @@ dceclientStateLoad_IMPL
     NvU32         flags
 )
 {
-    NV_STATUS nvStatus = NV_OK;
-    NV_PRINTF(LEVEL_INFO, "dceclientStateLoad_IMPL Called\n");
-
     if (!(flags & GPU_STATE_FLAGS_PM_TRANSITION))
         return NV_OK;
 
-    nvStatus = dceclientInitRpcInfra(pGpu, pDceClient);
-    if (nvStatus != NV_OK)
-    {
-        NV_PRINTF(LEVEL_ERROR, "dceclientInitRpcInfra failed\n");
-        goto out;
-    }
-
-out:
-    return nvStatus;
+    return dceclientInitRpcInfra(pGpu, pDceClient);
 }
 
 NV_STATUS
@@ -82,6 +75,8 @@ dceclientStateUnload_IMPL
 {
     NV_STATUS nvStatus      = NV_OK;
     NvU32     newPMLevel;
+    RM_API *pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
+    NV2080_CTRL_INTERNAL_GPU_CLIENT_LOW_POWER_MODE_ENTER_PARAMS params;
 
     NV_PRINTF(LEVEL_INFO, "dceclientStateUnload_IMPL Called\n");
 
@@ -93,7 +88,15 @@ dceclientStateUnload_IMPL
     else
         newPMLevel = NV2080_CTRL_GPU_SET_POWER_STATE_GPU_LEVEL_3;
 
-    NV_RM_RPC_UNLOADING_GUEST_DRIVER(pGpu, nvStatus, NV_TRUE, NV_FALSE, newPMLevel);
+    portMemSet(&params, 0, sizeof(params));
+    params.bInPMTransition = NV_TRUE;
+    params.newPMLevel = newPMLevel;
+    nvStatus = pRmApi->Control(pRmApi,
+                               pGpu->hInternalClient,
+                               pGpu->hInternalSubdevice,
+                               NV2080_CTRL_INTERNAL_GPU_CLIENT_LOW_POWER_MODE_ENTER,
+                               &params, sizeof(params));
+
     if (nvStatus != NV_OK)
         goto done;
 

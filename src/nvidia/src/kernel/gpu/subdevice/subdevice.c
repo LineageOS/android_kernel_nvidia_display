@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -34,13 +34,14 @@
 #include "resserv/rs_resource.h"
 #include "gpu/device/device.h"
 #include "gpu/subdevice/subdevice.h"
+#include "gpu_mgr/gpu_mgr.h"
 
 #include "vgpu/rpc.h"
 #include "core/locks.h"
 #include "rmapi/rs_utils.h"
 #include "core/thread_state.h"
 
-#include "objtmr.h"
+#include "gpu/timer/objtmr.h"
 
 NV_STATUS
 subdeviceConstruct_IMPL
@@ -103,7 +104,7 @@ subdeviceConstruct_IMPL
 
     NV_ASSERT_OK_OR_RETURN(gpuRegisterSubdevice(pGpu, pSubdevice));
 
-    if (IS_VIRTUAL(pGpu) || IS_GSP_CLIENT(pGpu))
+    if (IS_VIRTUAL(pGpu) || IS_FW_CLIENT(pGpu))
     {
         NV_RM_RPC_ALLOC_SUBDEVICE(pPrimaryGpu, pRsClient->hClient, pParentRef->hResource,
                               pResourceRef->hResource, NV20_SUBDEVICE_0,
@@ -171,14 +172,19 @@ subdeviceDestruct_IMPL
     resGetFreeParams(staticCast(pSubdevice, RsResource), &pCallContext, NULL);
 
     // check for any pending client's timer notification for this subdevice
-    if (pSubdevice->notifyActions[NV2080_NOTIFIERS_TIMER] != NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE)
+    if ((pSubdevice->notifyActions[NV2080_NOTIFIERS_TIMER] != NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE) ||
+        (pSubdevice->pTimerEvent != NULL))
     {
         OBJTMR *pTmr = GPU_GET_TIMER(pGpu);
-        tmrCancelCallback(pTmr, pSubdevice);
+        tmrEventDestroy(pTmr, pSubdevice->pTimerEvent);
+        pSubdevice->pTimerEvent = NULL;
         pSubdevice->notifyActions[NV2080_NOTIFIERS_TIMER] = NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE;
     }
 
     subdeviceRestoreLockedClock(pSubdevice, pCallContext);
+
+    // Decrement the reference count for VF if previously incremented.
+    subdeviceRestoreVF(pSubdevice, pCallContext);
 
     // Restore GR tick frequency to default.
     subdeviceRestoreGrTickFreq(pSubdevice, pCallContext);
@@ -195,7 +201,7 @@ subdeviceDestruct_IMPL
     subdeviceUnsetGpuDebugMode(pSubdevice);
     subdeviceRestoreWatchdog(pSubdevice);
 
-    if (pResourceRef != NULL && (IS_VIRTUAL(pGpu) || IS_GSP_CLIENT(pGpu)))
+    if (pResourceRef != NULL && (IS_VIRTUAL(pGpu) || IS_FW_CLIENT(pGpu)))
     {
         NV_RM_RPC_FREE(pGpu, pRsClient->hClient,
                        pResourceRef->pParentRef->hResource,
@@ -215,14 +221,6 @@ subdeviceInternalControlForward_IMPL
 )
 {
     return gpuresInternalControlForward_IMPL(staticCast(pSubdevice, GpuResource), command, pParams, size);
-}
-
-NV_STATUS
-subdeviceControlFilter_IMPL(Subdevice *pSubdevice,
-                            CALL_CONTEXT *pCallContext,
-                            RS_RES_CONTROL_PARAMS_INTERNAL *pParams)
-{
-    return NV_OK;
 }
 
 NV_STATUS

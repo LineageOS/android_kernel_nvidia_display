@@ -1,11 +1,13 @@
 /**
  *  Copyright Notice:
- *  Copyright 2021-2022 DMTF. All rights reserved.
+ *  Copyright 2021-2024 DMTF. All rights reserved.
  *  License: BSD 3-Clause License. For full text see link: https://github.com/DMTF/libspdm/blob/main/LICENSE.md
  **/
 
 #ifndef CRYPTLIB_CERT_H
 #define CRYPTLIB_CERT_H
+
+#if LIBSPDM_CERT_PARSE_SUPPORT
 
 /**
  * Retrieve the tag and length of the tag.
@@ -33,10 +35,10 @@ extern bool libspdm_asn1_get_tag(uint8_t **ptr, const uint8_t *end, size_t *leng
  * @param[in, out] subject_size  The size in bytes of the cert_subject buffer on input,
  *                               and the size of buffer returned cert_subject on output.
  *
- * @retval  true   The certificate subject retrieved successfully.
- * @retval  false  Invalid certificate, or the subject_size is too small for the result.
- *                 The subject_size will be updated with the required size.
- * @retval  false  This interface is not supported.
+ * @retval  true   If the subject_size is not equal 0. The certificate subject retrieved successfully.
+ * @retval  true   If the subject_size is equal 0. The certificate parse successful. But the cert doesn't have subject.
+ * @retval  false  If the subject_size is not equal 0. The certificate subject retrieved successfully.But the subject_size is too small for the result.
+ * @retval  false  If the subject_size is equal 0. Invalid certificate.
  **/
 extern bool libspdm_x509_get_subject_name(const uint8_t *cert, size_t cert_size,
                                           uint8_t *cert_subject,
@@ -78,6 +80,25 @@ extern bool libspdm_x509_get_serial_number(const uint8_t *cert, size_t cert_size
                                            uint8_t *serial_number,
                                            size_t *serial_number_size);
 
+#if LIBSPDM_ADDITIONAL_CHECK_CERT
+/**
+ * Retrieve the signature algorithm from one X.509 certificate.
+ *
+ * @param[in]      cert       Pointer to the DER-encoded X509 certificate.
+ * @param[in]      cert_size  Size of the X509 certificate in bytes.
+ * @param[out]     oid        Signature algorithm Object identifier buffer.
+ * @param[in,out]  oid_size   Signature algorithm Object identifier buffer size.
+ *
+ * @retval  true    if the oid_size is equal 0, the cert parse successfully, but cert doesn't have signature algo.
+ * @retval  true    if the oid_size is not equal 0, the cert parse and get signature algo successfully.
+ * @retval  false   if the oid_size is equal 0, the cert parse failed.
+ * @retval  false   if the oid_size is not equal 0, the cert parse and get signature algo successfully, but the input buffer size is small.
+ **/
+extern bool libspdm_x509_get_signature_algorithm(const uint8_t *cert,
+                                                 size_t cert_size, uint8_t *oid,
+                                                 size_t *oid_size);
+#endif /* LIBSPDM_ADDITIONAL_CHECK_CERT */
+
 /**
  * Retrieve the issuer bytes from one X.509 certificate.
  *
@@ -91,10 +112,10 @@ extern bool libspdm_x509_get_serial_number(const uint8_t *cert, size_t cert_size
  * @param[in, out] issuer_size  The size in bytes of the cert_issuer buffer on input,
  *                              and the size of buffer returned cert_issuer on output.
  *
- * @retval  true   The certificate issuer retrieved successfully.
- * @retval  false  Invalid certificate, or the issuer_size is too small for the result.
- *                 The issuer_size will be updated with the required size.
- * @retval  false  This interface is not supported.
+ * @retval  true   If the issuer_size is not equal 0. The certificate issuer retrieved successfully.
+ * @retval  true   If the issuer_size is equal 0. The certificate parse successful. But the cert doesn't have issuer.
+ * @retval  false  If the issuer_size is not equal 0. The certificate issuer retrieved successfully. But the issuer_size is too small for the result.
+ * @retval  false  If the issuer_size is equal 0. Invalid certificate.
  **/
 extern bool libspdm_x509_get_issuer_name(const uint8_t *cert, size_t cert_size,
                                          uint8_t *cert_issuer,
@@ -110,8 +131,11 @@ extern bool libspdm_x509_get_issuer_name(const uint8_t *cert, size_t cert_size,
  * @param[out]     extension_data       Extension bytes.
  * @param[in, out] extension_data_size  Extension bytes size.
  *
- * @retval  true
- * @retval  false
+ * @retval true   If the returned extension_data_size == 0, it means that cert and oid are valid, but the oid extension is not found;
+ *                If the returned extension_data_size != 0, it means that cert and oid are valid, and the oid extension is found;
+ * @retval false  If the returned extension_data_size == 0, it means that cert or oid are invalid;
+ *                If the returned extension_data_size != 0, it means that cert and oid are valid, and the oid extension is found,
+ *                                                          but the store buffer is too small.
  **/
 extern bool libspdm_x509_get_extension_data(const uint8_t *cert, size_t cert_size,
                                             const uint8_t *oid, size_t oid_size,
@@ -135,9 +159,14 @@ extern bool libspdm_x509_get_extension_data(const uint8_t *cert, size_t cert_siz
  * Note: libspdm_x509_compare_date_time to compare date_time oject
  *       x509SetDateTime to get a date_time object from a date_time_str
  *
- * @retval  true   The certificate Validity retrieved successfully.
- * @retval  false  Invalid certificate, or Validity retrieve failed.
- * @retval  false  This interface is not supported.
+ * @retval  true   if the from_size and from_size are not equal 0.
+ *                 The certificate Validity retrieved successfully.
+ * @retval  true   if the from_size and from_size are equal 0.
+ *                 The certificate Validity does not exist.
+ * @retval  false  if the from_size and from_size are not equal 0.
+ *                 The certificate Validity retrieved successfully, but the input buffer size is small.
+ * @retval  false  if the from_size and from_size are equal 0.
+ *                 Invalid certificate, or Validity retrieve failed.
  **/
 extern bool libspdm_x509_get_validity(const uint8_t *cert, size_t cert_size,
                                       uint8_t *from, size_t *from_size, uint8_t *to,
@@ -187,9 +216,9 @@ extern int32_t libspdm_x509_compare_date_time(const void *date_time1, const void
  * @param[in]      cert_size  Size of the X509 certificate in bytes.
  * @param[out]     usage      Key usage (LIBSPDM_CRYPTO_X509_KU_*)
  *
- * @retval  true   The certificate key usage retrieved successfully.
- * @retval  false  Invalid certificate, or usage is NULL
- * @retval  false  This interface is not supported.
+ * @retval  true   if the usage is no equal 0. The certificate key usage retrieved successfully.
+ * @retval  true   if the usage is equal 0. The certificate parse successfully, but the cert doesn't have key usage.
+ * @retval  false  Invalid certificate, or usage is NULL.
  **/
 extern bool libspdm_x509_get_key_usage(const uint8_t *cert, size_t cert_size, size_t *usage);
 
@@ -199,10 +228,13 @@ extern bool libspdm_x509_get_key_usage(const uint8_t *cert, size_t cert_size, si
  * @param[in]      cert        Pointer to the DER-encoded X509 certificate.
  * @param[in]      cert_size   Size of the X509 certificate in bytes.
  * @param[out]     usage       Key usage bytes.
- * @param[in, out] usage_size  Key usage buffer sizs in bytes.
+ * @param[in, out] usage_size  Key usage buffer size in bytes.
  *
- * @retval  true
- * @retval  false
+ * @retval true   If the returned usage_size == 0, it means that cert and oid are valid, but the Extended key usage is not found;
+ *                If the returned usage_size != 0, it means that cert and oid are valid, and the Extended key usage is found;
+ * @retval false  If the returned usage_size == 0, it means that cert or oid are invalid;
+ *                If the returned usage_size != 0, it means that cert and oid are valid, and the Extended key usage is found,
+ *                                                 but the store buffer is too small.
  **/
 extern bool libspdm_x509_get_extended_key_usage(const uint8_t *cert,
                                                 size_t cert_size, uint8_t *usage,
@@ -214,10 +246,13 @@ extern bool libspdm_x509_get_extended_key_usage(const uint8_t *cert,
  * @param[in]      cert                     Pointer to the DER-encoded X509 certificate.
  * @param[in]      cert_size                Size of the X509 certificate in bytes.
  * @param[out]     basic_constraints        Basic constraints bytes.
- * @param[in, out] basic_constraints_size   Basic constraints buffer sizs in bytes.
+ * @param[in, out] basic_constraints_size   Basic constraints buffer size in bytes.
  *
- * @retval  true
- * @retval  false
+ * @retval true   If the returned basic_constraints_size == 0, it means that cert and oid are valid, but the basic_constraints is not found;
+ *                If the returned basic_constraints_size != 0, it means that cert and oid are valid, and the basic_constraints is found;
+ * @retval false  If the returned basic_constraints_size == 0, it means that cert or oid are invalid;
+ *                If the returned basic_constraints_size != 0, it means that cert and oid are valid, and the basic_constraints is found,
+ *                                                             but the store buffer is too small.
  **/
 extern bool libspdm_x509_get_extended_basic_constraints(const uint8_t *cert,
                                                         size_t cert_size,
@@ -250,16 +285,16 @@ extern bool libspdm_x509_verify_cert(const uint8_t *cert, size_t cert_size,
  *
  * @param[in]      cert_chain         One or more ASN.1 DER-encoded X.509 certificates
  *                                    where the first certificate is signed by the Root
- *                                    Certificate or is the Root Cerificate itself. and
- *                                    subsequent cerificate is signed by the preceding
- *                                    cerificate.
+ *                                    Certificate or is the Root Certificate itself. and
+ *                                    subsequent certificate is signed by the preceding
+ *                                    certificate.
  * @param[in]      cert_chain_length  Total length of the certificate chain, in bytes.
  *
  * @param[in]      root_cert          Trusted Root Certificate buffer.
  *
  * @param[in]      root_cert_length   Trusted Root Certificate buffer length.
  *
- * @retval  true   All cerificates were issued by the first certificate in X509Certchain.
+ * @retval  true   All certificates were issued by the first certificate in X509Certchain.
  * @retval  false  Invalid certificate or the certificate was not issued by the given
  *                 trusted CA.
  **/
@@ -272,12 +307,12 @@ extern bool libspdm_x509_verify_cert_chain(const uint8_t *root_cert, size_t root
  *
  * @param[in]      cert_chain         One or more ASN.1 DER-encoded X.509 certificates
  *                                    where the first certificate is signed by the Root
- *                                    Certificate or is the Root Cerificate itself. and
- *                                    subsequent cerificate is signed by the preceding
- *                                    cerificate.
+ *                                    Certificate or is the Root Certificate itself. and
+ *                                    subsequent certificate is signed by the preceding
+ *                                    certificate.
  * @param[in]      cert_chain_length  Total length of the certificate chain, in bytes.
  *
- * @param[in]      cert_index         Index of certificate. If index is -1 indecate the
+ * @param[in]      cert_index         Index of certificate. If index is -1 indicates the
  *                                    last certificate in cert_chain.
  *
  * @param[out]     cert              The certificate at the index of cert_chain.
@@ -301,7 +336,7 @@ extern bool libspdm_x509_get_cert_from_cert_chain(const uint8_t *cert_chain,
  *
  * @param[in]  cert         Pointer to the DER-encoded X509 certificate.
  * @param[in]  cert_size    Size of the X509 certificate in bytes.
- * @param[out] rsa_context  Pointer to new-generated RSA context which contain the retrieved
+ * @param[out] rsa_context  Pointer to newly generated RSA context which contain the retrieved
  *                          RSA public key component. Use libspdm_rsa_free() function to free the
  *                          resource.
  *
@@ -319,7 +354,7 @@ extern bool libspdm_rsa_get_public_key_from_x509(const uint8_t *cert, size_t cer
  *
  * @param[in]  cert        Pointer to the DER-encoded X509 certificate.
  * @param[in]  cert_size   Size of the X509 certificate in bytes.
- * @param[out] ec_context  Pointer to new-generated EC DSA context which contain the retrieved
+ * @param[out] ec_context  Pointer to newly generated EC DSA context which contain the retrieved
  *                         EC public key component. Use libspdm_ec_free() function to free the
  *                         resource.
  *
@@ -340,7 +375,7 @@ extern bool libspdm_ec_get_public_key_from_x509(const uint8_t *cert, size_t cert
  *
  * @param[in]  cert         Pointer to the DER-encoded X509 certificate.
  * @param[in]  cert_size    Size of the X509 certificate in bytes.
- * @param[out] ecd_context  Pointer to new-generated Ed DSA context which contain the retrieved
+ * @param[out] ecd_context  Pointer to newly generated Ed DSA context which contain the retrieved
  *                          Ed public key component. Use libspdm_ecd_free() function to free the
  *                          resource.
  *
@@ -361,7 +396,7 @@ extern bool libspdm_ecd_get_public_key_from_x509(const uint8_t *cert, size_t cer
  *
  * @param[in]  cert         Pointer to the DER-encoded X509 certificate.
  * @param[in]  cert_size    Size of the X509 certificate in bytes.
- * @param[out] sm2_context  Pointer to new-generated sm2 context which contain the retrieved
+ * @param[out] sm2_context  Pointer to newly generated sm2 context which contain the retrieved
  *                          sm2 public key component. Use sm2_free() function to free the
  *                          resource.
  *
@@ -376,41 +411,6 @@ extern bool libspdm_sm2_get_public_key_from_x509(const uint8_t *cert, size_t cer
                                                  void **sm2_context);
 #endif /* LIBSPDM_SM2_DSA_SUPPORT */
 
-#if LIBSPDM_ENABLE_CAPABILITY_GET_CSR_CAP
-/**
- * Generate a CSR.
- *
- * @param[in]      hash_nid              hash algo for sign
- * @param[in]      asym_nid              asym algo for sign
- *
- * @param[in]      requester_info        requester info to gen CSR
- * @param[in]      requester_info_length The len of requester info
- *
- * @param[in]      context               Pointer to asymmetric context
- * @param[in]      subject_name          Subject name: should be break with ',' in the middle
- *                                       example: "C=AA,CN=BB"
- *
- * Subject names should contain a comma-separated list of OID types and values:
- * The valid OID type name is in:
- * {"CN", "commonName", "C", "countryName", "O", "organizationName","L",
- * "OU", "organizationalUnitName", "ST", "stateOrProvinceName", "emailAddress",
- * "serialNumber", "postalAddress", "postalCode", "dnQualifier", "title",
- * "SN","givenName","GN", "initials", "pseudonym", "generationQualifier", "domainComponent", "DC"}.
- * Note: The object of C and countryName should be CSR Supported Country Codes
- *
- * @param[in]      csr_len               For input, csr_len is the size of store CSR buffer.
- *                                       For output, csr_len is CSR len for DER format
- * @param[in]      csr_pointer           For input, csr_pointer is buffer address to store CSR.
- *                                       For output, csr_pointer is address for stored CSR.
- *                                       The csr_pointer address will be changed.
- *
- * @retval  true   Success.
- * @retval  false  Failed to gen CSR.
- **/
-extern bool libspdm_gen_x509_csr(size_t hash_nid, size_t asym_nid,
-                                 uint8_t *requester_info, size_t requester_info_length,
-                                 void *context, char *subject_name,
-                                 size_t *csr_len, uint8_t **csr_pointer);
-#endif /* LIBSPDM_ENABLE_CAPABILITY_GET_CSR_CAP */
+#endif /* LIBSPDM_CERT_PARSE_SUPPORT */
 
 #endif /* CRYPTLIB_CERT_H */

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2004-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2004-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -34,9 +34,13 @@
 #include "core/locks.h"
 #include "gpu/gpu.h"
 #include "gpu_mgr/gpu_mgr.h"
+#include "platform/sli/sli.h"
 #include "virtualization/hypervisor/hypervisor.h"
+#include "vgpu/rpc.h"
 
-
+#if defined(NV_UNIX)
+#include "os-interface.h"
+#endif
 
 //
 // This rmctrl MUST NOT touch hw since it's tagged as NO_GPUS_ACCESS in ctrl0080.def
@@ -54,7 +58,7 @@ deviceCtrlCmdGpuGetClasslist_IMPL
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pDevice);
 
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     return gpuGetClassList(pGpu, &pClassListParams->numClasses,
                            NvP64_VALUE(pClassListParams->classList), ENG_INVALID);
@@ -76,7 +80,7 @@ deviceCtrlCmdGpuGetClasslistV2_IMPL
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pDevice);
 
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     pClassListParams->numClasses = NV0080_CTRL_GPU_CLASSLIST_MAX_SIZE;
 
@@ -200,6 +204,10 @@ deviceCtrlCmdGpuGetVirtualizationMode_IMPL
         return NV_ERR_INVALID_ARGUMENT;
     }
 
+#if defined(NV_UNIX) && !RMCFG_FEATURE_MODS_FEATURES
+    pParams->isGridBuild = os_is_grid_supported();
+#endif
+
     if (IS_VIRTUAL(pGpu))
     {
         pParams->virtualizationMode =
@@ -246,6 +254,34 @@ deviceCtrlCmdGpuGetVirtualizationMode_IMPL
 }
 
 /*!
+ * @brief   This Command issues an RPC call to the host to switch the "backdoor
+ *          VNC" view to the console.
+ *
+ * @return  Returns NV_STATUS
+ *          NV_ERR_NOT_SUPPORTED      If GPU is not present under host hypervisor.
+ *          NV_OK                     If GPU is present under host hypervisor.
+ *          NV_ERR_INVALID_ARGUMENT   If GPU is not present.
+ *
+ */
+NV_STATUS
+deviceCtrlCmdGpuVirtualizationSwitchToVga_IMPL
+(
+    Device *pDevice
+)
+{
+    OBJGPU   *pGpu   = GPU_RES_GET_GPU(pDevice);
+    NV_STATUS status = NV_OK;
+
+    if (pGpu == NULL)
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+
+    NV_RM_RPC_SWITCH_TO_VGA(pGpu, status);
+    return status;
+}
+
+/*!
  * @brief   This command is used to find a subdevice handle by subdeviceinst
  */
 NV_STATUS
@@ -271,25 +307,75 @@ deviceCtrlCmdGpuGetFindSubDeviceHandle_IMPL
     return status;
 }
 
-/*
- * @brief Request per-VF BAR1 resizing and, subsequently, the number
- *        of VFs that can be created. The request will take a per-VF
- *        BAR1 size in MB and calculate the number of possible VFs
- *
- * @param[in] pParams  NV0080_CTRL_GPU_SET_VGPU_VF_BAR1_SIZE_PARAMS
- *                     pointer detailing the per-VF BAR1 size and
- *                     number of VFs
- */
-
 NV_STATUS
-deviceCtrlCmdGpuSetVgpuVfBar1Size_IMPL
+deviceCtrlCmdGpuSetVgpuHeterogeneousMode_IMPL
 (
     Device *pDevice,
-    NV0080_CTRL_GPU_SET_VGPU_VF_BAR1_SIZE_PARAMS *pParams
+    NV0080_CTRL_GPU_SET_VGPU_HETEROGENEOUS_MODE_PARAMS *pParams
+)
+{
+
+    return NV_OK;
+}
+
+NV_STATUS
+deviceCtrlCmdGpuGetVgpuHeterogeneousMode_IMPL
+(
+    Device *pDevice,
+    NV0080_CTRL_GPU_GET_VGPU_HETEROGENEOUS_MODE_PARAMS *pParams
 )
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pDevice);
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
 
-    return gpuSetVFBarSizes_HAL(pGpu, pParams);
+    NV_CHECK_OR_RETURN(LEVEL_ERROR, pGpu != NULL, NV_ERR_INVALID_ARGUMENT);
+    {
+        pParams->bHeterogeneousMode = pGpu->getProperty(pGpu, PDB_PROP_GPU_IS_VGPU_HETEROGENEOUS_MODE);
+    }
+    return NV_OK;
+
+}
+
+/*!
+ * @brief Get the GPU's branding information.
+ *
+ * @returns NV_STATUS
+ *          NV_OK                   Success
+ */
+NV_STATUS
+deviceCtrlCmdGpuGetBrandCaps_VF
+(
+    Device *pDevice,
+    NV0080_CTRL_GPU_GET_BRAND_CAPS_PARAMS *pParams
+)
+{
+    OBJGPU *pGpu = GPU_RES_GET_GPU(pDevice);
+
+    if (IS_VGPU_GSP_PLUGIN_OFFLOAD_ENABLED(pGpu))
+    {
+        NV_STATUS     status        = NV_OK;
+        CALL_CONTEXT *pCallContext  = resservGetTlsCallContext();
+        RmCtrlParams *pRmCtrlParams = pCallContext->pControlParams;
+        NvU32         gpuMask       = 0;
+
+        NV_ASSERT_OK_OR_RETURN(
+            rmGpuGroupLockAcquire(pGpu->gpuInstance,
+                                  GPU_LOCK_GRP_DEVICE,
+                                  GPU_LOCK_FLAGS_SAFE_LOCK_UPGRADE,
+                                  RM_LOCK_MODULES_GPU,
+                                  &gpuMask));
+
+        NV_RM_RPC_CONTROL(pGpu,
+                          pRmCtrlParams->hClient,
+                          pRmCtrlParams->hObject,
+                          pRmCtrlParams->cmd,
+                          pRmCtrlParams->pParams,
+                          pRmCtrlParams->paramsSize,
+                          status);
+
+        rmGpuGroupLockRelease(gpuMask, GPUS_LOCK_FLAGS_NONE);
+
+        return status;
+    }
+
+    return NV_ERR_NOT_SUPPORTED;
 }

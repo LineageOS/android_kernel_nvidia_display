@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -173,8 +173,14 @@ void __nvoc_objDelete(Dynamic *pDynamic)
     {
         return;
     }
+    // objCreate might be skipped for NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT objects.
+    // In result, objDelete will be called on zeroed objects, skip their destruction.
+    if (pDynamic->__nvoc_rtti == NULL)
+    {
+        return;
+    }
 
-    pDynamic->__nvoc_rtti->dtor(pDynamic);
+    __nvoc_destructFromBase(pDynamic);
 
     pObj = dynamicCast(pDynamic, Object);
     if (pObj->pParent != NULL)
@@ -198,7 +204,11 @@ void __nvoc_objDelete(Dynamic *pDynamic)
         portMemFree(pDerivedObj);
 }
 
-//! Internal method to fill out an object's RTTI pointers from a class definition.
+//! Fill out an object's RTTI pointers from a class definition.
+//! This function is not needed for metadata v2 (and after).
+//! The linker discards this function if all NVOC objects use v2 or later.
+//! The prototype is needed to suppress GCC's `missing-prototypes` warning.
+void __nvoc_initRtti(Dynamic *pNewObject, const struct NVOC_CLASS_DEF *pClassDef);
 void __nvoc_initRtti(Dynamic *pNewObject, const struct NVOC_CLASS_DEF *pClassDef)
 {
     NvU32 relativeIdx;
@@ -209,6 +219,7 @@ void __nvoc_initRtti(Dynamic *pNewObject, const struct NVOC_CLASS_DEF *pClassDef
         *ppRelativeRtti = pRelative;
     }
 }
+
 
 //! Internal backing method for objCreateDynamic.
 NV_STATUS __nvoc_objCreateDynamic(

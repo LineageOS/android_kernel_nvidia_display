@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015- 2025, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2015, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -44,9 +44,6 @@
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_edid.h>
-
-#include <drm/drm_hdcp.h>
-#include <drm/drm_sysfs.h>
 
 static void nv_drm_connector_destroy(struct drm_connector *connector)
 {
@@ -219,56 +216,6 @@ done:
     return status;
 }
 
-static void nv_drm_connector_reset(struct drm_connector *connector)
-{
-    struct nv_drm_device *nv_dev = to_nv_device(connector->dev);
-    struct nv_drm_connector_state  * nv_connector_state =
-            nv_drm_calloc(1, sizeof(*nv_connector_state));
-
-    if (!nv_connector_state) {
-        return;
-    }
-
-    __drm_atomic_helper_connector_reset(connector, &nv_connector_state->base);
-}
-
-static struct drm_connector_state* nv_drm_connector_atomic_duplicate_state(struct drm_connector *connector)
-{
-    struct nv_drm_connector_state *nv_drm_old_connector_state =
-           to_nv_drm_connector_state(connector->state);
-
-    struct nv_drm_connector_state *nv_drm_new_connector_state =
-           nv_drm_calloc(1, sizeof(*nv_drm_new_connector_state));
-
-    if (!nv_drm_new_connector_state) {
-        return NULL;
-    }
-
-    __drm_atomic_helper_connector_duplicate_state(connector, &nv_drm_new_connector_state->base);
-
-    nv_drm_new_connector_state->output_colorrange = nv_drm_old_connector_state->output_colorrange;
-    nv_drm_new_connector_state->op_colorrange_changed = false;
-    nv_drm_new_connector_state->hdcp_topology_blob = nv_drm_old_connector_state->hdcp_topology_blob;
-    if (nv_drm_new_connector_state->hdcp_topology_blob) {
-        drm_property_blob_get(nv_drm_new_connector_state->hdcp_topology_blob);
-    }
-
-    return &nv_drm_new_connector_state->base;
-}
-
-static void nv_drm_connector_atomic_destroy_state(
-            struct drm_connector *connector,
-            struct drm_connector_state *state)
-{
-    struct nv_drm_connector_state *nv_drm_connector_state =
-           to_nv_drm_connector_state(state);
-
-    __drm_atomic_helper_connector_destroy_state(state);
-    drm_property_blob_put(nv_drm_connector_state->hdcp_topology_blob);
-
-    nv_drm_free(nv_drm_connector_state);
-}
-
 static void __nv_drm_connector_force(struct drm_connector *connector)
 {
     __nv_drm_connector_detect_internal(connector);
@@ -280,60 +227,14 @@ nv_drm_connector_detect(struct drm_connector *connector, bool force)
     return __nv_drm_connector_detect_internal(connector);
 }
 
-static int nv_drm_connector_atomic_get_property(
-           struct drm_connector *connector,
-           const struct drm_connector_state *state,
-           struct drm_property *property,
-           uint64_t *val)
-{
-    struct nv_drm_device *nv_dev = to_nv_device(connector->dev);
-    const struct nv_drm_connector_state *nv_drm_connector_state =
-                   to_nv_drm_connector_state_const(state);
-
-    if (property == nv_dev->nv_output_colorrange_property) {
-        *val = nv_drm_connector_state->output_colorrange;
-    } else {
-        return -EINVAL;
-    }
-
-    return 0;
-}
-
-static int nv_drm_connector_atomic_set_property(
-           struct drm_connector *connector,
-           struct drm_connector_state *state,
-           struct drm_property *property,
-           uint64_t val)
-{
-    struct nv_drm_device *nv_dev = to_nv_device(connector->dev);
-    struct nv_drm_connector_state *nv_drm_connector_state =
-            to_nv_drm_connector_state(state);
-
-    if (property == nv_dev->nv_output_colorrange_property) {
-        if (val != nv_drm_connector_state->output_colorrange) {
-            nv_drm_connector_state->output_colorrange = val;
-            nv_drm_connector_state->op_colorrange_changed = true;
-        }
-    } else {
-       return -EINVAL;
-    }
-
-    return 0;
-}
-
 static struct drm_connector_funcs nv_connector_funcs = {
-#if defined NV_DRM_ATOMIC_HELPER_CONNECTOR_DPMS_PRESENT
-    .dpms                   = drm_atomic_helper_connector_dpms,
-#endif
     .destroy                = nv_drm_connector_destroy,
-    .reset                  = nv_drm_connector_reset,
+    .reset                  = drm_atomic_helper_connector_reset,
     .force                  = __nv_drm_connector_force,
     .detect                 = nv_drm_connector_detect,
     .fill_modes             = drm_helper_probe_single_connector_modes,
-    .atomic_duplicate_state = nv_drm_connector_atomic_duplicate_state,
-    .atomic_destroy_state   = nv_drm_connector_atomic_destroy_state,
-    .atomic_get_property    = nv_drm_connector_atomic_get_property,
-    .atomic_set_property    = nv_drm_connector_atomic_set_property,
+    .atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
+    .atomic_destroy_state   = drm_atomic_helper_connector_destroy_state,
 };
 
 static int nv_drm_connector_get_modes(struct drm_connector *connector)
@@ -410,7 +311,11 @@ static int nv_drm_connector_get_modes(struct drm_connector *connector)
 }
 
 static int nv_drm_connector_mode_valid(struct drm_connector    *connector,
+#if defined(NV_DRM_CONNECTOR_HELPER_FUNCS_MODE_VALID_HAS_CONST_MODE_ARG)
+                                       const struct drm_display_mode *mode)
+#else
                                        struct drm_display_mode *mode)
+#endif
 {
     struct drm_device *dev = connector->dev;
     struct nv_drm_device *nv_dev = to_nv_device(dev);
@@ -451,21 +356,16 @@ static const NvU32 __nv_drm_connector_supported_colorspaces =
     BIT(DRM_MODE_COLORIMETRY_BT2020_YCC);
 #endif
 
+#if defined(NV_DRM_CONNECTOR_ATTACH_HDR_OUTPUT_METADATA_PROPERTY_PRESENT)
 static int
-nv_drm_connector_atomic_check(struct drm_connector *connector,
-                              struct drm_atomic_state *state)
+__nv_drm_connector_atomic_check(struct drm_connector *connector,
+                                struct drm_atomic_state *state)
 {
     struct drm_connector_state *new_connector_state =
         drm_atomic_get_new_connector_state(state, connector);
     struct drm_connector_state *old_connector_state =
         drm_atomic_get_old_connector_state(state, connector);
     struct nv_drm_device *nv_dev = to_nv_device(connector->dev);
-
-    const struct nv_drm_connector_state *nv_drm_new_connector_state =
-        to_nv_drm_connector_state_const(new_connector_state);
-
-    const struct nv_drm_connector_state *nv_drm_old_connector_state =
-        to_nv_drm_connector_state_const(old_connector_state);
 
     struct drm_crtc *crtc = new_connector_state->crtc;
     struct drm_crtc_state *crtc_state;
@@ -480,20 +380,61 @@ nv_drm_connector_atomic_check(struct drm_connector *connector,
     nv_crtc_state = to_nv_crtc_state(crtc_state);
     req_config = &nv_crtc_state->req_config;
 
-    if ((nv_drm_new_connector_state->op_colorrange_changed == true) ||
-         (nv_drm_old_connector_state->output_colorrange != nv_drm_new_connector_state->output_colorrange))  {
-          switch (nv_drm_new_connector_state->output_colorrange) {
-              case NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_FULL:
-              case NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_LIMITED:
-                   req_config->modeSetConfig.outputColorRange =
-                       nv_drm_new_connector_state->output_colorrange;
+    /*
+     * Override metadata for the entire head instead of allowing NVKMS to derive
+     * it from the layers' metadata.
+     *
+     * This is the metadata that will sent to the display, and if applicable,
+     * layers will be tone mapped to this metadata rather than that of the
+     * display.
+     */
+    req_config->flags.hdrInfoFrameChanged =
+        !drm_connector_atomic_hdr_metadata_equal(old_connector_state,
+                                                 new_connector_state);
+    if (new_connector_state->hdr_output_metadata &&
+        new_connector_state->hdr_output_metadata->data) {
 
-                   req_config->flags.colorrangeChanged = true;
-                   break;
-           default:
-                   NV_DRM_DEV_LOG_ERR(nv_dev, "Unsupported ouput color range");
-                   return -EINVAL;
-         }
+        /*
+         * Note that HDMI definitions are used here even though we might not
+         * be using HDMI. While that seems odd, it is consistent with
+         * upstream behavior.
+         */
+
+        struct hdr_output_metadata *hdr_metadata =
+            new_connector_state->hdr_output_metadata->data;
+        struct hdr_metadata_infoframe *info_frame =
+            &hdr_metadata->hdmi_metadata_type1;
+        unsigned int i;
+
+        if (hdr_metadata->metadata_type != HDMI_STATIC_METADATA_TYPE1) {
+            return -EINVAL;
+        }
+
+        for (i = 0; i < ARRAY_SIZE(info_frame->display_primaries); i++) {
+            req_config->modeSetConfig.hdrInfoFrame.staticMetadata.displayPrimaries[i].x =
+                info_frame->display_primaries[i].x;
+            req_config->modeSetConfig.hdrInfoFrame.staticMetadata.displayPrimaries[i].y =
+                info_frame->display_primaries[i].y;
+        }
+
+        req_config->modeSetConfig.hdrInfoFrame.staticMetadata.whitePoint.x =
+            info_frame->white_point.x;
+        req_config->modeSetConfig.hdrInfoFrame.staticMetadata.whitePoint.y =
+            info_frame->white_point.y;
+        req_config->modeSetConfig.hdrInfoFrame.staticMetadata.maxDisplayMasteringLuminance =
+            info_frame->max_display_mastering_luminance;
+        req_config->modeSetConfig.hdrInfoFrame.staticMetadata.minDisplayMasteringLuminance =
+            info_frame->min_display_mastering_luminance;
+        req_config->modeSetConfig.hdrInfoFrame.staticMetadata.maxCLL =
+            info_frame->max_cll;
+        req_config->modeSetConfig.hdrInfoFrame.staticMetadata.maxFALL =
+            info_frame->max_fall;
+
+        req_config->modeSetConfig.hdrInfoFrame.eotf = info_frame->eotf;
+
+        req_config->modeSetConfig.hdrInfoFrame.enabled = NV_TRUE;
+    } else {
+        req_config->modeSetConfig.hdrInfoFrame.enabled = NV_FALSE;
     }
 
     req_config->flags.colorimetryChanged =
@@ -504,19 +445,10 @@ nv_drm_connector_atomic_check(struct drm_connector *connector,
             req_config->modeSetConfig.colorimetry =
                 NVKMS_OUTPUT_COLORIMETRY_DEFAULT;
             break;
-        case DRM_MODE_COLORIMETRY_XVYCC_601:
-        case DRM_MODE_COLORIMETRY_SYCC_601:
-        case DRM_MODE_COLORIMETRY_OPYCC_601:
-            req_config->modeSetConfig.colorimetry =
-                NVKMS_OUTPUT_COLORIMETRY_BT601;
-            break;
-        case DRM_MODE_COLORIMETRY_BT709_YCC:
-        case DRM_MODE_COLORIMETRY_XVYCC_709:
-            req_config->modeSetConfig.colorimetry =
-                NVKMS_OUTPUT_COLORIMETRY_BT709;
-            break;
         case DRM_MODE_COLORIMETRY_BT2020_RGB:
         case DRM_MODE_COLORIMETRY_BT2020_YCC:
+            // Ignore RGB/YCC
+            // See https://patchwork.freedesktop.org/patch/525496/?series=111865&rev=4
             req_config->modeSetConfig.colorimetry =
                 NVKMS_OUTPUT_COLORIMETRY_BT2100;
             break;
@@ -528,12 +460,15 @@ nv_drm_connector_atomic_check(struct drm_connector *connector,
 
     return 0;
 }
+#endif /* defined(NV_DRM_CONNECTOR_ATTACH_HDR_OUTPUT_METADATA_PROPERTY_PRESENT) */
 
 static const struct drm_connector_helper_funcs nv_connector_helper_funcs = {
     .get_modes    = nv_drm_connector_get_modes,
     .mode_valid   = nv_drm_connector_mode_valid,
     .best_encoder = nv_drm_connector_best_encoder,
-    .atomic_check = nv_drm_connector_atomic_check,
+#if defined(NV_DRM_CONNECTOR_ATTACH_HDR_OUTPUT_METADATA_PROPERTY_PRESENT)
+    .atomic_check = __nv_drm_connector_atomic_check,
+#endif
 };
 
 static struct drm_connector*
@@ -544,18 +479,16 @@ nv_drm_connector_new(struct drm_device *dev,
 {
     struct nv_drm_device *nv_dev = to_nv_device(dev);
     struct nv_drm_connector *nv_connector = NULL;
-    struct nv_drm_connector_state *nv_connector_state = NULL;
     int ret = -ENOMEM;
 
     if ((nv_connector = nv_drm_calloc(1, sizeof(*nv_connector))) == NULL) {
         goto failed;
     }
 
-    if ((nv_connector_state = nv_drm_calloc(1, sizeof(*nv_connector_state))) == NULL) {
+    if ((nv_connector->base.state =
+            nv_drm_calloc(1, sizeof(*nv_connector->base.state))) == NULL) {
         goto failed_state_alloc;
     }
-
-    nv_connector->base.state = &nv_connector_state->base;
     nv_connector->base.state->connector = &nv_connector->base;
 
     nv_connector->physicalIndex = physicalIndex;
@@ -563,7 +496,6 @@ nv_drm_connector_new(struct drm_device *dev,
     nv_connector->internal = internal;
     nv_connector->modeset_permission_filep = NULL;
     nv_connector->modeset_permission_crtc = NULL;
-    nv_connector->cp = NVKMS_CP_OFF;
 
     strcpy(nv_connector->dpAddress, dpAddress);
 
@@ -589,28 +521,7 @@ nv_drm_connector_new(struct drm_device *dev,
             DRM_CONNECTOR_POLL_CONNECT | DRM_CONNECTOR_POLL_DISCONNECT;
     }
 
-    /* attach content protection properties */
-    if (nv_connector->type != NVKMS_CONNECTOR_TYPE_DSI) {
-        ret = drm_connector_attach_content_protection_property(&nv_connector->base, true);
-        if (ret != 0) {
-            NV_DRM_DEV_LOG_ERR(
-                nv_dev,
-                "Failed to attach content protction properties to connector created from physical index %u",
-                nv_connector->physicalIndex);
-            goto failed_connector_init;
-        }
-    }
-
-    /* attach nvidia defined connector properties */
-    if (nv_connector->type != NVKMS_CONNECTOR_TYPE_DSI) {
-        drm_object_attach_property(&nv_connector->base.base,
-                                   nv_dev->nv_hdcp_topology_property,
-                                   0);
-    }
-    drm_object_attach_property(&nv_connector->base.base,
-                               nv_dev->nv_output_colorrange_property,
-                               NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_FULL);
-
+#if defined(NV_DRM_CONNECTOR_ATTACH_HDR_OUTPUT_METADATA_PROPERTY_PRESENT)
     if (nv_connector->type == NVKMS_CONNECTOR_TYPE_HDMI) {
 #if defined(NV_DRM_MODE_CREATE_DP_COLORSPACE_PROPERTY_HAS_SUPPORTED_COLORSPACES_ARG)
         if (drm_mode_create_hdmi_colorspace_property(
@@ -634,6 +545,7 @@ nv_drm_connector_new(struct drm_device *dev,
         }
         drm_connector_attach_hdr_output_metadata_property(&nv_connector->base);
     }
+#endif /* defined(NV_DRM_CONNECTOR_ATTACH_HDR_OUTPUT_METADATA_PROPERTY_PRESENT) */
 
     /* Register connector with DRM subsystem */
 
@@ -673,16 +585,11 @@ nv_drm_get_connector(struct drm_device *dev,
                      char dpAddress[NVKMS_DP_ADDRESS_STRING_LENGTH])
 {
     struct drm_connector *connector = NULL;
-#if defined(NV_DRM_CONNECTOR_LIST_ITER_PRESENT)
     struct drm_connector_list_iter conn_iter;
-    nv_drm_connector_list_iter_begin(dev, &conn_iter);
-#else
-    struct drm_mode_config *config = &dev->mode_config;
-    mutex_lock(&config->mutex);
-#endif
+    drm_connector_list_iter_begin(dev, &conn_iter);
 
     /* Lookup for existing connector with same physical index */
-    nv_drm_for_each_connector(connector, &conn_iter, dev) {
+    drm_for_each_connector_iter(connector, &conn_iter) {
         struct nv_drm_connector *nv_connector = to_nv_connector(connector);
 
         if (nv_connector->physicalIndex == physicalIndex) {
@@ -697,11 +604,7 @@ nv_drm_get_connector(struct drm_device *dev,
     connector = NULL;
 
 done:
-#if defined(NV_DRM_CONNECTOR_LIST_ITER_PRESENT)
-    nv_drm_connector_list_iter_end(&conn_iter);
-#else
-    mutex_unlock(&config->mutex);
-#endif
+    drm_connector_list_iter_end(&conn_iter);
 
     if (!connector) {
         connector = nv_drm_connector_new(dev,
@@ -731,64 +634,6 @@ bool nv_drm_connector_revoke_permissions(struct drm_device *dev,
         nv_connector->modeset_permission_crtc = NULL;
     }
     nv_connector->modeset_permission_filep = NULL;
-    return ret;
-}
-
-void nv_drm_connector_update_content_protection(struct nv_drm_connector *nv_connector)
-{
-    struct drm_connector *connector = &nv_connector->base;
-    struct drm_connector_state *state = connector->state;
-    unsigned int content_protection = state->content_protection;
-    unsigned int hdcp_content_type = state->hdcp_content_type;
-    bool update_cp = false;
-    unsigned int cp_val;
-
-    if ((content_protection == DRM_MODE_CONTENT_PROTECTION_DESIRED) &&
-        (hdcp_content_type == DRM_MODE_HDCP_CONTENT_TYPE0)) {
-        if ((nv_connector->cp == NVKMS_CP_HDCP1X_ON) ||
-            (nv_connector->cp == NVKMS_CP_HDCP2X_TYPE0_ON) ||
-            (nv_connector->cp == NVKMS_CP_HDCP2X_TYPE1_ON)) {
-            cp_val = DRM_MODE_CONTENT_PROTECTION_ENABLED;
-            update_cp = true;
-        }
-    } else if ((content_protection == DRM_MODE_CONTENT_PROTECTION_DESIRED) &&
-             (hdcp_content_type == DRM_MODE_HDCP_CONTENT_TYPE1)) {
-        if (nv_connector->cp == NVKMS_CP_HDCP2X_TYPE1_ON) {
-            cp_val = DRM_MODE_CONTENT_PROTECTION_ENABLED;
-            update_cp = true;
-        }
-    } else if (content_protection == DRM_MODE_CONTENT_PROTECTION_ENABLED) {
-        if (nv_connector->cp == NVKMS_CP_OFF) {
-            cp_val = DRM_MODE_CONTENT_PROTECTION_DESIRED;
-            update_cp = true;
-        }
-    }
-
-    if (update_cp) {
-        drm_hdcp_update_content_protection(connector, cp_val);
-    }
-}
-
-int nv_drm_connector_update_topology_property(struct nv_drm_connector *nv_connector,
-                                              struct NvKmsHdcpTopology *topology)
-{
-    struct drm_connector *connector = &nv_connector->base;
-    struct drm_connector_state *state = connector->state;
-    struct nv_drm_connector_state *nv_state = to_nv_drm_connector_state(state);
-    struct drm_device *dev = connector->dev;
-    struct nv_drm_device *nv_dev = to_nv_device(dev);
-    int ret;
-
-    ret = drm_property_replace_global_blob(dev,
-                                            &nv_state->hdcp_topology_blob,
-                                            sizeof(*topology),
-                                            topology,
-                                            &connector->base,
-                                            nv_dev->nv_hdcp_topology_property);
-    // Generate uevent on cp property when topology is updated
-    drm_sysfs_connector_status_event(connector,
-        dev->mode_config.content_protection_property);
-
     return ret;
 }
 

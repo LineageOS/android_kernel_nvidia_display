@@ -32,7 +32,7 @@
 void *lkca_hash_new(const char* alg_name)
 {
 #ifndef USE_LKCA
-    return false;
+    return NULL;
 #else
     //XXX: can we reuse crypto_shash part and just allocate desc
     struct crypto_shash *alg;

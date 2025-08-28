@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -41,6 +41,13 @@
 #define NV_MEMORY_MAPPER_ALLOCATION_PARAMS_MESSAGE_ID (0x00FEU)
 
 typedef struct NV_MEMORY_MAPPER_ALLOCATION_PARAMS {
-    NvBool unused;
+    NvHandle hSemaphoreSurface;
+    NvU32    maxQueueSize;
+    NvHandle hNotificationMemory;
+    NV_DECLARE_ALIGNED(NvU64 notificationOffset, 8);
 } NV_MEMORY_MAPPER_ALLOCATION_PARAMS;
+
+typedef struct NV_MEMORY_MAPPER_NOTIFICATION {
+    NvU32 status; // NV_STATUS error code
+} NV_MEMORY_MAPPER_NOTIFICATION;
 

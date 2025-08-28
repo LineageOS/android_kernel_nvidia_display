@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -22,17 +22,21 @@
  */
 #include "core/core.h"
 #include "core/locks.h"
+#include "core/thread_state.h"
 #include "os/os.h"
 #include "gpu_mgr/gpu_mgr.h"
+#include <gpu/gpu.h>
 
 typedef struct
 {
-    PORT_SEMAPHORE     *pLock;     //<! Lock that threads actually block on
-    volatile NvU32      waiting;   //<! Number of waiting threads, debug use only
-    OS_THREAD_HANDLE    threadId;  //<! ID of thread owning the lock, ~0 if none
-    NvU64               timestamp; //<! Timestamp of last lock acquire
-    LOCK_TRACE_INFO     traceInfo; //<! Lock acquire/release trace info
-    NvBool              bValid;    //<! If ready to acquire/release the lock
+    PORT_SEMAPHORE     *pLock;         //<! Lock that threads actually block on
+    volatile NvU32      waiting;       //<! Number of waiting threads, debug use only
+    OS_THREAD_HANDLE    threadId;      //<! ID of thread owning the lock, ~0 if none
+    NvU64               timestamp;     //<! Timestamp of last lock acquire
+    LOCK_TRACE_INFO     traceInfo;     //<! Lock acquire/release trace info
+    NvBool              bValid;        //<! If ready to acquire/release the lock
+    volatile NvU64      totalWaitTime; //<! Total time spent waiting to acquire GPU lock
+    volatile NvU64      totalHoldTime; //<! Total time spent holding GPU lock
 } GPULOCK;
 
 static GPULOCK rmGpuLock;
@@ -51,7 +55,7 @@ NV_STATUS rmGpuLockInfoInit(void)
     NvU64 timestamp;
     OS_THREAD_HANDLE threadId;
     osGetCurrentThread(&threadId);
-    osGetCurrentTick(&timestamp);
+    timestamp = osGetMonotonicTimeNs();
     rmGpuLock.bValid = NV_FALSE;
 
     INSERT_LOCK_TRACE(&rmGpuLock.traceInfo, NV_RETURN_ADDRESS(),
@@ -91,8 +95,10 @@ void rmGpuLockFree(NvU32 gpuInst)
 
 static NV_STATUS _rmGpuLockAcquire(NvU32 flags, void *ra)
 {
-    NvBool bCondAcquire = !!(flags & GPU_LOCK_FLAGS_COND_ACQUIRE);
-    NvBool bHighIrql = (portSyncExSafeToSleep() == NV_FALSE);
+    OBJSYS *pSys = SYS_GET_INSTANCE();
+    NvBool  bCondAcquire = !!(flags & GPU_LOCK_FLAGS_COND_ACQUIRE);
+    NvBool  bHighIrql = (portSyncExSafeToSleep() == NV_FALSE);
+    NvU64   startWaitTime = 0;
 
     //
     // We may get a bValid as NV_FALSE before GPU is attached.
@@ -104,6 +110,10 @@ static NV_STATUS _rmGpuLockAcquire(NvU32 flags, void *ra)
 
     NV_ASSERT_OR_RETURN(rmGpuLock.pLock != NULL, NV_ERR_INVALID_STATE);
     NV_ASSERT_OR_RETURN(!rmGpuLockIsOwner(), NV_ERR_CYCLE_DETECTED);
+
+    // Get start wait time if measuring lock times
+    if (pSys->getProperty(pSys, PDB_PROP_SYS_RM_LOCK_TIME_COLLECT))
+        startWaitTime = osGetMonotonicTimeNs();
 
     if (bCondAcquire || bHighIrql)
     {
@@ -121,7 +131,11 @@ static NV_STATUS _rmGpuLockAcquire(NvU32 flags, void *ra)
     }
 
     osGetCurrentThread(&rmGpuLock.threadId);
-    osGetCurrentTick(&rmGpuLock.timestamp);
+    rmGpuLock.timestamp = osGetMonotonicTimeNs();
+
+    // Update total GPU lock wait time if measuring lock times
+    if (pSys->getProperty(pSys, PDB_PROP_SYS_RM_LOCK_TIME_COLLECT))
+        portAtomicExAddU64(&rmGpuLock.totalWaitTime, rmGpuLock.timestamp - startWaitTime);
 
     OBJGPU *pGpu = gpumgrGetSomeGpu();
     if (pGpu && osLockShouldToggleInterrupts(pGpu))
@@ -137,6 +151,7 @@ static NV_STATUS _rmGpuLockAcquire(NvU32 flags, void *ra)
 static NV_STATUS _rmGpuLockRelease(void *ra)
 {
     OS_THREAD_HANDLE threadId;
+    OBJSYS *pSys = SYS_GET_INSTANCE();
     OBJGPU *pGpu = NULL;
     NvU64 timestamp;
     NvU32 gpuCount = 0;
@@ -150,7 +165,7 @@ static NV_STATUS _rmGpuLockRelease(void *ra)
     }
 
     osGetCurrentThread(&threadId);
-    osGetCurrentTick(&timestamp);
+    timestamp = osGetMonotonicTimeNs();
 
     NV_ASSERT_OR_RETURN(threadId == rmGpuLock.threadId, NV_ERR_INVALID_STATE);
 
@@ -168,6 +183,14 @@ static NV_STATUS _rmGpuLockRelease(void *ra)
 
     if (pGpu && osLockShouldToggleInterrupts(pGpu))
         osEnableInterrupts(pGpu);
+
+    // Update total GPU lock hold time if measuring lock times
+    if (pSys->getProperty(pSys, PDB_PROP_SYS_RM_LOCK_TIME_COLLECT))
+    {
+        timestamp = osGetMonotonicTimeNs();
+
+        portAtomicExAddU64(&rmGpuLock.totalHoldTime, timestamp - rmGpuLock.timestamp);
+    }
 
     return NV_OK;
 }
@@ -216,6 +239,12 @@ NvBool rmGpuLockIsHidden(OBJGPU* pGpu)
     return NV_FALSE;
 }
 
+void rmGpuLockGetTimes(NV0000_CTRL_SYSTEM_GET_LOCK_TIMES_PARAMS *pParams)
+{
+    pParams->holdGpuLock = rmGpuLock.totalHoldTime;
+    pParams->waitGpuLock = rmGpuLock.totalWaitTime;
+}
+
 NV_STATUS rmGpuLockSetOwner(OS_THREAD_HANDLE threadId)
 {
     NvBool toDpcRefresh   = (threadId == GPUS_LOCK_OWNER_PENDING_DPC_REFRESH);
@@ -233,11 +262,11 @@ NV_STATUS rmGpuGroupLockAcquire(NvU32 gpuInst, GPU_LOCK_GRP_ID grp, NvU32 flags,
     return _rmGpuLockAcquire(flags, NV_RETURN_ADDRESS());
 }
 
-NV_STATUS rmGpuGroupLockRelease(GPU_MASK gpuMask, NvU32 flags)
+void rmGpuGroupLockRelease(GPU_MASK gpuMask, NvU32 flags)
 {
     if (gpuMask == 0)
-        return NV_OK;
-    return _rmGpuLockRelease(NV_RETURN_ADDRESS());
+        return;
+    _rmGpuLockRelease(NV_RETURN_ADDRESS());
 }
 
 NvBool rmGpuGroupLockIsOwner(NvU32 gpuInst, GPU_LOCK_GRP_ID grp, GPU_MASK* pMask)
@@ -265,6 +294,27 @@ NV_STATUS rmDeviceGpuLocksAcquire(OBJGPU *pGpu, NvU32 flags, NvU32 module)
 NvU32 rmDeviceGpuLocksRelease(OBJGPU *pGpu, NvU32 flags, OBJGPU *pDpcGpu)
 {
     return _rmGpuLockRelease(NV_RETURN_ADDRESS());
+}
+
+//
+// rmDeviceGpuLocksRelease and threadStateFreeISRAndDeferredIntHandler in lockstep in the DPC only
+// without releasing the GPUs device lock in between. Done for all GPUs under the device lock
+//
+NV_STATUS
+rmDeviceGpuLocksReleaseAndThreadStateFreeDeferredIntHandlerOptimized(OBJGPU *pGpu, NvU32 flags, OBJGPU *pDpcGpu)
+{
+    // no deferred work in locks_minimal
+    NvU32 rc;
+
+    threadStateOnlyProcessWorkISRAndDeferredIntHandler(pGpu->pDpcThreadState, pGpu,
+                                            THREAD_STATE_FLAGS_IS_ISR_DEFERRED_INT_HANDLER);
+
+    rc = _rmGpuLockRelease(NV_RETURN_ADDRESS());
+
+    threadStateOnlyFreeISRAndDeferredIntHandler(pGpu->pDpcThreadState, pGpu,
+                                            THREAD_STATE_FLAGS_IS_ISR_DEFERRED_INT_HANDLER);
+
+    return rc;
 }
 
 NvU64 rmIntrMaskLockAcquire(OBJGPU* pGpu)

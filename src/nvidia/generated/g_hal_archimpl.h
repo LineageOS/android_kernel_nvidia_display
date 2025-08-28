@@ -5,7 +5,7 @@
 // Profile:  devel-soc-disp-dce-client
 // Template: templates/gt_hal_archimpl.h
 //
-// Chips:    T234D
+// Chips:    T234D, T26XD, T25XD
 //
 
 #ifndef _G_RMCFG_HAL_ARCHIMPL_H_
@@ -77,7 +77,21 @@ const struct ChipID
     {                               0x0,                            0x0,   0x0 } , // GA107  (disabled)
     {                               0x0,                            0x0,   0x0 } , // GA10B  (disabled)
     {                               0x0,                            0x0,   0x0 } , // GA102F (disabled)
-    {                               0x0,                            0x0,   0x0 } , // GH202  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // AD102  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // AD103  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // AD104  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // AD106  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // AD107  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // GH100  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // GB100  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // GB102  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // GB110  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // GB112  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // GB202  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // GB203  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // GB205  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // GB206  (disabled)
+    {                               0x0,                            0x0,   0x0 } , // GB207  (disabled)
     {                               0x0,                            0x0,   0x0 } , // T001_FERMI_NOT_EXIST (disabled)
     {                               0x0,                            0x0,   0x0 } , // T124   (disabled)
     {                               0x0,                            0x0,   0x0 } , // T132   (disabled)
@@ -89,6 +103,8 @@ const struct ChipID
     {                               0x0,                            0x0,   0x0 } , // T003_ADA_NOT_EXIST (disabled)
     {                               0x0,                            0x0,   0x0 } , // T004_HOPPER_NOT_EXIST (disabled)
     {                               0x0,                            0x0, 0x235 } , // T234D 
+    {                               0x0,                            0x0, 0x265 } , // T264D 
+    {                               0x0,                            0x0, 0x257 } , // T256D 
     {                               0x0,                            0x0,   0x0 } , // AMODEL (disabled)
 
 };

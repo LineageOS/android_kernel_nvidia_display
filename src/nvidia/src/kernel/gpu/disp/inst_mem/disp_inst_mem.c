@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -32,10 +32,12 @@
 #include "gpu/disp/kern_disp.h"
 #include "gpu/disp/disp_channel.h"
 #include "gpu/disp/inst_mem/disp_inst_mem.h"
+#include "gpu_mgr/gpu_mgr.h"
 #include "gpu/mem_mgr/context_dma.h"
 #include "gpu/mem_mgr/mem_mgr.h"
 #include "os/nv_memory_type.h"
 #include "os/os.h"
+#include "containers/eheap_old.h"
 
 /*!
  * Display Context DMA instance memory is always 2 16B blocks in size on all chips.  There
@@ -175,7 +177,6 @@ instmemInitHashTable
 )
 {
     NV_STATUS status = NV_OK;
-    NvU32     i;
 
     pInstMem->nHashTableEntries = hashTableSize / sizeof(DISP_HW_HASH_TABLE_ENTRY);
     pInstMem->hashTableBaseAddr = instmemGetHashTableBaseAddr_HAL(pGpu, pInstMem);
@@ -191,10 +192,9 @@ instmemInitHashTable
     }
 
     // Initialize Hash Table.
-    for (i = 0; i < pInstMem->nHashTableEntries; i++)
-    {
-        pInstMem->pHashTable[i].pContextDma = NULL;
-    }
+    portMemSet(pInstMem->pHashTable, 0x00, pInstMem->nHashTableEntries *
+                                            sizeof(SW_HASH_TABLE_ENTRY));
+
 
 exit:
     return status;
@@ -308,8 +308,9 @@ instmemInitMemDesc
                                   MEMDESC_FLAGS_MEMORY_TYPE_DISPLAY_NISO),
                     exit);
 
-                NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
-                    memdescAlloc(pInstMem->pAllocedInstMemDesc),
+                memdescTagAlloc(status, NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_67, 
+                                pInstMem->pAllocedInstMemDesc);
+                NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR, status,
                     exit);
 
                 base = memdescGetPhysAddr(pInstMem->pAllocedInstMemDesc, AT_GPU, 0);

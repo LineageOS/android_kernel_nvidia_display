@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2016-2025, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -34,9 +34,7 @@
 #include "nvidia-drm-fence.h"
 #include "nvidia-dma-resv-helper.h"
 
-#if defined(NV_DRM_FENCE_AVAILABLE)
-
-#include "nvidia-dma-fence-helper.h"
+#include <linux/dma-fence.h>
 
 #define NV_DRM_SEMAPHORE_SURFACE_FENCE_MAX_TIMEOUT_MS 5000
 
@@ -83,42 +81,42 @@ struct nv_drm_prime_fence_context {
 
 struct nv_drm_prime_fence {
     struct list_head list_entry;
-    nv_dma_fence_t base;
+    struct dma_fence base;
     spinlock_t lock;
 };
 
 static inline
-struct nv_drm_prime_fence *to_nv_drm_prime_fence(nv_dma_fence_t *fence)
+struct nv_drm_prime_fence *to_nv_drm_prime_fence(struct dma_fence *fence)
 {
     return container_of(fence, struct nv_drm_prime_fence, base);
 }
 
 static const char*
-nv_drm_gem_fence_op_get_driver_name(nv_dma_fence_t *fence)
+nv_drm_gem_fence_op_get_driver_name(struct dma_fence *fence)
 {
     return "NVIDIA";
 }
 
 static const char*
-nv_drm_gem_prime_fence_op_get_timeline_name(nv_dma_fence_t *fence)
+nv_drm_gem_prime_fence_op_get_timeline_name(struct dma_fence *fence)
 {
     return "nvidia.prime";
 }
 
-static bool nv_drm_gem_prime_fence_op_enable_signaling(nv_dma_fence_t *fence)
+static bool nv_drm_gem_prime_fence_op_enable_signaling(struct dma_fence *fence)
 {
     // DO NOTHING
     return true;
 }
 
-static void nv_drm_gem_prime_fence_op_release(nv_dma_fence_t *fence)
+static void nv_drm_gem_prime_fence_op_release(struct dma_fence *fence)
 {
     struct nv_drm_prime_fence *nv_fence = to_nv_drm_prime_fence(fence);
     nv_drm_free(nv_fence);
 }
 
 static signed long
-nv_drm_gem_prime_fence_op_wait(nv_dma_fence_t *fence,
+nv_drm_gem_prime_fence_op_wait(struct dma_fence *fence,
                                bool intr, signed long timeout)
 {
     /*
@@ -131,12 +129,12 @@ nv_drm_gem_prime_fence_op_wait(nv_dma_fence_t *fence,
      * that it should never get hit during normal operation, but not so long
      * that the system becomes unresponsive.
      */
-    return nv_dma_fence_default_wait(fence, intr,
+    return dma_fence_default_wait(fence, intr,
                               (timeout == MAX_SCHEDULE_TIMEOUT) ?
                                   msecs_to_jiffies(96) : timeout);
 }
 
-static const nv_dma_fence_ops_t nv_drm_gem_prime_fence_ops = {
+static const struct dma_fence_ops nv_drm_gem_prime_fence_ops = {
     .get_driver_name = nv_drm_gem_fence_op_get_driver_name,
     .get_timeline_name = nv_drm_gem_prime_fence_op_get_timeline_name,
     .enable_signaling = nv_drm_gem_prime_fence_op_enable_signaling,
@@ -148,8 +146,8 @@ static inline void
 __nv_drm_prime_fence_signal(struct nv_drm_prime_fence *nv_fence)
 {
     list_del(&nv_fence->list_entry);
-    nv_dma_fence_signal(&nv_fence->base);
-    nv_dma_fence_put(&nv_fence->base);
+    dma_fence_signal(&nv_fence->base);
+    dma_fence_put(&nv_fence->base);
 }
 
 static void nv_drm_gem_prime_force_fence_signal(
@@ -289,18 +287,16 @@ __nv_drm_prime_fence_context_new(
     }
 
     /*
-     * nv_dma_fence_context_alloc() cannot fail, so we do not need
+     * dma_fence_context_alloc() cannot fail, so we do not need
      * to check a return value.
      */
 
-    *nv_prime_fence_context = (struct nv_drm_prime_fence_context) {
-        .base.ops = &nv_drm_prime_fence_context_ops,
-        .base.nv_dev = nv_dev,
-        .base.context = nv_dma_fence_context_alloc(1),
-        .base.fenceSemIndex = p->index,
-        .pSemSurface = pSemSurface,
-        .pLinearAddress = pLinearAddress,
-    };
+    nv_prime_fence_context->base.ops = &nv_drm_prime_fence_context_ops;
+    nv_prime_fence_context->base.nv_dev = nv_dev;
+    nv_prime_fence_context->base.context = dma_fence_context_alloc(1);
+    nv_prime_fence_context->base.fenceSemIndex = p->index;
+    nv_prime_fence_context->pSemSurface = pSemSurface;
+    nv_prime_fence_context->pLinearAddress = pLinearAddress;
 
     INIT_LIST_HEAD(&nv_prime_fence_context->pending);
 
@@ -345,7 +341,7 @@ failed:
     return NULL;
 }
 
-static nv_dma_fence_t *__nv_drm_prime_fence_context_create_fence(
+static struct dma_fence *__nv_drm_prime_fence_context_create_fence(
     struct nv_drm_prime_fence_context *nv_prime_fence_context,
     unsigned int seqno)
 {
@@ -371,12 +367,12 @@ static nv_dma_fence_t *__nv_drm_prime_fence_context_create_fence(
 
     spin_lock_init(&nv_fence->lock);
 
-    nv_dma_fence_init(&nv_fence->base, &nv_drm_gem_prime_fence_ops,
-                      &nv_fence->lock, nv_prime_fence_context->base.context,
-                      seqno);
+    dma_fence_init(&nv_fence->base, &nv_drm_gem_prime_fence_ops,
+                   &nv_fence->lock, nv_prime_fence_context->base.context,
+                   seqno);
 
     /* The context maintains a reference to any pending fences. */
-    nv_dma_fence_get(&nv_fence->base);
+    dma_fence_get(&nv_fence->base);
 
     list_add_tail(&nv_fence->list_entry, &nv_prime_fence_context->pending);
 
@@ -426,12 +422,11 @@ const struct nv_drm_gem_object_funcs nv_fence_context_gem_ops = {
 static inline
 struct nv_drm_fence_context *
 __nv_drm_fence_context_lookup(
-    struct drm_device *dev,
     struct drm_file *filp,
     u32 handle)
 {
     struct nv_drm_gem_object *nv_gem =
-            nv_drm_gem_object_lookup(dev, filp, handle);
+            nv_drm_gem_object_lookup(filp, handle);
 
     if (nv_gem != NULL && nv_gem->ops != &nv_fence_context_gem_ops) {
         nv_drm_gem_object_unreference_unlocked(nv_gem);
@@ -465,9 +460,14 @@ int nv_drm_prime_fence_context_create_ioctl(struct drm_device *dev,
 {
     struct nv_drm_device *nv_dev = to_nv_device(dev);
     struct drm_nvidia_prime_fence_context_create_params *p = data;
-    struct nv_drm_prime_fence_context *nv_prime_fence_context =
-        __nv_drm_prime_fence_context_new(nv_dev, p);
+    struct nv_drm_prime_fence_context *nv_prime_fence_context;
     int err;
+
+    if (nv_dev->pDevice == NULL) {
+        return -EOPNOTSUPP;
+    }
+
+    nv_prime_fence_context = __nv_drm_prime_fence_context_new(nv_dev, p);
 
     if (!nv_prime_fence_context) {
         goto done;
@@ -487,6 +487,31 @@ done:
     return -ENOMEM;
 }
 
+static int __nv_drm_gem_attach_fence(struct nv_drm_gem_object *nv_gem,
+                                     struct dma_fence *fence,
+                                     bool shared)
+{
+    nv_dma_resv_t *resv = nv_drm_gem_res_obj(nv_gem);
+    int ret;
+
+    nv_dma_resv_lock(resv, NULL);
+
+    ret = nv_dma_resv_reserve_fences(resv, 1, shared);
+    if (ret == 0) {
+        if (shared) {
+            nv_dma_resv_add_shared_fence(resv, fence);
+        } else {
+            nv_dma_resv_add_excl_fence(resv, fence);
+        }
+    } else {
+        NV_DRM_LOG_ERR("Failed to reserve fence. Error code: %d", ret);
+    }
+
+    nv_dma_resv_unlock(resv);
+
+    return ret;
+}
+
 int nv_drm_gem_prime_fence_attach_ioctl(struct drm_device *dev,
                                         void *data, struct drm_file *filep)
 {
@@ -496,16 +521,19 @@ int nv_drm_gem_prime_fence_attach_ioctl(struct drm_device *dev,
 
     struct nv_drm_gem_object *nv_gem;
     struct nv_drm_fence_context *nv_fence_context;
+    struct dma_fence *fence;
 
-    nv_dma_fence_t *fence;
-    nv_dma_resv_t *resv;
+    if (nv_dev->pDevice == NULL) {
+        ret = -EOPNOTSUPP;
+        goto done;
+    }
 
     if (p->__pad != 0) {
         NV_DRM_DEV_LOG_ERR(nv_dev, "Padding fields must be zeroed");
         goto done;
     }
 
-    nv_gem = nv_drm_gem_object_lookup(nv_dev->dev, filep, p->handle);
+    nv_gem = nv_drm_gem_object_lookup(filep, p->handle);
 
     if (!nv_gem) {
         NV_DRM_DEV_LOG_ERR(
@@ -517,7 +545,6 @@ int nv_drm_gem_prime_fence_attach_ioctl(struct drm_device *dev,
     }
 
     if((nv_fence_context = __nv_drm_fence_context_lookup(
-                nv_dev->dev,
                 filep,
                 p->fence_context_handle)) == NULL) {
 
@@ -554,23 +581,9 @@ int nv_drm_gem_prime_fence_attach_ioctl(struct drm_device *dev,
         goto fence_context_create_fence_failed;
     }
 
-    resv = nv_drm_gem_res_obj(nv_gem);
+    ret = __nv_drm_gem_attach_fence(nv_gem, fence, true /* exclusive */);
 
-    nv_dma_resv_lock(resv, NULL);
-
-    ret = nv_dma_resv_reserve_fences(resv, 1, false);
-    if (ret == 0) {
-        nv_dma_resv_add_excl_fence(resv, fence);
-    } else {
-        NV_DRM_DEV_LOG_ERR(
-            nv_dev,
-            "Failed to reserve fence. Error code: %d", ret);
-    }
-
-    nv_dma_resv_unlock(resv);
-
-    /* dma_resv_add_excl_fence takes its own reference to the fence. */
-    nv_dma_fence_put(fence);
+    dma_fence_put(fence);
 
 fence_context_create_fence_failed:
     nv_drm_gem_object_unreference_unlocked(&nv_fence_context->base);
@@ -583,7 +596,7 @@ done:
 }
 
 struct nv_drm_semsurf_fence {
-    nv_dma_fence_t base;
+    struct dma_fence base;
     spinlock_t lock;
 
     /*
@@ -611,7 +624,7 @@ struct nv_drm_semsurf_fence_callback {
 };
 
 struct nv_drm_sync_fd_wait_data {
-    nv_dma_fence_cb_t dma_fence_cb;
+    struct dma_fence_cb dma_fence_cb;
     struct nv_drm_semsurf_fence_ctx *ctx;
     nv_drm_work work; /* Deferred second half of fence wait callback */
 
@@ -742,15 +755,15 @@ __nv_drm_semsurf_force_complete_pending(struct nv_drm_semsurf_fence_ctx *ctx)
             &ctx->pending_fences,
             typeof(*nv_fence),
             pending_node);
-        nv_dma_fence_t *fence = &nv_fence->base;
+        struct dma_fence *fence = &nv_fence->base;
 
         list_del(&nv_fence->pending_node);
 
-        nv_dma_fence_set_error(fence, -ETIMEDOUT);
-        nv_dma_fence_signal(fence);
+        dma_fence_set_error(fence, -ETIMEDOUT);
+        dma_fence_signal(fence);
 
         /* Remove the pending list's reference */
-        nv_dma_fence_put(fence);
+        dma_fence_put(fence);
     }
 
     /*
@@ -807,7 +820,7 @@ __nv_drm_semsurf_ctx_process_completed(struct nv_drm_semsurf_fence_ctx *ctx,
     struct list_head finished;
     struct list_head timed_out;
     struct nv_drm_semsurf_fence *nv_fence;
-    nv_dma_fence_t *fence;
+    struct dma_fence *fence;
     NvU64 currentSeqno = __nv_drm_get_semsurf_ctx_seqno(ctx);
     NvU64 fenceSeqno = 0;
     unsigned long flags;
@@ -871,8 +884,8 @@ __nv_drm_semsurf_ctx_process_completed(struct nv_drm_semsurf_fence_ctx *ctx,
         nv_fence = list_first_entry(&finished, typeof(*nv_fence), pending_node);
         list_del_init(&nv_fence->pending_node);
         fence = &nv_fence->base;
-        nv_dma_fence_signal(fence);
-        nv_dma_fence_put(fence); /* Drops the pending list's reference */
+        dma_fence_signal(fence);
+        dma_fence_put(fence); /* Drops the pending list's reference */
     }
 
     while (!list_empty(&timed_out)) {
@@ -880,9 +893,9 @@ __nv_drm_semsurf_ctx_process_completed(struct nv_drm_semsurf_fence_ctx *ctx,
                                     pending_node);
         list_del_init(&nv_fence->pending_node);
         fence = &nv_fence->base;
-        nv_dma_fence_set_error(fence, -ETIMEDOUT);
-        nv_dma_fence_signal(fence);
-        nv_dma_fence_put(fence); /* Drops the pending list's reference */
+        dma_fence_set_error(fence, -ETIMEDOUT);
+        dma_fence_signal(fence);
+        dma_fence_put(fence); /* Drops the pending list's reference */
     }
 }
 
@@ -1115,7 +1128,7 @@ static void __nv_drm_semsurf_fence_ctx_destroy(
      */
     nv_drm_workthread_shutdown(&ctx->worker);
 
-    nv_drm_del_timer_sync(&ctx->timer);
+    nv_timer_delete_sync(&ctx->timer.kernel_timer);
 
     /*
      * The semaphore surface could still be sending callbacks, so it is still
@@ -1248,22 +1261,20 @@ __nv_drm_semsurf_fence_ctx_new(
     }
 
     /*
-     * nv_dma_fence_context_alloc() cannot fail, so we do not need
+     * dma_fence_context_alloc() cannot fail, so we do not need
      * to check a return value.
      */
 
-    *ctx = (struct nv_drm_semsurf_fence_ctx) {
-        .base.ops = &nv_drm_semsurf_fence_ctx_ops,
-        .base.nv_dev = nv_dev,
-        .base.context = nv_dma_fence_context_alloc(1),
-        .base.fenceSemIndex = p->index,
-        .pSemSurface = pSemSurface,
-        .pSemMapping.pVoid = semMapping,
-        .pMaxSubmittedMapping = (volatile NvU64 *)maxSubmittedMapping,
-        .callback.local = NULL,
-        .callback.nvKms = NULL,
-        .current_wait_value = 0,
-    };
+    ctx->base.ops = &nv_drm_semsurf_fence_ctx_ops;
+    ctx->base.nv_dev = nv_dev;
+    ctx->base.context = dma_fence_context_alloc(1);
+    ctx->base.fenceSemIndex = p->index;
+    ctx->pSemSurface = pSemSurface;
+    ctx->pSemMapping.pVoid = semMapping;
+    ctx->pMaxSubmittedMapping = (volatile NvU64 *)maxSubmittedMapping;
+    ctx->callback.local = NULL;
+    ctx->callback.nvKms = NULL;
+    ctx->current_wait_value = 0;
 
     spin_lock_init(&ctx->lock);
     INIT_LIST_HEAD(&ctx->pending_fences);
@@ -1303,6 +1314,10 @@ int nv_drm_semsurf_fence_ctx_create_ioctl(struct drm_device *dev,
     struct nv_drm_semsurf_fence_ctx *ctx;
     int err;
 
+    if (nv_dev->pDevice == NULL) {
+        return -EOPNOTSUPP;
+    }
+
     if (p->__pad != 0) {
         NV_DRM_DEV_LOG_ERR(nv_dev, "Padding fields must be zeroed");
         return -EINVAL;
@@ -1324,26 +1339,26 @@ int nv_drm_semsurf_fence_ctx_create_ioctl(struct drm_device *dev,
 }
 
 static inline struct nv_drm_semsurf_fence*
-to_nv_drm_semsurf_fence(nv_dma_fence_t *fence)
+to_nv_drm_semsurf_fence(struct dma_fence *fence)
 {
     return container_of(fence, struct nv_drm_semsurf_fence, base);
 }
 
 static const char*
-__nv_drm_semsurf_fence_op_get_timeline_name(nv_dma_fence_t *fence)
+__nv_drm_semsurf_fence_op_get_timeline_name(struct dma_fence *fence)
 {
     return "nvidia.semaphore_surface";
 }
 
 static bool
-__nv_drm_semsurf_fence_op_enable_signaling(nv_dma_fence_t *fence)
+__nv_drm_semsurf_fence_op_enable_signaling(struct dma_fence *fence)
 {
     // DO NOTHING - Could defer RM callback registration until this point
     return true;
 }
 
 static void
-__nv_drm_semsurf_fence_op_release(nv_dma_fence_t *fence)
+__nv_drm_semsurf_fence_op_release(struct dma_fence *fence)
 {
     struct nv_drm_semsurf_fence *nv_fence =
         to_nv_drm_semsurf_fence(fence);
@@ -1351,11 +1366,12 @@ __nv_drm_semsurf_fence_op_release(nv_dma_fence_t *fence)
     nv_drm_free(nv_fence);
 }
 
-static const nv_dma_fence_ops_t nv_drm_semsurf_fence_ops = {
+static const struct dma_fence_ops nv_drm_semsurf_fence_ops = {
     .get_driver_name = nv_drm_gem_fence_op_get_driver_name,
     .get_timeline_name = __nv_drm_semsurf_fence_op_get_timeline_name,
     .enable_signaling = __nv_drm_semsurf_fence_op_enable_signaling,
     .release = __nv_drm_semsurf_fence_op_release,
+    .wait = dma_fence_default_wait,
 #if defined(NV_DMA_FENCE_OPS_HAS_USE_64BIT_SEQNO)
     .use_64bit_seqno = true,
 #endif
@@ -1381,7 +1397,7 @@ __nv_drm_semsurf_ctx_add_pending(struct nv_drm_semsurf_fence_ctx *ctx,
     }
 
     /* Add a reference to the fence for the list */
-    nv_dma_fence_get(&nv_fence->base);
+    dma_fence_get(&nv_fence->base);
     INIT_LIST_HEAD(&nv_fence->pending_node);
 
     nv_fence->timeout = nv_drm_timeout_from_ms(timeoutMS);
@@ -1414,15 +1430,20 @@ __nv_drm_semsurf_ctx_add_pending(struct nv_drm_semsurf_fence_ctx *ctx,
     __nv_drm_semsurf_ctx_reg_callbacks(ctx);
 }
 
-static nv_dma_fence_t *__nv_drm_semsurf_fence_ctx_create_fence(
+static struct dma_fence *__nv_drm_semsurf_fence_ctx_create_fence(
     struct nv_drm_device *nv_dev,
     struct nv_drm_semsurf_fence_ctx *ctx,
     NvU64 wait_value,
     NvU64 timeout_value_ms)
 {
     struct nv_drm_semsurf_fence *nv_fence;
-    nv_dma_fence_t *fence;
+    struct dma_fence *fence;
     int ret = 0;
+
+    if (timeout_value_ms == 0 ||
+        timeout_value_ms > NV_DRM_SEMAPHORE_SURFACE_FENCE_MAX_TIMEOUT_MS) {
+        timeout_value_ms = NV_DRM_SEMAPHORE_SURFACE_FENCE_MAX_TIMEOUT_MS;
+    }
 
     if ((nv_fence = nv_drm_calloc(1, sizeof(*nv_fence))) == NULL) {
         ret = -ENOMEM;
@@ -1436,9 +1457,9 @@ static nv_dma_fence_t *__nv_drm_semsurf_fence_ctx_create_fence(
 #endif
 
     /* Initializes the fence with one reference (for the caller) */
-    nv_dma_fence_init(fence, &nv_drm_semsurf_fence_ops,
-                      &nv_fence->lock,
-                      ctx->base.context, wait_value);
+    dma_fence_init(fence, &nv_drm_semsurf_fence_ops,
+                   &nv_fence->lock,
+                   ctx->base.context, wait_value);
 
     __nv_drm_semsurf_ctx_add_pending(ctx, nv_fence, timeout_value_ms);
 
@@ -1454,10 +1475,14 @@ int nv_drm_semsurf_fence_create_ioctl(struct drm_device *dev,
     struct nv_drm_device *nv_dev = to_nv_device(dev);
     struct drm_nvidia_semsurf_fence_create_params *p = data;
     struct nv_drm_fence_context *nv_fence_context;
-    nv_dma_fence_t *fence;
-    uint32_t timeout = NV_DRM_SEMAPHORE_SURFACE_FENCE_MAX_TIMEOUT_MS;
+    struct dma_fence *fence;
     int ret = -EINVAL;
     int fd;
+
+    if (nv_dev->pDevice == NULL) {
+        ret = -EOPNOTSUPP;
+        goto done;
+    }
 
     if (p->__pad != 0) {
         NV_DRM_DEV_LOG_ERR(nv_dev, "Padding fields must be zeroed");
@@ -1465,7 +1490,6 @@ int nv_drm_semsurf_fence_create_ioctl(struct drm_device *dev,
     }
 
     if ((nv_fence_context = __nv_drm_fence_context_lookup(
-                                nv_dev->dev,
                                 filep,
                                 p->fence_context_handle)) == NULL) {
         NV_DRM_DEV_LOG_ERR(
@@ -1485,16 +1509,11 @@ int nv_drm_semsurf_fence_create_ioctl(struct drm_device *dev,
         goto fence_context_create_fence_failed;
     }
 
-    if ((p->timeout_value_ms != 0) &&
-        (p->timeout_value_ms < timeout)) {
-        timeout = p->timeout_value_ms;
-    }
-
     fence = __nv_drm_semsurf_fence_ctx_create_fence(
         nv_dev,
         to_semsurf_fence_ctx(nv_fence_context),
         p->wait_value,
-        timeout);
+        p->timeout_value_ms);
 
     if (IS_ERR(fence)) {
         ret = PTR_ERR(fence);
@@ -1526,7 +1545,7 @@ fence_context_create_sync_failed:
      * FD will still hold a reference, and the pending list (if the fence hasn't
      * already been signaled) will also retain a reference.
      */
-    nv_dma_fence_put(fence);
+    dma_fence_put(fence);
 
 fence_context_create_fence_failed:
     nv_drm_gem_object_unreference_unlocked(&nv_fence_context->base);
@@ -1584,8 +1603,8 @@ __nv_drm_semsurf_wait_fence_work_cb
 static void
 __nv_drm_semsurf_wait_fence_cb
 (
-    nv_dma_fence_t *fence,
-    nv_dma_fence_cb_t *cb
+    struct dma_fence *fence,
+    struct dma_fence_cb *cb
 )
 {
     struct nv_drm_sync_fd_wait_data *wait_data =
@@ -1610,7 +1629,7 @@ __nv_drm_semsurf_wait_fence_cb
     }
 
     /* Don't need to reference the fence anymore, just the fence context. */
-    nv_dma_fence_put(fence);
+    dma_fence_put(fence);
 }
 
 int nv_drm_semsurf_fence_wait_ioctl(struct drm_device *dev,
@@ -1622,20 +1641,23 @@ int nv_drm_semsurf_fence_wait_ioctl(struct drm_device *dev,
     struct nv_drm_fence_context *nv_fence_context;
     struct nv_drm_semsurf_fence_ctx *ctx;
     struct nv_drm_sync_fd_wait_data *wait_data = NULL;
-    nv_dma_fence_t *fence;
+    struct dma_fence *fence;
     unsigned long flags;
     int ret = -EINVAL;
+
+    if (nv_dev->pDevice == NULL) {
+        return -EOPNOTSUPP;
+    }
 
     if (p->pre_wait_value >= p->post_wait_value) {
         NV_DRM_DEV_LOG_ERR(
             nv_dev,
-            "Non-monotonic wait values specified to fence wait: 0x%llu, 0x%llu",
+            "Non-monotonic wait values specified to fence wait: 0x%" NvU64_fmtu ", 0x%" NvU64_fmtu,
             p->pre_wait_value, p->post_wait_value);
         goto done;
     }
 
     if ((nv_fence_context = __nv_drm_fence_context_lookup(
-                                nv_dev->dev,
                                 filep,
                                 p->fence_context_handle)) == NULL) {
         NV_DRM_DEV_LOG_ERR(
@@ -1688,9 +1710,9 @@ int nv_drm_semsurf_fence_wait_ioctl(struct drm_device *dev,
     list_add(&wait_data->pending_node, &ctx->pending_waits);
     spin_unlock_irqrestore(&ctx->lock, flags);
 
-    ret = nv_dma_fence_add_callback(fence,
-                                    &wait_data->dma_fence_cb,
-                                    __nv_drm_semsurf_wait_fence_cb);
+    ret = dma_fence_add_callback(fence,
+                                 &wait_data->dma_fence_cb,
+                                 __nv_drm_semsurf_wait_fence_cb);
 
     if (ret) {
        if (ret == -ENOENT) {
@@ -1702,7 +1724,7 @@ int nv_drm_semsurf_fence_wait_ioctl(struct drm_device *dev,
        }
 
        /* Execute second half of wait immediately, avoiding the worker thread */
-       nv_dma_fence_put(fence);
+       dma_fence_put(fence);
         __nv_drm_semsurf_wait_fence_work_cb(wait_data);
     }
 
@@ -1723,6 +1745,85 @@ done:
     return 0;
 }
 
-#endif /* NV_DRM_FENCE_AVAILABLE */
+int nv_drm_semsurf_fence_attach_ioctl(struct drm_device *dev,
+                                      void *data,
+                                      struct drm_file *filep)
+{
+    struct nv_drm_device *nv_dev = to_nv_device(dev);
+    struct drm_nvidia_semsurf_fence_attach_params *p = data;
+    struct nv_drm_gem_object *nv_gem = NULL;
+    struct nv_drm_fence_context *nv_fence_context = NULL;
+    struct dma_fence *fence;
+    int ret = -EINVAL;
+
+    if (nv_dev->pDevice == NULL) {
+        ret = -EOPNOTSUPP;
+        goto done;
+    }
+
+    nv_gem = nv_drm_gem_object_lookup(filep, p->handle);
+
+    if (!nv_gem) {
+        NV_DRM_DEV_LOG_ERR(
+            nv_dev,
+            "Failed to lookup gem object for fence attach: 0x%08x",
+            p->handle);
+
+        goto done;
+    }
+
+    nv_fence_context = __nv_drm_fence_context_lookup(
+        filep,
+        p->fence_context_handle);
+
+    if (!nv_fence_context) {
+        NV_DRM_DEV_LOG_ERR(
+            nv_dev,
+            "Failed to lookup gem object for fence context: 0x%08x",
+            p->fence_context_handle);
+
+        goto done;
+    }
+
+    if (nv_fence_context->ops != &nv_drm_semsurf_fence_ctx_ops) {
+        NV_DRM_DEV_LOG_ERR(
+            nv_dev,
+            "Wrong fence context type: 0x%08x",
+            p->fence_context_handle);
+
+        goto done;
+    }
+
+    fence = __nv_drm_semsurf_fence_ctx_create_fence(
+        nv_dev,
+        to_semsurf_fence_ctx(nv_fence_context),
+        p->wait_value,
+        p->timeout_value_ms);
+
+    if (IS_ERR(fence)) {
+        ret = PTR_ERR(fence);
+
+        NV_DRM_DEV_LOG_ERR(
+            nv_dev,
+            "Failed to allocate fence: 0x%08x", p->handle);
+
+        goto done;
+    }
+
+    ret = __nv_drm_gem_attach_fence(nv_gem, fence, p->shared);
+
+    dma_fence_put(fence);
+
+done:
+    if (nv_fence_context) {
+        nv_drm_gem_object_unreference_unlocked(&nv_fence_context->base);
+    }
+
+    if (nv_gem) {
+        nv_drm_gem_object_unreference_unlocked(nv_gem);
+    }
+
+    return ret;
+}
 
 #endif /* NV_DRM_AVAILABLE */

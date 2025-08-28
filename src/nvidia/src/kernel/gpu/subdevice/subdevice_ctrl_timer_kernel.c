@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2004-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2004-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -32,9 +32,11 @@
 #include "core/core.h"
 
 
+#define NVOC_OBJTMR_H_PRIVATE_ACCESS_ALLOWED
+
 #include "core/locks.h"
 #include "gpu/subdevice/subdevice.h"
-#include "objtmr.h"
+#include "gpu/timer/objtmr.h"
 #include "rmapi/client.h"
 
 //
@@ -52,7 +54,7 @@ subdeviceCtrlCmdTimerCancel_IMPL
     OBJGPU *pGpu;
     OBJTMR *pTmr;
 
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     if (pSubdevice == NULL)
     {
@@ -64,16 +66,17 @@ subdeviceCtrlCmdTimerCancel_IMPL
 
     if (pSubdevice->notifyActions[NV2080_NOTIFIERS_TIMER] != NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE)
     {
-        tmrCancelCallback(pTmr, pSubdevice);
+        tmrEventCancel(pTmr, pSubdevice->pTimerEvent);
+
         pSubdevice->notifyActions[NV2080_NOTIFIERS_TIMER] = NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE;
     }
     return NV_OK;
 }
 
 static NV_STATUS
-gpuControlTimerCallback(OBJGPU *pGpu, OBJTMR *pTmr, void * pData)
+gpuControlTimerCallback(OBJGPU *pGpu, OBJTMR *pTmr, TMR_EVENT *pTmrEvent)
 {
-    Subdevice *pSubDevice = (Subdevice *) pData;
+    Subdevice *pSubDevice = reinterpretCast(pTmrEvent->pUserData, Subdevice *);
     PEVENTNOTIFICATION pNotifyEvent = inotifyGetNotificationList(staticCast(pSubDevice, INotifier));
 
     if (pSubDevice->notifyActions[NV2080_NOTIFIERS_TIMER] == NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE)
@@ -165,14 +168,29 @@ timerSchedule
     // since callback may be called right away.
     pSubdevice->notifyActions[NV2080_NOTIFIERS_TIMER] = NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_SINGLE;
 
-    // schedule the timer
-    if (DRF_VAL(2080, _CTRL_TIMER_SCHEDULE_FLAGS, _TIME, pTimerScheduleParams->flags) == NV2080_CTRL_TIMER_SCHEDULE_FLAGS_TIME_ABS)
+    if (pSubdevice->pTimerEvent != NULL)
     {
-        tmrScheduleCallbackAbs(pTmr, gpuControlTimerCallback, pSubdevice, pTimerScheduleParams->time_nsec, 0, 0);
+        if (tmrEventOnList(pTmr, pSubdevice->pTimerEvent))
+        {
+            tmrEventCancel(pTmr, pSubdevice->pTimerEvent);
+        }
     }
     else
     {
-        tmrScheduleCallbackRel(pTmr, gpuControlTimerCallback, pSubdevice, pTimerScheduleParams->time_nsec, 0, 0);
+        NV_ASSERT_OK_OR_RETURN(tmrEventCreate(pTmr,
+                                &pSubdevice->pTimerEvent,
+                                gpuControlTimerCallback,
+                                pSubdevice,
+                                TMR_FLAGS_NONE));
+    }
+
+    if (DRF_VAL(2080, _CTRL_TIMER_SCHEDULE_FLAGS, _TIME, pTimerScheduleParams->flags) == NV2080_CTRL_TIMER_SCHEDULE_FLAGS_TIME_ABS)
+    {
+        tmrEventScheduleAbs(pTmr, pSubdevice->pTimerEvent, pTimerScheduleParams->time_nsec);
+    }
+    else
+    {
+        tmrEventScheduleRel(pTmr, pSubdevice->pTimerEvent, pTimerScheduleParams->time_nsec);
     }
 
     return NV_OK;
@@ -196,11 +214,12 @@ subdeviceCtrlCmdTimerSchedule_IMPL
 
     if (pRmCtrlParams->flags & NVOS54_FLAGS_IRQL_RAISED)
     {
-        LOCK_ASSERT_AND_RETURN(rmDeviceGpuLockIsOwner(GPU_RES_GET_GPU(pSubdevice)->gpuInstance));
+        NV_ASSERT_OR_RETURN(rmDeviceGpuLockIsOwner(GPU_RES_GET_GPU(pSubdevice)->gpuInstance),
+            NV_ERR_INVALID_LOCK_STATE);
     }
     else
     {
-        LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
+        NV_ASSERT_OR_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
     }
 
     return timerSchedule(pSubdevice, pParams);
@@ -236,7 +255,8 @@ subdeviceCtrlCmdTimerGetTime_IMPL
     }
     else
     {
-        LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmDeviceGpuLockIsOwner(pGpu->gpuInstance));
+        NV_ASSERT_OR_RETURN(rmapiLockIsOwner() && rmDeviceGpuLockIsOwner(pGpu->gpuInstance),
+            NV_ERR_INVALID_LOCK_STATE);
     }
 
     tmrGetCurrentTime(pTmr, &pParams->time_nsec);
@@ -260,7 +280,7 @@ subdeviceCtrlCmdTimerGetRegisterOffset_IMPL
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
 
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     return gpuGetRegBaseOffset_HAL(pGpu, NV_REG_BASE_TIMER, &pTimerRegOffsetParams->tmr_offset);
 }
@@ -288,7 +308,7 @@ subdeviceCtrlCmdTimerGetGpuCpuTimeCorrelationInfo_IMPL
     NvU8 i;
     NvU32 sec, usec;
 
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     NV_CHECK_OR_RETURN(LEVEL_SILENT,
         (pParams->sampleCount <= NV2080_CTRL_TIMER_GPU_CPU_TIME_MAX_SAMPLES),
@@ -308,7 +328,7 @@ subdeviceCtrlCmdTimerGetGpuCpuTimeCorrelationInfo_IMPL
         // If GSP time is requested, forward the whole request to GSP.
         // This can only be supported in GSP-RM offload mode.
         //
-        if (!IS_GSP_CLIENT(pGpu))
+        if (!IS_FW_CLIENT(pGpu))
             return NV_ERR_NOT_SUPPORTED;
 
         RM_API *pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
@@ -333,7 +353,7 @@ subdeviceCtrlCmdTimerGetGpuCpuTimeCorrelationInfo_IMPL
         {
             for (i = 0; i < pParams->sampleCount; i++)
             {
-                osGetCurrentTime(&sec, &usec);
+                osGetSystemTime(&sec, &usec);
                 pParams->samples[i].cpuTime = (((NvU64)sec) * 1000000) + usec;
                 status = tmrGetCurrentTime(pTmr,
                     &pParams->samples[i].gpuTime);
@@ -344,6 +364,7 @@ subdeviceCtrlCmdTimerGetGpuCpuTimeCorrelationInfo_IMPL
                               status);
                     break;
                 }
+                pParams->samples[i].gpuTime += tmrGetPtimerOffsetNs_HAL(pGpu, pTmr);
             }
             break;
         }
@@ -407,7 +428,7 @@ subdeviceCtrlCmdTimerGetGpuCpuTimeCorrelationInfo_IMPL
             }
 
             pParams->samples[0].gpuTime = ((((NvU64)gpuTimeHiNew) << 32) |
-                                           gpuTimeLo[closestPairBeginIndex]);
+                                           gpuTimeLo[closestPairBeginIndex]) + tmrGetPtimerOffsetNs_HAL(pGpu, pTmr);
             pParams->samples[0].cpuTime = (cpuTime[closestPairBeginIndex] +
                                            cpuTime[closestPairBeginIndex + 1])/2;
             NV_PRINTF(LEVEL_INFO,

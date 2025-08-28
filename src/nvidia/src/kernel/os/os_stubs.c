@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -30,67 +30,34 @@
 
 #include "os/os_stub.h"
 
-//
-// Here's a little debugging tool. It is possible that some code is stubbed for
-// certain OS's that shouldn't be. In debug mode, the stubs below will dump out
-// a stub 'number' to help you identify any stubs that are getting called. You
-// can then evaluate whether or not that is correct.
-//
-// Highest used STUB_CHECK is 237.
-//
-#if defined(DEBUG)
-#define STUB_CHECK(n) _stubCallCheck(n)
-
-int enableOsStubCallCheck = 0;
-
-static void _stubCallCheck(int funcNumber)
-{
-    if (enableOsStubCallCheck) {
-        NV_PRINTF(LEVEL_INFO, "STUB CALL: %d \r\n", funcNumber);
-    }
-}
-
-#else
-#define STUB_CHECK(n)
-#endif // DEBUG
-
-struct OBJCL;
-
 void osQADbgRegistryInit(void)
 {
     return;
 }
 
-NvU32 stubOsnv_rdcr4(OBJOS *pOS)
+#if !(RMCFG_FEATURE_PLATFORM_WINDOWS && NVCPU_IS_X86_64) &&            \
+    !(RMCFG_FEATURE_PLATFORM_UNIX && NVCPU_IS_X86_64) &&               \
+    !RMCFG_FEATURE_PLATFORM_MODS
+NvU32 osNv_rdcr4(void)
 {
-    STUB_CHECK(76);
+    return 0;
+}
+#endif
+
+NvU64 osNv_rdxcr0(void)
+{
     return 0;
 }
 
-NvU64 stubOsnv_rdxcr0(OBJOS *pOs)
+#if !(RMCFG_FEATURE_PLATFORM_WINDOWS && NVCPU_IS_X86_64) &&            \
+    !(RMCFG_FEATURE_PLATFORM_UNIX && NVCPU_IS_X86_64) &&               \
+    !RMCFG_FEATURE_PLATFORM_MODS
+int osNv_cpuid(int arg1, int arg2, NvU32 *arg3,
+               NvU32 *arg4, NvU32 *arg5, NvU32 *arg6)
 {
-    STUB_CHECK(237);
     return 0;
 }
-
-int stubOsnv_cpuid(OBJOS *pOS, int arg1, int arg2, NvU32 *arg3,
-                   NvU32 *arg4, NvU32 *arg5, NvU32 *arg6)
-{
-    STUB_CHECK(77);
-    return 0;
-}
-
-NvU32 stubOsnv_rdmsr(OBJOS *pOS, NvU32 arg1, NvU32 *arg2, NvU32 *arg3)
-{
-    STUB_CHECK(122);
-    return 0;
-}
-
-NvU32 stubOsnv_wrmsr(OBJOS *pOS, NvU32 arg1, NvU32 arg2, NvU32 arg3)
-{
-    STUB_CHECK(123);
-    return 0;
-}
+#endif
 
 NV_STATUS osSimEscapeWrite(OBJGPU *pGpu, const char *path, NvU32 Index, NvU32 Size, NvU32 Value)
 {
@@ -118,16 +85,6 @@ NV_STATUS osCallACPI_MXMX(OBJGPU *pGpu, NvU32 AcpiId, NvU8 *pInOut)
 }
 
 NV_STATUS osCallACPI_BCL(OBJGPU *pGpu, NvU32 acpiId, NvU32 *pOut, NvU16 *size)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS osCallACPI_ON(OBJGPU *pGpu, NvU32 uAcpiId)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS osCallACPI_OFF(OBJGPU *pGpu, NvU32 uAcpiId)
 {
     return NV_ERR_NOT_SUPPORTED;
 }
@@ -227,33 +184,19 @@ osRCCallback_v2
     return RC_CALLBACK_IGNORE;
 }
 
-NV_STATUS stubOsSetupVBlank(OBJGPU *pGpu, void * pProc,
-                       void * pParm1, void * pParm2, NvU32 Head, void * pParm3)
-{
-    return NV_OK;
-}
-
-NV_STATUS stubOsObjectEventNotification(NvHandle hClient, NvHandle hObject, NvU32 hClass, PEVENTNOTIFICATION pNotifyEvent,
-                                    NvU32 notifyIndex, void * pEventData, NvU32 eventDataSize)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
 RmPhysAddr
-stubOsPageArrayGetPhysAddr(OS_GPU_INFO *pOsGpuInfo, void* pPageData, NvU32 pageIndex)
+osPageArrayGetPhysAddr(OS_GPU_INFO *pOsGpuInfo, void* pPageData, NvU32 pageIndex)
 {
     NV_ASSERT(0);
     return 0;
 }
 
-void stubOsInternalReserveAllocCallback(NvU64 offset, NvU64 size, NvU32 gpuId)
+void osInternalReserveAllocCallback(NvU64 offset, NvU64 size, NvU32 gpuId)
 {
-    return;
 }
 
-void stubOsInternalReserveFreeCallback(NvU64 offset, NvU32 gpuId)
+void osInternalReserveFreeCallback(NvU64 offset, NvU32 gpuId)
 {
-    return;
 }
 
 NV_STATUS osGetCurrentProcessGfid(NvU32 *pGfid)
@@ -416,6 +359,7 @@ osTegraSocDsiPanelCleanup
 NV_STATUS
 osTegraSocHspSemaphoreAcquire
 (
+    OBJGPU *pGpu,
     NvU32 ownerId,
     NvBool bAcquire,
     NvU64 timeout
@@ -429,6 +373,19 @@ osTegraSocGetHdcpEnabled(OS_GPU_INFO *pOsGpuInfo)
 {
     return NV_TRUE;
 }
+
+void
+osTegraGetDispSMMUStreamIds
+(
+    OS_GPU_INFO *pOsGpuInfo,
+    NvU32       *dispIsoStreamId,
+    NvU32       *dispNisoStreamId
+)
+{
+    /* NV_U32_MAX is used to indicate that the platform does not support SMMU */
+    *dispIsoStreamId = NV_U32_MAX;
+    *dispNisoStreamId = NV_U32_MAX;
+}
 #endif
 
 NV_STATUS
@@ -438,6 +395,17 @@ osTegraSocParseFixedModeTimings
     NvU32 dcbIndex,
     NV0073_CTRL_DFP_GET_FIXED_MODE_TIMING_PARAMS *pTimingsPerStream,
     NvU8 *pNumTimings
+)
+{
+    return NV_OK;
+}
+
+NV_STATUS
+osTegraSocPowerManagement
+(
+    OS_GPU_INFO *pOsGpuInfo,
+    NvBool bInPMTransition,
+    NvU32 newPMLevel
 )
 {
     return NV_OK;
@@ -622,6 +590,21 @@ NvBool osDbgBreakpointEnabled(void)
     return NV_TRUE;
 }
 
+NV_STATUS
+osGetSysmemInfo
+(
+    OBJGPU *pGpu,
+    NvU64  *pSysmemBaseAddr,
+    NvU64  *pSysmemTotalSize
+)
+{
+    // Bug 4377373 - TODO: Need to add proper implementation for non MODS platform.
+    *pSysmemBaseAddr = 0;
+    *pSysmemTotalSize = (1ULL << 32);
+
+    return NV_OK;
+}
+
 NV_STATUS osNvifMethod(
     OBJGPU       *pGpu,
     NvU32         func,
@@ -665,129 +648,6 @@ osGetNvGlobalRegistryDword
 {
     return NV_ERR_NOT_SUPPORTED;
 }
-
-#if !RMCFG_FEATURE_PLATFORM_DCE /* dce_core_rm_clk_reset.c */ && \
-    (!RMCFG_FEATURE_PLATFORM_UNIX || !RMCFG_FEATURE_TEGRA_SOC_NVDISPLAY || \
-     RMCFG_FEATURE_DCE_CLIENT_RM /* osSocNvDisp.c */ )
-NV_STATUS
-osTegraSocEnableClk
-(
-    OS_GPU_INFO             *pOsGpuInfo,
-    NvU32     whichClkRM
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS
-osTegraSocDisableClk
-(
-    OS_GPU_INFO             *pOsGpuInfo,
-    NvU32                   whichClkRM
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS
-osTegraSocGetCurrFreqKHz
-(
-    OS_GPU_INFO             *pOsGpuInfo,
-    NvU32                   whichClkRM,
-    NvU32                   *pCurrFreqKHz
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS
-osTegraSocGetMaxFreqKHz
-(
-    OS_GPU_INFO             *pOsGpuInfo,
-    NvU32                    whichClkRM,
-    NvU32                   *pMaxFreqKHz
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS
-osTegraSocGetMinFreqKHz
-(
-    OS_GPU_INFO             *pOsGpuInfo,
-    NvU32                    whichClkRM,
-    NvU32                   *pMinFreqKHz
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS
-osTegraSocSetFreqKHz
-(
-    OS_GPU_INFO             *pOsGpuInfo,
-    NvU32                    whichClkRM,
-    NvU32                    reqFreqKHz
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS
-osTegraSocSetParent
-(
-    OS_GPU_INFO             *pOsGpuInfo,
-    NvU32                    whichClkRMsource,
-    NvU32                    whichClkRMparent
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS
-osTegraSocGetParent
-(
-    OS_GPU_INFO             *pOsGpuInfo,
-    NvU32                    whichClkRMsource,
-    NvU32                   *pWhichClkRMparent
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS
-osTegraSocDeviceReset
-(
-    OS_GPU_INFO *pOsGpuInfo
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS
-osTegraSocPmPowergate
-(
-    OS_GPU_INFO *pOsGpuInfo
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS
-osTegraSocPmUnpowergate
-(
-    OS_GPU_INFO *pOsGpuInfo
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NvU32
-osTegraSocFuseRegRead(NvU32 addr)
-{
-    return 0;
-}
-#endif
 
 NV_STATUS osIsr
 (
@@ -844,4 +704,23 @@ osTegraSocDpUphyPllDeInit(OS_GPU_INFO *pOsGpuInfo)
 
 #endif
 
+
+NV_STATUS osGetPcieCplAtomicsCaps
+(
+    OS_GPU_INFO *pOsGpuInfo,
+    NvU32       *pMask
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS
+osMapGsc
+(
+    NvU64        gsc_base,
+    NvU64        *va
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
 

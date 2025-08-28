@@ -5,7 +5,7 @@
 // Profile:  devel-soc-disp-dce-client
 // Template: templates/gt_rmconfig_util.c
 //
-// Chips:    T234D
+// Chips:    T234D, T26XD, T25XD
 //
 
 #include "gpu/gpu.h"
@@ -21,11 +21,85 @@ const NVOC_RTTI_PROVIDER __iom_rtti_provider = { 0 };
 // These help to reduce code size for runtime IsCHIP() and IsCHIPALIAS() invocations
 //
 
+NvBool rmcfg_IsT234D(POBJGPU pGpu)
+{
+    return gpuIsImplementation(pGpu, HAL_IMPL_T234D);
+}
+
+NvBool rmcfg_IsT23XD(POBJGPU pGpu)
+{
+    return IsT234D(pGpu);
+}
+
+NvBool rmcfg_IsT264D(POBJGPU pGpu)
+{
+    return gpuIsImplementation(pGpu, HAL_IMPL_T264D);
+}
+
+NvBool rmcfg_IsT264DorBetter(POBJGPU pGpu)
+{
+    return gpuIsImplementationOrBetter(pGpu, HAL_IMPL_T264D);
+}
+
+NvBool rmcfg_IsT26XD(POBJGPU pGpu)
+{
+    return IsT264D(pGpu);
+}
+
+NvBool rmcfg_IsT26XDorBetter(POBJGPU pGpu)
+{
+    return IsT264DorBetter(pGpu);
+}
+
+NvBool rmcfg_IsT256D(POBJGPU pGpu)
+{
+    return gpuIsImplementation(pGpu, HAL_IMPL_T256D);
+}
+
+NvBool rmcfg_IsT256DorBetter(POBJGPU pGpu)
+{
+    return gpuIsImplementationOrBetter(pGpu, HAL_IMPL_T256D);
+}
+
+NvBool rmcfg_IsT25XD(POBJGPU pGpu)
+{
+    return IsT256D(pGpu);
+}
+
+NvBool rmcfg_IsT25XDorBetter(POBJGPU pGpu)
+{
+    return IsT256DorBetter(pGpu);
+}
+
+NvBool rmcfg_IsT23X_TEGRA_NVDISP_GPUS(POBJGPU pGpu)
+{
+    return IsT234D(pGpu);
+}
+
+NvBool rmcfg_IsT26X(POBJGPU pGpu)
+{
+    return IsT264D(pGpu);
+}
+
+NvBool rmcfg_IsT26XorBetter(POBJGPU pGpu)
+{
+    return IsT264DorBetter(pGpu);
+}
+
+NvBool rmcfg_IsT25X(POBJGPU pGpu)
+{
+    return IsT256D(pGpu);
+}
+
+NvBool rmcfg_IsT25XorBetter(POBJGPU pGpu)
+{
+    return IsT256DorBetter(pGpu);
+}
+
 
 
 // NVOC class ID uniqueness checks
 #ifdef DEBUG
-char __nvoc_class_id_uniqueness_check_0x0x05c7b5 = 1;      /* OBJGPIO */
 char __nvoc_class_id_uniqueness_check_0x0x1ab16a = 1;      /* OBJRPC */
 char __nvoc_class_id_uniqueness_check_0x0xd4dff8 = 1;      /* OBJRPCSTRUCTURECOPY */
 

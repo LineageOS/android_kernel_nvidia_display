@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2017 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -40,21 +40,21 @@ typedef struct {
     NVDispStereoParamsEvoRec stereo;
     NVDscInfoEvoRec dscInfo;
     NVDispHeadInfoFrameStateEvoRec infoFrame;
-    NvU8 allowFlipLockGroup;
     enum NvKmsOutputTf tf;
-    enum NvKmsOutputColorimetry colorimetry;
+    NvBool hdrInfoFrameOverride;
+    NvU32 hdrStaticMetadataLayerMask;
     NvBool colorSpaceSpecified : 1;
+    NvBool colorBpcSpecified   : 1;
     NvBool colorRangeSpecified : 1;
     NvBool hs10bpcHint         : 1;
     NvBool changed             : 1;
 } NVProposedModeSetStateOneApiHead;
 
 typedef struct {
-    NvU8 tilePosition;
+    NvU8 mergeHeadSection;
     NVHwModeTimingsEvo timings;
     NVConnectorEvoRec *pConnectorEvo;
     HDMI_FRL_CONFIG hdmiFrlConfig;
-    NvU8 hdmiFrlBpc;
     NVDPLibModesetStatePtr pDpLibModesetState;
     NVDispHeadAudioStateEvoRec audio;
 } NVProposedModeSetHwStateOneHead;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2009-2019 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2009-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -42,13 +42,25 @@ extern "C" {
 // Include printf definitions
 #include "nvlog/nvlog_printf.h"
 
-extern NVLOG_LOGGER             NvLogLogger;
-extern NVLOG_PRINT_LOGGER       NvLogPrintLogger;
+#if defined(NVRM)
+#include "rmconfig.h"
+
+#define NVLOG_MODULE_ENABLED RMCFG_MODULE_NVLOG
+
+#else
+
+#define NVLOG_MODULE_ENABLED 1
+
+#endif
 
 /********************************/
 /*****  Exported functions  *****/
 /********************************/
 
+#if NVLOG_MODULE_ENABLED
+
+extern NVLOG_LOGGER             NvLogLogger;
+extern NVLOG_PRINT_LOGGER       NvLogPrintLogger;
 
 /**
  * @brief Global NvLog initialization function
@@ -240,12 +252,33 @@ NV_STATUS nvlogPrintUpdate(void);
  */
 NV_STATUS nvlogPrintDestroy(void);
 
+//
+// NvLog ETW functions
+//
+
 /**
  * @brief Global NvLog ETW capture state function
  *
  * @return NV_OK on success
  */
 NV_STATUS nvlogETWCaptureState(void);
+
+/**
+ * @brief Pushes all buffer tags to ETW
+ */
+void nvlogETWPushTags(void);
+
+/**
+ * @brief Pushes an nvlog buffer header to ETW
+ */
+void nvlogETWPushBufferHeader(NVLOG_BUFFER *pBuffer);
+
+/**
+ * @brief Pushes an nvlog entry to ETW
+ *
+ * @return NV_TRUE on success
+ */
+NvBool nvlogETWPush(NVLOG_BUFFER *pBuffer, NvU8 *pData, NvU32 dataSize);
 
 //
 // Global initialization macros
@@ -348,6 +381,17 @@ void nvlogDeregisterFlushCb(void (*pCb)(void*), void *pData);
 // All callback list accesses are synchronised.
 //
 void nvlogRunFlushCbs(void);
+
+#else
+
+#define NVLOG_INIT(pData)
+#define NVLOG_UPDATE()
+#define NVLOG_DESTROY()
+
+#define nvlogDumpToKernelLogIfEnabled()
+#define nvlogDumpToKernelLog(bDumpUnchangedBuffersOnlyOnce)
+
+#endif
 
 #ifdef __cplusplus
 } // extern "C"

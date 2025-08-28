@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -46,6 +46,10 @@
 #include "mem_mgr/virt_mem_mgr.h"
 #include "gpu_mgr/gpu_db.h"
 
+#if RMCFG_FEATURE_GSPRM_BULLSEYE || defined(GSPRM_BULLSEYE_ENABLE)
+#include "diagnostics/code_coverage_mgr.h"
+#endif
+
 // local static functions
 static NV_STATUS    _sysCreateOs(OBJSYS *);
 static NV_STATUS    _sysCreateChildObjects(OBJSYS *);
@@ -70,13 +74,15 @@ static sysChildObject sysChildObjects[] =
     { NV_OFFSETOF(OBJSYS, pGpuMgr),         classInfo(OBJGPUMGR),       NV_TRUE },
     { NV_OFFSETOF(OBJSYS, pVmm),            classInfo(OBJVMM),          NV_TRUE },
     { NV_OFFSETOF(OBJSYS, pGpuDb),          classInfo(GpuDb),           NV_TRUE },
+#if RMCFG_FEATURE_GSPRM_BULLSEYE || defined(GSPRM_BULLSEYE_ENABLE)
+    { NV_OFFSETOF(OBJSYS, pCodeCovMgr),     classInfo(CodeCoverageManager),  NV_TRUE },
+#endif
 };
 
 NV_STATUS
 sysConstruct_IMPL(OBJSYS *pSys)
 {
     NV_STATUS          status;
-    OBJOS             *pOS;
     NvU32              sec = 0;
     NvU32              uSec = 0;
 
@@ -94,15 +100,12 @@ sysConstruct_IMPL(OBJSYS *pSys)
     }
 
     // Use the monotonic system clock for a unique value
-    pOS = SYS_GET_OS(pSys);
-    osGetCurrentTime(&sec, &uSec);
+    osGetSystemTime(&sec, &uSec);
     pSys->rmInstanceId = (NvU64)sec * 1000000 + (NvU64)uSec;
 
-    if (!pOS->osRmInitRm(pOS))
-    {
-        status = NV_ERR_GENERIC;
+    status = osRmInitRm();
+    if (status != NV_OK)
         goto failed;
-    }
 
     _sysNvSwitchDetection(pSys);
 
@@ -138,6 +141,8 @@ failed:
 void
 sysDestruct_IMPL(OBJSYS *pSys)
 {
+
+    pSys->setProperty(pSys, PDB_PROP_SYS_DESTRUCTING, NV_TRUE);
 
     //
     // Any of these operations might fail but go ahead and
@@ -293,10 +298,10 @@ _sysRegistryOverrideResourceServer
         pSys->apiLockModuleMask = RM_LOCK_MODULE_GRP(RM_LOCK_MODULES_CLIENT);
     }
 
-    if (osReadRegistryDword(pGpu, NV_REG_STR_RM_CLIENT_HANDLE_LOOKUP,
+    if (osReadRegistryDword(pGpu, NV_REG_STR_RM_LOCK_TIME_COLLECT,
                             &data32) == NV_OK)
     {
-        pSys->setProperty(pSys, PDB_PROP_SYS_CLIENT_HANDLE_LOOKUP, !!data32);
+        pSys->setProperty(pSys, PDB_PROP_SYS_RM_LOCK_TIME_COLLECT, !!data32);
     }
 
     if (osReadRegistryDword(pGpu, NV_REG_STR_RM_CLIENT_LIST_DEFERRED_FREE,
@@ -310,7 +315,6 @@ _sysRegistryOverrideResourceServer
     {
         pSys->clientListDeferredFreeLimit = data32;
     }
-
 }
 
 static void
@@ -656,6 +660,29 @@ sysInitRegistryOverrides_IMPL
         pSys->setProperty(pSys, PDB_PROP_SYS_ROUTE_TO_PHYSICAL_LOCK_BYPASS, !!data32);
     }
 
+    if (osReadRegistryDword(pGpu, NV_REG_STR_RM_GPU_LOCK_MIDPATH, &data32) == NV_OK)
+    {
+        pSys->setProperty(pSys, PDB_PROP_SYS_GPU_LOCK_MIDPATH_ENABLED, !!data32);
+    }
+
+    if (osReadRegistryDword(pGpu, NV_REG_STR_RM_ENABLE_RM_TEST_ONLY_CODE,
+                            &data32) == NV_OK)
+    {
+        pSys->setProperty(pSys, PDB_PROP_SYS_ENABLE_RM_TEST_ONLY_CODE, !!data32);
+    }
+
+    if (osReadRegistryDword(pGpu, NV_REG_STR_RM_ENABLE_FORCE_SHARED_LOCK, &data32)
+            == NV_OK)
+    {
+        pSys->setProperty(pSys, PDB_PROP_SYS_ENABLE_FORCE_SHARED_LOCK, !!data32);
+    }
+
+    if (osReadRegistryDword(pGpu, NV_REG_STR_RM_ALLOW_UNKNOWN_4PART_IDS, &data32)
+            == NV_OK)
+    {
+        pSys->setProperty(pSys, PDB_PROP_SYS_ALLOW_UNKNOWN_4PART_IDS, !!data32);
+    }
+
     gpumgrSetGpuNvlinkBwModeFromRegistry(pGpu);
 }
 
@@ -686,3 +713,48 @@ sysSyncExternalFabricMgmtWAR_IMPL
 
     return status;
 }
+
+static void
+_sysRefreshAllGpuRecoveryAction
+(
+    void      *pData
+)
+{
+    NV_STATUS  status;
+    OBJGPU    *pGpu;
+    NvU32      i;
+    NvU32      gpuCount;
+    NvU32      gpuIndex;
+    NvU32      gpuMask;
+
+    NV_ASSERT_OK_OR_ELSE(status,
+        rmGpuGroupLockAcquire(0, GPU_LOCK_GRP_ALL, GPUS_LOCK_FLAGS_NONE, RM_LOCK_MODULES_NONE, &gpuMask),
+        return);
+
+    gpumgrGetGpuAttachInfo(&gpuCount, &gpuMask);
+    for (i = 0, gpuIndex = 0; i < gpuCount; i++)
+    {
+        pGpu = gpumgrGetNextGpu(gpuMask, &gpuIndex);
+        if (pGpu)
+        {
+            gpuRefreshRecoveryAction(pGpu, NV_TRUE);
+        }
+    }
+
+    rmGpuGroupLockRelease(gpuMask, GPUS_LOCK_FLAGS_NONE);
+}
+
+void
+sysSetRecoveryRebootRequired_IMPL
+(
+    OBJSYS  *pSys,
+    NvBool   bRebootRequired
+)
+{
+    if (!!pSys->getProperty(pSys, PDB_PROP_SYS_RECOVERY_REBOOT_REQUIRED) != !!bRebootRequired)
+    {
+        pSys->setProperty(pSys, PDB_PROP_SYS_RECOVERY_REBOOT_REQUIRED, bRebootRequired);
+        osQueueSystemWorkItem(_sysRefreshAllGpuRecoveryAction, NULL);
+    }
+}
+

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -32,12 +32,14 @@
 typedef struct _RM_API RM_API;
 typedef struct RsServer RsServer;
 typedef struct OBJGPU OBJGPU;
+typedef struct RsClient RsClient;
 typedef struct RsResource RsResource;
 typedef struct RsCpuMapping RsCpuMapping;
 typedef struct CALL_CONTEXT CALL_CONTEXT;
 typedef struct MEMORY_DESCRIPTOR MEMORY_DESCRIPTOR;
 typedef struct RS_RES_FREE_PARAMS_INTERNAL RS_RES_FREE_PARAMS_INTERNAL;
 typedef struct RS_LOCK_INFO RS_LOCK_INFO;
+typedef struct NV0000_CTRL_SYSTEM_GET_LOCK_TIMES_PARAMS NV0000_CTRL_SYSTEM_GET_LOCK_TIMES_PARAMS;
 typedef NvU32 NV_ADDRESS_SPACE;
 
 extern RsServer    g_resServ;
@@ -64,6 +66,15 @@ void rmapiShutdown(void);
 #define RMAPI_LOCK_FLAGS_READ                             NVBIT(1)        // Acquire API lock for READ
 #define RMAPI_LOCK_FLAGS_WRITE                            (0x00000000)  // Acquire API lock for WRITE - Default
 #define RMAPI_LOCK_FLAGS_LOW_PRIORITY                     NVBIT(2)      // Deprioritize lock acquire
+
+/**
+ * Acquire API lock for READ, even if NV_REG_STR_RM_READONLY_API_LOCK_MODULE is
+ * not set for the module.
+ *
+ * This allows to opt-in into the RO-locking behavior for specific paths while
+ * global enablement is pending.
+ */
+#define RMAPI_LOCK_FLAGS_READ_FORCE                       NVBIT(3)
 
 /**
  * Acquire the RM API Lock
@@ -95,6 +106,28 @@ NvBool rmapiLockIsOwner(void);
  */
 NvBool rmapiLockIsWriteOwner(void);
 
+/**
+ * Retrieve total RM API lock wait and hold times
+ */
+void rmapiLockGetTimes(NV0000_CTRL_SYSTEM_GET_LOCK_TIMES_PARAMS *);
+
+/**
+ * Indicates current thread is in the RTD3 PM path (rm_transition_dynamic_power) which
+ * means that certain locking asserts/checks must be skipped due to inability to acquire
+ * the API lock in this path.
+ */
+void rmapiEnterRtd3PmPath(void);
+
+/**
+ * Signifies that current thread is leaving the RTD3 PM path, restoring lock
+ * asserting/checking behavior to normal.
+ */
+void rmapiLeaveRtd3PmPath(void);
+
+/**
+ * Checks if current thread is currently running in the RTD3 PM path.
+ */
+NvBool rmapiInRtd3PmPath(void);
 
 /**
  * Type of RM API client interface
@@ -216,20 +249,17 @@ struct _RM_API
                                          NvP64 pLinearAddress, NvU32 flags, NvU32 ProcessId, API_SECURITY_INFO *pSecInfo);
 
     // Map dma memory with default security attributes. Provides RM internal implementation for NvRmMapMemoryDma().
-    NV_STATUS (*Map)(struct _RM_API *pRmApi, NvHandle hClient, NvHandle hDevice, NvHandle hMemCtx, NvHandle hMemory,
-                     NvU64 offset, NvU64 length, NvU32 flags, NvU64 *pDmaOffset);
+    NV_STATUS (*Map)(struct _RM_API *pRmApi, NVOS46_PARAMETERS *pParms);
 
     // Map dma memory. Provides RM internal implementation for NvRmMapMemoryDma().
-    NV_STATUS (*MapWithSecInfo)(struct _RM_API *pRmApi, NvHandle hClient, NvHandle hDevice, NvHandle hMemCtx, NvHandle hMemory,
-                                NvU64 offset, NvU64 length, NvU32 flags, NvU64 *pDmaOffset, API_SECURITY_INFO *pSecInfo);
+    NV_STATUS (*MapWithSecInfo)(struct _RM_API *pRmApi, NVOS46_PARAMETERS *pParms, API_SECURITY_INFO *pSecInfo);
 
     // Unmap dma memory with default security attributes
-    NV_STATUS (*Unmap)(struct _RM_API *pRmApi, NvHandle hClient, NvHandle hDevice, NvHandle hMemCtx, NvHandle hMemory,
-                       NvU32 flags, NvU64 dmaOffset);
+    NV_STATUS (*Unmap)(struct _RM_API *pRmApi, NVOS47_PARAMETERS *pParms);
 
     // Unmap dma memory
-    NV_STATUS (*UnmapWithSecInfo)(struct _RM_API *pRmApi, NvHandle hClient, NvHandle hDevice, NvHandle hMemCtx, NvHandle hMemory,
-                                  NvU32 flags, NvU64 dmaOffset, API_SECURITY_INFO *pSecInfo);
+    NV_STATUS (*UnmapWithSecInfo)(struct _RM_API *pRmApi, NVOS47_PARAMETERS *pParms, API_SECURITY_INFO *pSecInfo);
+
 
     API_SECURITY_INFO  defaultSecInfo;
     NvBool             bHasDefaultSecInfo;
@@ -279,14 +309,22 @@ NV_STATUS rmapiControlCacheInit(void);
 NvBool rmapiControlIsCacheable(NvU32 flags, NvU32 accessRight, NvBool bAllowInternal);
 NvBool rmapiCmdIsCacheable(NvU32 cmd, NvBool bAllowInternal);
 NV_STATUS rmapiControlCacheGet(NvHandle hClient, NvHandle hObject, NvU32 cmd,
-                               void* params, NvU32 paramsSize);
+                               void* params, NvU32 paramsSize, API_SECURITY_INFO *pSecInfo);
+NV_STATUS rmapiControlCacheGetUnchecked(NvHandle hClient, NvHandle hObject, NvU32 cmd,
+                               void* params, NvU32 paramsSize, API_SECURITY_INFO *pSecInfo);
+
 NV_STATUS rmapiControlCacheSet(NvHandle hClient, NvHandle hObject, NvU32 cmd,
                                void* params, NvU32 paramsSize);
-NV_STATUS rmapiControlCacheSetGpuInstForObject(NvHandle hClient, NvHandle hObject, NvU32 gpuInst);
+NV_STATUS rmapiControlCacheSetUnchecked(NvHandle hClient, NvHandle hObject, NvU32 cmd,
+                               void* params, NvU32 paramsSize, NvU32 rmctrlFlags);
+
+NV_STATUS rmapiControlCacheSetGpuAttrForObject(NvHandle hClient, NvHandle hObject, OBJGPU *pGpu);
 void rmapiControlCacheFreeAllCacheForGpu(NvU32 gpuInst);
+void rmapiControlCacheFreeNonPersistentCacheForGpu(NvU32 gpuInst);
 void rmapiControlCacheSetMode(NvU32 mode);
 NvU32 rmapiControlCacheGetMode(void);
 void rmapiControlCacheFree(void);
+NV_STATUS rmapiControlCacheFreeForControl(NvU32 gpuInstance, NvU32 cmd);
 void rmapiControlCacheFreeClientEntry(NvHandle hClient);
 void rmapiControlCacheFreeObjectEntry(NvHandle hClient, NvHandle hObject);
 

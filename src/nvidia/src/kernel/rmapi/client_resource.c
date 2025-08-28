@@ -1,6 +1,5 @@
-
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -39,15 +38,23 @@
 #include "resserv/rs_access_map.h"
 #include "nvBldVer.h"
 #include "nvVer.h"
-#include "nvpcf.h"
+#include "platform/nvpcf.h"
 #include "mem_mgr/mem.h"
 #include "nvsecurityinfo.h"
 #include "resource_desc.h"
+#include "platform/sli/sli.h"
 
 #include "nvop.h"
 #include "mem_mgr/virt_mem_mgr.h"
 
 #define CONFIG_2X_BUFF_SIZE_MIN                                             (2)
+
+/*!
+ * Define large signed mW values. Adding one of these values will produce a
+ * result that is then MIN/MAX-ed to be within the range allowed by VBIOS.
+ */
+#define QBOOST_LARGE_POSITIVE_MW                                     (10000000)
+#define QBOOST_LARGE_NEGATIVE_MW                                    (-10000000)
 
 //
 // Controller Table v2.2 has removed some params, set them using these
@@ -98,15 +105,16 @@ cliresAccessCallback_IMPL
     // Client resource's access callback will grant any rights here to any resource it owns
     switch (accessRight)
     {
+        case RS_ACCESS_PERFMON:
         case RS_ACCESS_NICE:
         {
-            // Grant if the caller satisfies osAllowPriorityOverride
-            return osAllowPriorityOverride();
+            return osCheckAccess(accessRight);
+        }
+        default:
+        {
+            return NV_FALSE;
         }
     }
-
-    // Delegate to superclass
-    return resAccessCallback_IMPL(staticCast(pRmCliRes, RsResource), pInvokingClient, pAllocParams, accessRight);
 }
 
 NvBool
@@ -276,42 +284,6 @@ CliControlSystemEvent
     return status;
 }
 
-
-
-static NV_STATUS
-CliGetSystemEventStatus
-(
-    NvHandle  hClient,
-    NvU32    *pEvent,
-    NvU32    *pStatus
-)
-{
-    NvU32 Head, Tail;
-    RmClient *pClient = serverutilGetClientUnderLock(hClient);
-
-    if (pClient == NULL)
-        return NV_ERR_INVALID_CLIENT;
-
-    Head = pClient->CliSysEventInfo.systemEventsQueue.Head;
-    Tail = pClient->CliSysEventInfo.systemEventsQueue.Tail;
-
-    if (Head == Tail)
-    {
-        *pEvent = NV0000_NOTIFIERS_EVENT_NONE_PENDING;
-        *pStatus = 0;
-    }
-    else
-    {
-        *pEvent  = pClient->CliSysEventInfo.systemEventsQueue.EventQueue[Tail].event;
-        *pStatus = pClient->CliSysEventInfo.systemEventsQueue.EventQueue[Tail].status;
-        pClient->CliSysEventInfo.systemEventsQueue.Tail = (Tail + 1) % NV_SYSTEM_EVENT_QUEUE_SIZE;
-    }
-
-    return NV_OK;
-}
-
-
-
 // ****************************************************************************
 //                              Other functions
 // ****************************************************************************
@@ -335,19 +307,12 @@ cliresCtrlCmdSystemGetFeatures_IMPL
 
     NV_ASSERT_OR_RETURN(pSys != NULL, NV_ERR_INVALID_STATE);
 
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
-    if (pSys->getProperty(pSys, PDB_PROP_SYS_IS_UEFI))
-    {
-         featuresMask = FLD_SET_DRF(0000, _CTRL_SYSTEM_GET_FEATURES,
-            _UEFI, _TRUE, featuresMask);
-    }
-
-    // Don't update EFI init on non Display system
-    if (pSys->getProperty(pSys, PDB_PROP_SYS_IS_EFI_INIT))
+    if (pSys->getProperty(pSys, PDB_PROP_SYS_ENABLE_RM_TEST_ONLY_CODE))
     {
         featuresMask = FLD_SET_DRF(0000, _CTRL_SYSTEM_GET_FEATURES,
-            _IS_EFI_INIT, _TRUE, featuresMask);
+            _RM_TEST_ONLY_CODE_ENABLED, _TRUE, featuresMask);
     }
 
     pFeaturesParams->featuresMask = featuresMask;
@@ -369,11 +334,12 @@ cliresCtrlCmdSystemGetBuildVersionV2_IMPL
     NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_V2_PARAMS *pParams
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     ct_assert(sizeof(NV_VERSION_STRING) <= sizeof(pParams->driverVersionBuffer));
     ct_assert(sizeof(NV_BUILD_BRANCH_VERSION) <= sizeof(pParams->versionBuffer));
     ct_assert(sizeof(NV_DISPLAY_DRIVER_TITLE) <= sizeof(pParams->titleBuffer));
+    ct_assert(sizeof(STRINGIZE(NV_BUILD_BRANCH)) <= sizeof(pParams->driverBranch));
 
     portMemCopy(pParams->driverVersionBuffer, sizeof(pParams->driverVersionBuffer),
                 NV_VERSION_STRING, sizeof(NV_VERSION_STRING));
@@ -381,6 +347,8 @@ cliresCtrlCmdSystemGetBuildVersionV2_IMPL
                 NV_BUILD_BRANCH_VERSION, sizeof(NV_BUILD_BRANCH_VERSION));
     portMemCopy(pParams->titleBuffer, sizeof(pParams->titleBuffer),
                 NV_DISPLAY_DRIVER_TITLE, sizeof(NV_DISPLAY_DRIVER_TITLE));
+    portMemCopy(pParams->driverBranch, sizeof(pParams->driverBranch),
+                STRINGIZE(NV_BUILD_BRANCH), sizeof(STRINGIZE(NV_BUILD_BRANCH)));
 
     pParams->changelistNumber = NV_BUILD_CHANGELIST_NUM;
     pParams->officialChangelistNumber = NV_LAST_OFFICIAL_CHANGELIST_NUM;
@@ -402,9 +370,12 @@ cliresCtrlCmdSystemGetCpuInfo_IMPL
     NV0000_CTRL_SYSTEM_GET_CPU_INFO_PARAMS *pCpuInfoParams
 )
 {
-    OBJSYS    *pSys = SYS_GET_INSTANCE();
+    OBJSYS  *pSys     = SYS_GET_INSTANCE();
+    OBJGPU  *pGpuIter = NULL;
+    NvU32    gpuMask  = 0U;
+    NvU32    gpuIndex = 0U;
 
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     pCpuInfoParams->type = pSys->cpuInfo.type;
     pCpuInfoParams->capabilities = pSys->cpuInfo.caps;
@@ -418,35 +389,51 @@ cliresCtrlCmdSystemGetCpuInfo_IMPL
     pCpuInfoParams->family = pSys->cpuInfo.family;
     pCpuInfoParams->model = pSys->cpuInfo.model;
     pCpuInfoParams->stepping = pSys->cpuInfo.stepping;
-    pCpuInfoParams->bSEVEnabled = (sysGetStaticConfig(pSys))->bOsCCEnabled;
+    pCpuInfoParams->bCCEnabled = (sysGetStaticConfig(pSys))->bOsCCEnabled;
     portMemCopy(pCpuInfoParams->name,
                 sizeof (pCpuInfoParams->name), pSys->cpuInfo.name,
                 sizeof (pCpuInfoParams->name));
+
+    pCpuInfoParams->selfHostedSocType = NV0000_CTRL_SYSTEM_SH_SOC_TYPE_NA;
+    gpumgrGetGpuAttachInfo(NULL, &gpuMask);
+    while ((pGpuIter = gpumgrGetNextGpu(gpuMask, &gpuIndex)) != NULL)
+    {
+        pCpuInfoParams->selfHostedSocType = gpuDetermineSelfHostedSocType_HAL(pGpuIter);
+        if (pCpuInfoParams->selfHostedSocType != NV0000_CTRL_SYSTEM_SH_SOC_TYPE_NA)
+        {
+            break;
+        }
+    }
 
     return NV_OK;
 }
 
 //
-// cliresCtrlCmdSystemSetMemorySize
+// cliresCtrlCmdSystemGetLockTimes
 //
-// Set system memory size in pages.
+// Get API and GPU lock hold/wait times.
 //
 // Lock Requirements:
-//      Assert that API and GPUs locks held on entry
+//      None
 //
 NV_STATUS
-cliresCtrlCmdSystemSetMemorySize_IMPL
+cliresCtrlCmdSystemGetLockTimes_IMPL
 (
     RmClientResource *pRmCliRes,
-    NV0000_CTRL_SYSTEM_SET_MEMORY_SIZE_PARAMS *pParams
+    NV0000_CTRL_SYSTEM_GET_LOCK_TIMES_PARAMS *pParams
 )
 {
     OBJSYS *pSys = SYS_GET_INSTANCE();
-    OBJOS *pOS = SYS_GET_OS(pSys);
 
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
+    // Check if lock time collection is enabled first
+    if (!pSys->getProperty(pSys, PDB_PROP_SYS_RM_LOCK_TIME_COLLECT))
+        return NV_ERR_NOT_SUPPORTED;
 
-    pOS->SystemMemorySize = pParams->memorySize;
+    // Fetch API lock hold/wait times
+    rmapiLockGetTimes(pParams);
+
+    // Fetch GPU lock hold/wait times
+    rmGpuLockGetTimes(pParams);
 
     return NV_OK;
 }
@@ -500,7 +487,7 @@ cliresCtrlCmdSystemGetClassList_IMPL
 {
     NV_STATUS status;
 
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     status = classGetSystemClasses(pParams);
 
@@ -628,7 +615,7 @@ cliresCtrlCmdGpuGetAttachedIds_IMPL
     NV0000_CTRL_GPU_GET_ATTACHED_IDS_PARAMS *pGpuAttachedIds
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     return gpumgrGetAttachedGpuIds(pGpuAttachedIds);
 }
@@ -646,7 +633,7 @@ cliresCtrlCmdGpuGetIdInfo_IMPL
     NV0000_CTRL_GPU_GET_ID_INFO_PARAMS *pGpuIdInfoParams
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     return gpumgrGetGpuIdInfo(pGpuIdInfoParams);
 }
@@ -658,7 +645,7 @@ cliresCtrlCmdGpuGetIdInfoV2_IMPL
     NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS *pGpuIdInfoParams
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     return gpumgrGetGpuIdInfoV2(pGpuIdInfoParams);
 }
@@ -677,7 +664,7 @@ cliresCtrlCmdGpuGetInitStatus_IMPL
     NV0000_CTRL_GPU_GET_INIT_STATUS_PARAMS *pGpuInitStatusParams
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     return gpumgrGetGpuInitStatus(pGpuInitStatusParams);
 }
@@ -696,11 +683,30 @@ cliresCtrlCmdGpuGetDeviceIds_IMPL
     NV0000_CTRL_GPU_GET_DEVICE_IDS_PARAMS *pDeviceIdsParams
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     pDeviceIdsParams->deviceIds = gpumgrGetDeviceInstanceMask();
 
     return NV_OK;
+}
+
+//
+// cliresCtrlCmdGpuGetActiveDeviceIds
+//
+// Lock Requirements:
+//      Assert that API lock held on entry
+//      No GPUs lock
+//
+NV_STATUS
+cliresCtrlCmdGpuGetActiveDeviceIds_IMPL
+(
+    RmClientResource *pRmCliRes,
+    NV0000_CTRL_GPU_GET_ACTIVE_DEVICE_IDS_PARAMS *pActiveDeviceIdsParams
+)
+{
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
+
+    return gpumgrCacheGetActiveDeviceIds(pActiveDeviceIdsParams);
 }
 
 //
@@ -747,9 +753,35 @@ cliresCtrlCmdGpuGetProbedIds_IMPL
     NV0000_CTRL_GPU_GET_PROBED_IDS_PARAMS *pGpuProbedIds
 )
 {
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     return gpumgrGetProbedGpuIds(pGpuProbedIds);
+}
+
+//
+// _cliresValidateGpuIdAgainstProbed
+//
+// Lock Requirements: none (only operates on arguments)
+//
+static NV_STATUS
+_cliresValidateGpuIdAgainstProbed
+(
+    NvU32 gpuId,
+    const NV0000_CTRL_GPU_GET_PROBED_IDS_PARAMS *pGpuProbedIds
+)
+{
+    NvU32 j;
+
+    for (j = 0; j < NV0000_CTRL_GPU_MAX_PROBED_GPUS; j++)
+    {
+        if (pGpuProbedIds->gpuIds[j] == NV0000_CTRL_GPU_INVALID_ID)
+            break;
+
+        if (gpuId == pGpuProbedIds->gpuIds[j])
+            return NV_OK;
+    }
+
+    return NV_ERR_INVALID_ARGUMENT;
 }
 
 //
@@ -767,10 +799,10 @@ cliresCtrlCmdGpuAttachIds_IMPL
 )
 {
     NV0000_CTRL_GPU_GET_PROBED_IDS_PARAMS *pGpuProbedIds = NULL;
-    NvU32 i, j;
+    NvU32 i;
     NV_STATUS status = NV_OK;
 
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     if (pGpuAttachIds->gpuIds[0] == NV0000_CTRL_GPU_ATTACH_ALL_PROBED_IDS)
     {
@@ -795,25 +827,93 @@ cliresCtrlCmdGpuAttachIds_IMPL
     for (i = 0; (i < NV0000_CTRL_GPU_MAX_PROBED_GPUS) &&
                 (pGpuAttachIds->gpuIds[i] != NV0000_CTRL_GPU_INVALID_ID); i++)
     {
-        for (j = 0; (j < NV0000_CTRL_GPU_MAX_PROBED_GPUS) &&
-                    (pGpuProbedIds->gpuIds[j] != NV0000_CTRL_GPU_INVALID_ID); j++)
-        {
-            if (pGpuAttachIds->gpuIds[i] == pGpuProbedIds->gpuIds[j])
-                break;
-        }
-
-        if ((j == NV0000_CTRL_GPU_MAX_PROBED_GPUS) ||
-            (pGpuProbedIds->gpuIds[j] == NV0000_CTRL_GPU_INVALID_ID))
-        {
-            status = NV_ERR_INVALID_ARGUMENT;
+        status = _cliresValidateGpuIdAgainstProbed(pGpuAttachIds->gpuIds[i],
+                                                   pGpuProbedIds);
+        if (status != NV_OK)
             break;
-        }
     }
 
     // XXX add callback to attach logic on Windows
 done:
     portMemFree(pGpuProbedIds);
     return status;
+}
+
+//
+// cliresCtrlCmdGpuAsyncAttachId
+//
+// Lock Requirements:
+//      Assert that API lock held on entry
+//      No GPUs lock
+//
+NV_STATUS
+cliresCtrlCmdGpuAsyncAttachId_IMPL
+(
+    RmClientResource *pRmCliRes,
+    NV0000_CTRL_GPU_ASYNC_ATTACH_ID_PARAMS *pAsyncAttachIdParams
+)
+{
+    //
+    // Similar to non-async attach, async attach is mostly handled by
+    // libnvrmapi in userspace. Here, Core RM just does validation.
+    //
+
+    NV_STATUS status = NV_OK;
+    NV0000_CTRL_GPU_GET_PROBED_IDS_PARAMS *pGpuProbedIds = NULL;
+
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
+
+    pGpuProbedIds = portMemAllocNonPaged(sizeof(*pGpuProbedIds));
+    if (pGpuProbedIds == NULL)
+    {
+        status = NV_ERR_NO_MEMORY;
+        goto done;
+    }
+
+    status = gpumgrGetProbedGpuIds(pGpuProbedIds);
+    if (status != NV_OK)
+    {
+        goto done;
+    }
+
+    status = _cliresValidateGpuIdAgainstProbed(pAsyncAttachIdParams->gpuId,
+                                               pGpuProbedIds);
+    if (status != NV_OK)
+    {
+        goto done;
+    }
+
+done:
+    portMemFree(pGpuProbedIds);
+    return status;
+}
+
+//
+// cliresCtrlCmdGpuWaitAttachId
+//
+// Lock Requirements: none
+//
+NV_STATUS
+cliresCtrlCmdGpuWaitAttachId_IMPL
+(
+    RmClientResource *pRmCliRes,
+    NV0000_CTRL_GPU_WAIT_ATTACH_ID_PARAMS *pWaitAttachIdParams
+)
+{
+    //
+    // Similar to non-async attach, async attach is mostly handled by
+    // libnvrmapi in userspace. That includes the logic for waiting for
+    // background attach operations to complete.
+    //
+    // Since background attach operations are not tracked by Core RM
+    // (that is the responsibility of libnvrmapi and the kernel interface
+    // layer), there is nothing to do here.
+    //
+    // Note: libnvrmapi on UNIX skips calling into Core RM entirely for this
+    // command, so this path (and the unneeded API lock acquire) is not taken.
+    //
+
+    return NV_OK;
 }
 
 //
@@ -834,7 +934,7 @@ cliresCtrlCmdGpuDetachIds_IMPL
     NvU32 i, j;
     NV_STATUS status = NV_OK;
 
-    LOCK_ASSERT_AND_RETURN(rmapiLockIsOwner());
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
     if (pGpuDetachIds->gpuIds[0] == NV0000_CTRL_GPU_DETACH_ALL_ATTACHED_IDS)
     {
@@ -887,29 +987,6 @@ done:
 }
 
 NV_STATUS
-cliresCtrlCmdGpuGetSvmSize_IMPL
-(
-    RmClientResource *pRmCliRes,
-    NV0000_CTRL_GPU_GET_SVM_SIZE_PARAMS *pSvmSizeGetParams
-)
-{
-    OBJGPU *pGpu = NULL;
-
-    // error check incoming gpu id
-    pGpu = gpumgrGetGpuFromId(pSvmSizeGetParams->gpuId);
-    if (pGpu == NULL)
-    {
-        NV_PRINTF(LEVEL_WARNING, "GET_SVM_SIZE: bad gpuid: 0x%x\n",
-                  pSvmSizeGetParams->gpuId);
-        return NV_ERR_INVALID_ARGUMENT;
-    }
-
-    // Get the SVM size in MB.
-    pSvmSizeGetParams->svmSize = 0;
-    return NV_OK;
-}
-
-NV_STATUS
 cliresCtrlCmdGsyncGetAttachedIds_IMPL
 (
     RmClientResource *pRmCliRes,
@@ -949,26 +1026,41 @@ cliresCtrlCmdEventSetNotification_IMPL
 }
 
 NV_STATUS
-cliresCtrlCmdEventGetSystemEventStatus_IMPL
+cliresCtrlCmdEventGetSystemEventData_IMPL
 (
     RmClientResource *pRmCliRes,
-    NV0000_CTRL_GET_SYSTEM_EVENT_STATUS_PARAMS *pSystemEventStatusParams
+    NV0000_CTRL_GET_SYSTEM_EVENT_DATA_PARAMS *pSystemEventDataParams
 )
 {
     NvHandle hClient = RES_GET_CLIENT_HANDLE(pRmCliRes);
+    RmClient *pClient = serverutilGetClientUnderLock(hClient);
 
-    return CliGetSystemEventStatus(hClient, &pSystemEventStatusParams->event, &pSystemEventStatusParams->status);
+    if (pClient == NULL)
+        return NV_ERR_INVALID_CLIENT;
+
+    return eventSystemDequeueEvent(&pClient->CliSysEventInfo.eventQueue,
+                                   pSystemEventDataParams);
 }
 
 NV_STATUS
 cliresCtrlCmdSystemNVPCFGetPowerModeInfo_IMPL
 (
     RmClientResource *pRmCliRes,
-    NV0000_CTRL_CMD_SYSTEM_NVPCF_GET_POWER_MODE_INFO_PARAMS *pParams
+    NV0000_CTRL_SYSTEM_NVPCF_GET_POWER_MODE_INFO_PARAMS *pParams
 )
 {
     return NV_ERR_NOT_SUPPORTED;
 
+}
+
+NV_STATUS
+cliresCtrlCmdSystemGetVgxSystemInfo_IMPL
+(
+    RmClientResource *pRmCliRes,
+    NV0000_CTRL_SYSTEM_GET_VGX_SYSTEM_INFO_PARAMS *pParams
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
 }
 
 NV_STATUS
@@ -1248,7 +1340,6 @@ cliresCtrlCmdClientGetAddrSpaceType_IMPL
     if (pMemory != NULL)
     {
         NV_ASSERT_OK_OR_RETURN(memGetMapAddrSpace(pMemory, &callContext, pParams->mapFlags, &memType));
-
     }
     else
     {
@@ -1266,6 +1357,7 @@ cliresCtrlCmdClientGetAddrSpaceType_IMPL
     switch (memType)
     {
         case ADDR_SYSMEM:
+        case ADDR_EGM:
             pParams->addrSpaceType = NV0000_CTRL_CMD_CLIENT_GET_ADDR_SPACE_TYPE_SYSMEM;
             break;
         case ADDR_FBMEM:
@@ -1407,9 +1499,10 @@ cliresCtrlCmdClientShareObject_IMPL
     callContext.pResourceRef = pObjectRef;
     callContext.secInfo = pCallContext->secInfo;
 
-    resservSwapTlsCallContext(&pOldCallContext, &callContext);
+    NV_ASSERT_OK_OR_RETURN(resservSwapTlsCallContext(&pOldCallContext, &callContext));
+
     status = clientShareResource(pClient, pObjectRef, pSharePolicy, &callContext);
-    resservRestoreTlsCallContext(pOldCallContext);
+    NV_ASSERT_OK(resservRestoreTlsCallContext(pOldCallContext));
     if (status != NV_OK)
         return status;
 
@@ -1513,15 +1606,16 @@ cliresCtrlCmdGpuDisableNvlinkInit_IMPL
     NV0000_CTRL_GPU_DISABLE_NVLINK_INIT_PARAMS *pParams
 )
 {
-    NvHandle hClient = RES_GET_CLIENT_HANDLE(pRmCliRes);
+    RmClient *pRmClient = dynamicCast(RES_GET_CLIENT(pRmCliRes), RmClient);
     CALL_CONTEXT *pCallContext = resservGetTlsCallContext();
 
+    NV_ASSERT_OR_RETURN(NULL != pRmClient, NV_ERR_INVALID_CLIENT);
     NV_ASSERT_OR_RETURN(RMCFG_FEATURE_KERNEL_RM, NV_ERR_NOT_SUPPORTED);
     NV_ASSERT_OR_RETURN(pCallContext != NULL, NV_ERR_INVALID_STATE);
 
-    if (!rmclientIsCapableOrAdminByHandle(hClient,
-                                          NV_RM_CAP_EXT_FABRIC_MGMT,
-                                          pCallContext->secInfo.privLevel))
+    if (!rmclientIsCapableOrAdmin(pRmClient,
+                                  NV_RM_CAP_EXT_FABRIC_MGMT,
+                                  pCallContext->secInfo.privLevel))
     {
         NV_PRINTF(LEVEL_WARNING, "Non-privileged context issued privileged cmd\n");
         return NV_ERR_INSUFFICIENT_PERMISSIONS;
@@ -1532,7 +1626,8 @@ cliresCtrlCmdGpuDisableNvlinkInit_IMPL
         return NV_ERR_INVALID_ARGUMENT;
     }
 
-    return gpumgrSetGpuInitDisabledNvlinks(pParams->gpuId, pParams->mask, pParams->bSkipHwNvlinkDisable);
+    return gpumgrSetGpuInitDisabledNvlinks(pParams->gpuId, pParams->mask,
+                                           &pParams->links, pParams->bSkipHwNvlinkDisable);
 }
 
 NV_STATUS
@@ -1553,6 +1648,7 @@ cliresCtrlCmdGpuGetNvlinkBwMode_IMPL
 )
 {
     pParams->mode = gpumgrGetGpuNvlinkBwMode();
+    pParams->bwModeScope = gpumgrGetGpuNvlinkBwModeScope();
     return NV_OK;
 }
 
@@ -1638,8 +1734,12 @@ NV_STATUS cliresCtrlCmdSystemGetClientDatabaseInfo_IMPL
     return NV_OK;
 }
 
+/*
+ * Helper function to cliresCtrlCmdPushUcode_IMPL to allocate memory and copy data.
+ */
+
 /*!
- * @brief Used to push the GSP ucode into RM. This function is used only on
+ * @brief Used to push the GSP ucode or bindata_image into RM. This function is used only on
  *        VMware
  *
  * @return
@@ -1649,10 +1749,10 @@ NV_STATUS cliresCtrlCmdSystemGetClientDatabaseInfo_IMPL
  *      NV_ERR_NOT_SUPPORTED    if function is invoked on non-GSP setup or any
  *                              setup other than VMware host
  */
-NV_STATUS cliresCtrlCmdPushGspUcode_IMPL
+NV_STATUS cliresCtrlCmdPushUcodeImage_IMPL
 (
     RmClientResource *pRmCliRes,
-    NV0000_CTRL_GPU_PUSH_GSP_UCODE_PARAMS *pParams
+    NV0000_CTRL_GPU_PUSH_UCODE_IMAGE_PARAMS *pParams
 )
 {
     return NV_ERR_NOT_SUPPORTED;
@@ -1680,3 +1780,12 @@ NV_STATUS cliresCtrlCmdSystemRmctrlCacheModeCtrl_IMPL
 
 // GPS HOSUNGK DELETE after KMD, NvAPI changes are made
 
+NV_STATUS
+cliresCtrlCmdSystemGetVrrCookiePresent_IMPL
+(
+    RmClientResource *pRmCliRes,
+    NV0000_CTRL_SYSTEM_GET_VRR_COOKIE_PRESENT_PARAMS *pParams
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}

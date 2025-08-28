@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2014-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -148,6 +148,7 @@ typedef struct NV2080_CTRL_FLCN_GET_ENGINE_ARCH_PARAMS {
 #define NV2080_CTRL_FLCN_GET_ENGINE_ARCH_DEFAULT                         0x0
 #define NV2080_CTRL_FLCN_GET_ENGINE_ARCH_FALCON                          0x1
 #define NV2080_CTRL_FLCN_GET_ENGINE_ARCH_RISCV                           0x2
+#define NV2080_CTRL_FLCN_GET_ENGINE_ARCH_RISCV_EB                        0x3
 /*!@}*/
 
 
@@ -244,8 +245,7 @@ typedef struct NV2080_CTRL_FLCN_GET_ENGINE_ARCH_PARAMS {
  * @{
  */
 #define NV2080_CTRL_FLCN_USTREAMER_FEATURE_DEFAULT                       0U
-#define NV2080_CTRL_FLCN_USTREAMER_FEATURE_PMUMON                        1U
-#define NV2080_CTRL_FLCN_USTREAMER_FEATURE__COUNT                        2U
+#define NV2080_CTRL_FLCN_USTREAMER_FEATURE__COUNT                        1U
 /*!@}*/
 
 /*!

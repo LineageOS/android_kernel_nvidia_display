@@ -32,6 +32,7 @@
 #include "nvkms-modeset.h"
 #include "nvkms-utils.h"
 #include "nvkms-rmapi.h"
+#include "nvkms-prealloc.h"
 
 #include <dp_connector.h>
 
@@ -108,10 +109,11 @@ void nvDPNotifyLongPulse(NVConnectorEvoPtr pConnectorEvo,
 
     pNVDpLibConnector->plugged = connected;
 
-    if (connected && !nvAssignSOREvo(pConnectorEvo->pDispEvo,
-                                     nvDpyIdToNvU32(pConnectorEvo->displayId),
-                                     FALSE /* b2Heads1Or */,
-                                     0 /* sorExcludeMask */)) {
+    if (!pNVDpLibConnector->linkHandoffEnabled &&
+            connected && !nvAssignSOREvo(pConnectorEvo,
+                                         nvDpyIdToNvU32(pConnectorEvo->displayId),
+                                         FALSE /* b2Heads1Or */,
+                                         0 /* sorExcludeMask */)) {
         // DPLib takes care of skipping LT on unassigned SOR Display. 
     }
 
@@ -157,20 +159,6 @@ NvBool nvDPIsLinkAwaitingTransition(NVConnectorEvoPtr pConnectorEvo)
     }
 
     return FALSE;
-}
-
-/*
- * Start DisplayPort mode validation on all connectors on a disp.
- */
-void nvDPBeginValidation(NVDispEvoPtr pDispEvo)
-{
-    NVConnectorEvoPtr pConnectorEvo;
-
-    FOR_ALL_EVO_CONNECTORS(pConnectorEvo, pDispEvo) {
-        if (nvConnectorUsesDPLib(pConnectorEvo)) {
-            pConnectorEvo->pDpLibConnector->connector->beginCompoundQuery();
-        }
-    }
 }
 
 /*!
@@ -232,6 +220,10 @@ static void SetDPMSATiming(const NVDispEvoRec *pDispEvo,
                            NV0073_CTRL_CMD_DP_SET_MSA_PROPERTIES_PARAMS *msaParams,
                            const NVHwModeTimingsEvo *pTimings)
 {
+    NV0073_CTRL_DP_MSA_PROPERTIES_MASK *featureMask = &msaParams->featureMask;
+    NV0073_CTRL_DP_MSA_PROPERTIES_VALUES *featureValues =
+        &msaParams->featureValues;
+
     nvkms_memset(msaParams, 0, sizeof(*msaParams));
 
     /*
@@ -244,12 +236,16 @@ static void SetDPMSATiming(const NVDispEvoRec *pDispEvo,
     msaParams->subDeviceInstance = pDispEvo->displayOwner;
     msaParams->displayId = displayId;
 
-    if ((pTimings->yuv420Mode == NV_YUV420_MODE_SW) && displayId != 0) {
-        NV0073_CTRL_DP_MSA_PROPERTIES_MASK *featureMask = &msaParams->featureMask;
-        NV0073_CTRL_DP_MSA_PROPERTIES_VALUES *featureValues = &msaParams->featureValues;
+    if ((displayId == 0x0) ||
+        ((pTimings->yuv420Mode != NV_YUV420_MODE_SW) &&
+         !nvIsAdaptiveSyncDpyVrrType(pTimings->vrr.type))) {
+        return;
+    }
 
-        msaParams->bEnableMSA = 1;
-        msaParams->bCacheMsaOverrideForNextModeset = 1;
+    msaParams->bEnableMSA = 1;
+    msaParams->bCacheMsaOverrideForNextModeset = 1;
+
+    if (pTimings->yuv420Mode == NV_YUV420_MODE_SW) {
         featureMask->bRasterTotalHorizontal   = true;
         featureMask->bActiveStartHorizontal   = true;
         featureMask->bSurfaceTotalHorizontal  = true;
@@ -258,6 +254,15 @@ static void SetDPMSATiming(const NVDispEvoRec *pDispEvo,
         featureValues->activeStartHorizontal  = 2 * (pTimings->rasterBlankEnd.x + 1);
         featureValues->surfaceTotalHorizontal = 2 * nvEvoVisibleWidth(pTimings);
         featureValues->syncWidthHorizontal    = 2 * (pTimings->rasterSyncEnd.x + 1);
+    }
+
+    /*
+     * In case of Adaptive-Sync VRR, override VTotal field of MSA (Main Stream
+     * Attributes) to workaround bug 4164132.
+     */
+    if (nvIsAdaptiveSyncDpyVrrType(pTimings->vrr.type)) {
+        featureMask->bRasterTotalVertical  = true;
+        featureValues->rasterTotalVertical = pTimings->rasterSize.y;
     }
 }
 
@@ -384,19 +389,29 @@ void nvDPLibFreeModesetState(NVDPLibModesetStatePtr pDpLibModesetState)
     nvFree(pDpLibModesetState);
 }
 
-/*
- * Validate the mode for a given NVHwModeTimingsEvo + dpyIdList.  This
- * function should be called for each head, and must be called between
- * nvDPBeginValidation and nvDPEndValidation.
- *
- * If validation fails, this function returns FALSE.  You must still call
- * nvDPEndValidation even if an individual head fails.
- *
- * If validation succeeds, the DSC fields within pTimings are updated with what
- * is returned by compoundQueryAttach().
- */
-NvBool nvDPLibValidateTimings(
-    const NVDispEvoRec *pDispEvo,
+static void DestructDpLibIsModesetPossibleParamsOneHead(
+    const NvU32 head,
+    DisplayPort::DpLinkIsModePossibleParams *pParams)
+{
+    nvFree(pParams->head[head].pModesetParams);
+
+    if (pParams->head[head].pDscParams != NULL) {
+        if (pParams->head[head].pDscParams->forcedParams != NULL) {
+            nvFree(pParams->head[head].pDscParams->forcedParams);
+        }
+        nvFree(pParams->head[head].pDscParams->pDscOutParams);
+    }
+    nvFree(pParams->head[head].pDscParams);
+
+    if (pParams->head[head].pTarget != NULL) {
+        pParams->head[head].pTarget->destroy();
+    }
+
+    nvkms_memset(&pParams->head[head], 0, sizeof(pParams->head[head]));
+}
+
+static NvBool ConstructDpLibIsModesetPossibleParamsOneHead(
+    const NVDPLibConnectorRec *pDpLibConnector,
     const NvU32 head,
     const NvU32 displayId,
     const NVDpyIdList dpyIdList,
@@ -404,52 +419,51 @@ NvBool nvDPLibValidateTimings(
     const enum NvKmsDpyAttributeColorBpcValue colorBpc,
     const struct NvKmsModeValidationParams *pModeValidationParams,
     const NVHwModeTimingsEvo *pTimings,
+    NVDscInfoEvoRec *pDscInfo,
     const NvBool b2Heads1Or,
-    NVDscInfoEvoRec *pDscInfo)
+    enum NVDpLibIsModePossibleQueryMode queryMode,
+    DisplayPort::DP_IMP_ERROR *pErrorCode,
+    DisplayPort::DpLinkIsModePossibleParams *pParams)
 {
+    const NVConnectorEvoRec *pConnectorEvo = pDpLibConnector->pConnectorEvo;
+    const NVDispEvoRec *pDispEvo = pConnectorEvo->pDispEvo;
     const NVDpyEvoRec *pDpyEvo;
-    const NVDPLibConnectorRec *pDpLibConnector = NULL;
-    bool found = false;
-
-    DisplayPort::Group *pGroup = NULL;
-    DisplayPort::DscOutParams *pDscOutParams = NULL;
-    DisplayPort::DpModesetParams *pModesetParams = NULL;
-    DisplayPort::DscParams dpDscParams;
-    NvBool ret = FALSE;
 
     FOR_ALL_EVO_DPYS(pDpyEvo, dpyIdList, pDispEvo) {
-        if (!found) {
-            pDpLibConnector = pDpyEvo->pConnectorEvo->pDpLibConnector;
-            found = true;
-        } else if (pDpLibConnector != pDpyEvo->pConnectorEvo->pDpLibConnector) {
-            /* All Dpys must belongs to same DP connector */
-            return FALSE;
+        if (pDpyEvo->pConnectorEvo->pDpLibConnector != pDpLibConnector) {
+            goto failed;
         }
     }
 
-    /* Do nothing if any of the display is not DP */
-    if (pDpLibConnector == NULL) {
-        return TRUE;
-    }
-
-    pGroup = CreateGroup(pDpLibConnector, dpyIdList);
-    if (pGroup == NULL) {
+    pParams->head[head].pTarget = CreateGroup(pDpLibConnector, dpyIdList);
+    if (pParams->head[head].pTarget == NULL) {
         nvEvoLogDisp(pDispEvo, EVO_LOG_ERROR,
                      "Failed to create a DisplayPort group");
-        goto done;
+        goto failed;
     }
 
-    pDscOutParams =
-        (DisplayPort::DscOutParams*) nvCalloc(1, sizeof(*pDscOutParams));
-    if (pDscOutParams == NULL) {
-        goto done;
+    pParams->head[head].pDscParams = (DisplayPort::DscParams*)
+        nvCalloc(1, sizeof(*pParams->head[head].pDscParams));
+    if (pParams->head[head].pDscParams == NULL) {
+        goto failed;
     }
 
+    pParams->head[head].pDscParams->forcedParams = (DSC_INFO::FORCED_DSC_PARAMS*)
+        nvCalloc(1, sizeof(*pParams->head[head].pDscParams->forcedParams));
+    if (pParams->head[head].pDscParams->forcedParams == NULL) {
+        goto failed;
+    }
 
-    pModesetParams =
-        (DisplayPort::DpModesetParams*) nvCalloc(1, sizeof(*pModesetParams));
-    if (pModesetParams == NULL) {
-        goto done;
+    pParams->head[head].pDscParams->pDscOutParams = (DisplayPort::DscOutParams*)
+        nvCalloc(1, sizeof(*pParams->head[head].pDscParams->pDscOutParams));
+    if (pParams->head[head].pDscParams->pDscOutParams == NULL) {
+        goto failed;
+    }
+
+    pParams->head[head].pModesetParams = (DisplayPort::DpModesetParams*)
+        nvCalloc(1, sizeof(*pParams->head[head].pModesetParams));
+    if (pParams->head[head].pModesetParams == NULL) {
+        goto failed;
     }
 
     InitDpModesetParams(pDispEvo,
@@ -458,83 +472,238 @@ NvBool nvDPLibValidateTimings(
                         pTimings,
                         colorSpace,
                         colorBpc,
-                        pModesetParams);
+                        pParams->head[head].pModesetParams);
 
     if (b2Heads1Or) {
-        pModesetParams->modesetInfo.mode = DSC_DUAL;
+        pParams->head[head].pModesetParams->modesetInfo.mode = DSC_DUAL;
     }
 
-    dpDscParams.bCheckWithDsc = true;
-    dpDscParams.forceDsc = pModeValidationParams->forceDsc ?
-        DisplayPort::DSC_FORCE_ENABLE :
-        DisplayPort::DSC_DEFAULT;
-    /*
-     * 2Heads1Or requires either YUV420 or DSC; if b2Heads1Or is enabled
-     * but YUV420 is not, force DSC.
-     */
-    if (b2Heads1Or && (pTimings->yuv420Mode != NV_YUV420_MODE_HW)) {
-        dpDscParams.forceDsc = DisplayPort::DSC_FORCE_ENABLE;
+    pParams->head[head].pDscParams->bCheckWithDsc = true;
+    switch (queryMode) {
+        case NV_DP_LIB_IS_MODE_POSSIBLE_QUERY_MODE_PRE_IMP:
+            pParams->head[head].pDscParams->forceDsc =
+                DisplayPort::DSC_DEFAULT;
+            switch (pModeValidationParams->dscMode) {
+                case NVKMS_DSC_MODE_FORCE_ENABLE:
+                    pParams->head[head].pDscParams->forceDsc =
+                        DisplayPort::DSC_FORCE_ENABLE;
+                    break;
+                case NVKMS_DSC_MODE_FORCE_DISABLE:
+                    nvAssert(!pTimings->dscPassThrough);
+                    pParams->head[head].pDscParams->forceDsc =
+                        DisplayPort::DSC_FORCE_DISABLE;
+                    break;
+                default:
+                    if (pTimings->dscPassThrough) {
+                        pParams->head[head].pDscParams->forceDsc =
+                            DisplayPort::DSC_FORCE_ENABLE;
+                    } else {
+                        pParams->head[head].pDscParams->forceDsc =
+                            DisplayPort::DSC_DEFAULT;
+                    }
+                    break;
+            }
+
+            /*
+             * 2Heads1Or requires either YUV420 or DSC; if b2Heads1Or is
+             * enabled but YUV420 is not, force DSC.
+             */
+            if (b2Heads1Or && (pTimings->yuv420Mode != NV_YUV420_MODE_HW)) {
+                if (pModeValidationParams->dscMode ==
+                        NVKMS_DSC_MODE_FORCE_DISABLE) {
+                    goto failed;
+                }
+                pParams->head[head].pDscParams->forceDsc =
+                    DisplayPort::DSC_FORCE_ENABLE;
+            }
+            break;
+        case NV_DP_LIB_IS_MODE_POSSIBLE_QUERY_MODE_POST_IMP:
+            if (pDscInfo->type == NV_DSC_INFO_EVO_TYPE_DP) {
+                pParams->head[head].pDscParams->forceDsc =
+                    DisplayPort::DSC_FORCE_ENABLE;
+                pParams->head[head].pDscParams->forcedParams->sliceCount =
+                    pDscInfo->sliceCount;
+            } else {
+                nvAssert(pDscInfo->type == NV_DSC_INFO_EVO_TYPE_DISABLED);
+                pParams->head[head].pDscParams->forceDsc =
+                    DisplayPort::DSC_FORCE_DISABLE;
+            }
+            break;
     }
-    dpDscParams.bitsPerPixelX16 =
-        pModeValidationParams->dscOverrideBitsPerPixelX16;
-    dpDscParams.pDscOutParams = pDscOutParams;
 
-    ret = pDpLibConnector->connector->compoundQueryAttach(
-            pGroup, *pModesetParams,
-            &dpDscParams);
+    if (pTimings->dscPassThrough) {
+        const NVDpyEvoRec *pDpyEvo =
+            nvGetOneArbitraryDpyEvo(dpyIdList, pDispEvo);
+        const NVT_DISPLAYID_2_0_INFO *pDisplyIdInfo =
+            &pDpyEvo->parsedEdid.info.ext_displayid20;
+        const NVT_DISPLAYID_VENDOR_SPECIFIC *pDisplayIdVS =
+            &pDisplyIdInfo->vendor_specific;
+        const VESA_VSDB_PARSED_INFO *pVesaVSDB = &pDisplayIdVS->vesaVsdb;
 
-    if (ret && b2Heads1Or) {
-        /*
-         * 2Heads1OR requires either YUV420 or DSC;
-         * dpDscParams.bEnableDsc is assigned by compoundQueryAttach().
-         */
-        nvAssert(dpDscParams.bEnableDsc ||
-                    (pTimings->yuv420Mode == NV_YUV420_MODE_HW));
-    }
-
-    if (ret && (pDscInfo != NULL)) {
-        nvkms_memset(pDscInfo, 0, sizeof(*pDscInfo));
-
-        if (dpDscParams.bEnableDsc) {
-            pDscInfo->type = NV_DSC_INFO_EVO_TYPE_DP;
-
-            pDscInfo->dp.dscMode = b2Heads1Or ?
-                NV_DSC_EVO_MODE_DUAL : NV_DSC_EVO_MODE_SINGLE;
-            pDscInfo->dp.bitsPerPixelX16 = dpDscParams.bitsPerPixelX16;
-            ct_assert(sizeof(pDscInfo->dp.pps) == sizeof(pDscOutParams->PPS));
-            nvkms_memcpy(pDscInfo->dp.pps, pDscOutParams->PPS,
-                         sizeof(pDscInfo->dp.pps));
-        } else {
-            pDscInfo->type = NV_DSC_INFO_EVO_TYPE_DISABLED;
+        if (pVesaVSDB->pass_through_integer.pass_through_integer_dsc == 0) {
+            goto failed;
         }
-    }
 
-done:
-    nvFree(pDscOutParams);
-    nvFree(pModesetParams);
-    if (pGroup != NULL) {
-        pGroup->destroy();
+        const NvU32 dscPassThroughBitsPerPixel16 =
+            (pVesaVSDB->pass_through_integer.pass_through_integer_dsc * 16) +
+            pVesaVSDB->pass_through_fractional.pass_through_fraction_dsc;
+
+        if ((pModeValidationParams->dscOverrideBitsPerPixelX16 != 0) &&
+                (pModeValidationParams->dscOverrideBitsPerPixelX16 !=
+                     dscPassThroughBitsPerPixel16)) {
+            goto failed;
+        }
+
+        pParams->head[head].pDscParams->bitsPerPixelX16 =
+            dscPassThroughBitsPerPixel16;
+    } else {
+        pParams->head[head].pDscParams->bitsPerPixelX16 =
+            pModeValidationParams->dscOverrideBitsPerPixelX16;
     }
-    return ret;
+    pParams->head[head].pErrorStatus = pErrorCode;
+
+    return TRUE;
+
+failed:
+    DestructDpLibIsModesetPossibleParamsOneHead(head, pParams);
+    return FALSE;
+}
+
+static NvBool DPLibNeedPostIMPDpIsModePossible(
+    const NVDevEvoRec *pDevEvo,
+    const NVDpLibIsModePossibleParamsRec *pParams)
+{
+    return FALSE;
 }
 
 /*
- * Finishes DisplayPort mode validation.  Returns TRUE if the complete
- * configuration is possible, and FALSE if it can't be achieved.
+ * Validate the DP link for all specified NVHwModeTimingsEvos + dpyIdLists + heads.
+ *
+ * If validation fails, this function returns FALSE and the mask of heads for
+ * which validation is failed.
+ *
+ * If validation succeeds, the DSC fields within the per head mode parameters
+ * are updated with what is returned by dpLinkIsModePossible().
  */
-NvBool nvDPEndValidation(NVDispEvoPtr pDispEvo)
+NvBool nvDPLibIsModePossible(const NVDPLibConnectorRec *pDpLibConnector,
+                             const NVDpLibIsModePossibleParamsRec *pParams,
+                             NvU32 *pFailedHeadMask)
 {
-    NvBool ret = TRUE;
-    NVConnectorEvoPtr pConnectorEvo;
+    DisplayPort::DpLinkIsModePossibleParams dpImpParams = { };
+    DisplayPort::DP_IMP_ERROR dpErrorCode[NV_MAX_HEADS] = { };
+    const NVConnectorEvoRec *pConnectorEvo = pDpLibConnector->pConnectorEvo;
+    const NVDispEvoRec *pDispEvo = pConnectorEvo->pDispEvo;
+    const NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
+    NvBool ret = FALSE;
+    NvU32 head;
 
-    FOR_ALL_EVO_CONNECTORS(pConnectorEvo, pDispEvo) {
-        if (nvConnectorUsesDPLib(pConnectorEvo)) {
-            DisplayPort::Connector *connector =
-                pConnectorEvo->pDpLibConnector->connector;
+    if ((pParams->queryMode ==
+            NV_DP_LIB_IS_MODE_POSSIBLE_QUERY_MODE_POST_IMP) &&
+            !DPLibNeedPostIMPDpIsModePossible(pDevEvo, pParams)) {
+        return TRUE;
+    }
 
-             /* endCompoundQuery() must be called for all dp connectors */
-            ret = connector->endCompoundQuery() && ret;
+    for (head = 0; head < pDevEvo->numHeads; head++) {
+        if (nvDpyIdListIsEmpty(pParams->head[head].dpyIdList)) {
+            continue;
         }
+
+        if (!ConstructDpLibIsModesetPossibleParamsOneHead(
+                pDpLibConnector,
+                head,
+                pParams->head[head].displayId,
+                pParams->head[head].dpyIdList,
+                pParams->head[head].colorSpace,
+                pParams->head[head].colorBpc,
+                pParams->head[head].pModeValidationParams,
+                pParams->head[head].pTimings,
+                pParams->head[head].pDscInfo,
+                pParams->head[head].b2Heads1Or,
+                pParams->queryMode,
+                &dpErrorCode[head],
+                &dpImpParams)) {
+            goto done;
+        }
+    }
+
+    ret = pDpLibConnector->connector->dpLinkIsModePossible(dpImpParams);
+
+    for (head = 0; head < pDevEvo->numHeads; head++) {
+        DisplayPort::DscParams *pDpDscParams =
+            dpImpParams.head[head].pDscParams;
+        NVDscInfoEvoRec *pDscInfo = pParams->head[head].pDscInfo;
+        const NvBool b2Heads1Or = pParams->head[head].b2Heads1Or;
+#if defined(DEBUG)
+        const NVHwModeTimingsEvo *pTimings = pParams->head[head].pTimings;
+#endif
+
+        if (nvDpyIdListIsEmpty(pParams->head[head].dpyIdList)) {
+            continue;
+        }
+
+        if (ret) {
+            if (b2Heads1Or) {
+                /*
+                 * 2Heads1OR requires either YUV420 or DSC;
+                 * dpDscParams.bEnableDsc is assigned by compoundQueryAttach().
+                 */
+                nvAssert(pDpDscParams->bEnableDsc ||
+                             (pTimings->yuv420Mode == NV_YUV420_MODE_HW));
+            }
+
+            if (pDscInfo != NULL) {
+                switch (pParams->queryMode) {
+                    case NV_DP_LIB_IS_MODE_POSSIBLE_QUERY_MODE_PRE_IMP:
+                        nvkms_memset(pDscInfo, 0, sizeof(*pDscInfo));
+
+                        if (pDpDscParams->bEnableDsc) {
+                            pDscInfo->type = NV_DSC_INFO_EVO_TYPE_DP;
+                            pDscInfo->possibleSliceCountMask =
+                                pDpDscParams->sliceCountMask;
+
+                            pDscInfo->dp.dscMode = b2Heads1Or ?
+                                NV_DSC_EVO_MODE_DUAL : NV_DSC_EVO_MODE_SINGLE;
+                            pDscInfo->dp.bitsPerPixelX16 =
+                                pDpDscParams->bitsPerPixelX16;
+                            ct_assert(sizeof(pDscInfo->dp.pps) ==
+                                      sizeof(pDpDscParams->pDscOutParams->PPS));
+                            nvkms_memcpy(pDscInfo->dp.pps,
+                                         pDpDscParams->pDscOutParams->PPS,
+                                         sizeof(pDscInfo->dp.pps));
+                        } else {
+                            pDscInfo->type = NV_DSC_INFO_EVO_TYPE_DISABLED;
+                        }
+                        break;
+                    case NV_DP_LIB_IS_MODE_POSSIBLE_QUERY_MODE_POST_IMP:
+                        if (pDpDscParams->bEnableDsc) {
+                            nvAssert(pDscInfo->type == NV_DSC_INFO_EVO_TYPE_DP);
+                            nvAssert(pDscInfo->possibleSliceCountMask != 0x0);
+                            nvAssert(pDscInfo->sliceCount != 0x0);
+
+                            pDscInfo->dp.bitsPerPixelX16 =
+                                pDpDscParams->bitsPerPixelX16;
+                            ct_assert(sizeof(pDscInfo->dp.pps) ==
+                                      sizeof(pDpDscParams->pDscOutParams->PPS));
+                            nvkms_memcpy(pDscInfo->dp.pps,
+                                         pDpDscParams->pDscOutParams->PPS,
+                                         sizeof(pDscInfo->dp.pps));
+                        } else {
+                            nvAssert(pDscInfo->type ==
+                                        NV_DSC_INFO_EVO_TYPE_DISABLED);
+                        }
+                        break;
+                }
+            }
+        } else if (dpErrorCode[head] != DisplayPort::DP_IMP_ERROR_NONE) {
+            *pFailedHeadMask |= NVBIT(head);
+        }
+    }
+
+    nvAssert(ret || (*pFailedHeadMask != 0x0));
+
+done:
+    for (head = 0; head < pDevEvo->numHeads; head++) {
+        DestructDpLibIsModesetPossibleParamsOneHead(head, &dpImpParams);
     }
 
     return ret;
@@ -542,45 +711,52 @@ NvBool nvDPEndValidation(NVDispEvoPtr pDispEvo)
 
 NvBool nvDPValidateModeForDpyEvo(
     const NVDpyEvoRec *pDpyEvo,
-    const enum NvKmsDpyAttributeCurrentColorSpaceValue colorSpace,
-    const enum NvKmsDpyAttributeColorBpcValue colorBpc,
+    const NVDpyAttributeColor *pDpyColor,
     const struct NvKmsModeValidationParams *pModeValidationParams,
     const NVHwModeTimingsEvo *pTimings,
     const NvBool b2Heads1Or,
     NVDscInfoEvoRec *pDscInfo)
 {
     const NVConnectorEvoRec *pConnectorEvo = pDpyEvo->pConnectorEvo;
+    const NVDispEvoRec *pDispEvo = pConnectorEvo->pDispEvo;
+    NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
+    NvU32 failedHeadMask = 0x0;
+    const NvU32 head = 0;
+    NvBool ret;
+
+    NVDpLibIsModePossibleParamsRec *pParams = (NVDpLibIsModePossibleParamsRec*)
+        nvPreallocGet(pDevEvo, PREALLOC_TYPE_DPLIB_IS_MODE_POSSIBLE_PARAMS,
+                      sizeof(*pParams));
+    nvAssert(pParams != NULL);
+
+    nvkms_memset(pParams, 0, sizeof(*pParams));
 
     nvAssert(nvConnectorUsesDPLib(pConnectorEvo));
 
-    DisplayPort::Connector *connector =
-        pConnectorEvo->pDpLibConnector->connector;
+    pParams->queryMode = NV_DP_LIB_IS_MODE_POSSIBLE_QUERY_MODE_NONE;
 
-    connector->beginCompoundQuery();
-    NvBool ret = nvDPLibValidateTimings(pDpyEvo->pDispEvo,
-                                        0 /* head */,
-                                        0 /* displayId */,
-                                        nvAddDpyIdToEmptyDpyIdList(pDpyEvo->id),
-                                        colorSpace,
-                                        colorBpc,
-                                        pModeValidationParams,
-                                        pTimings,
-                                        b2Heads1Or,
-                                        pDscInfo);
-    connector->endCompoundQuery();
+    pParams->head[head].displayId = 0;
+    pParams->head[head].dpyIdList = nvAddDpyIdToEmptyDpyIdList(pDpyEvo->id);
+    pParams->head[head].colorSpace = pDpyColor->format;
+    pParams->head[head].colorBpc = pDpyColor->bpc;
+    pParams->head[head].pModeValidationParams = pModeValidationParams;
+    pParams->head[head].pTimings = pTimings;
+    pParams->head[head].b2Heads1Or = b2Heads1Or;
+    pParams->head[head].pDscInfo = pDscInfo;
+
+    ret = nvDPLibIsModePossible(pConnectorEvo->pDpLibConnector, pParams,
+                                &failedHeadMask);
+
+    nvPreallocRelease(pDevEvo, PREALLOC_TYPE_DPLIB_IS_MODE_POSSIBLE_PARAMS);
 
     return ret;
 }
 
-/*
- * Notify the DisplayPort library that a given mode is about to be set on a
- * given head.  The configuration for this head must have previously been
- * validated by a call to nvDPLibValidateTimings.
- */
 static
-void NotifyAttachBegin(NVDPLibConnectorPtr pDpLibConnector,
-                       const NvU32 head,
-                       const NVDPLibModesetStateRec *pDpLibModesetState)
+void DPAttachBeginOneHead(NVDPLibConnectorPtr pDpLibConnector,
+                          const NvU32 head,
+                          const NVDPLibModesetStateRec *pDpLibModesetState,
+                          DisplayPort::DpPreModesetParams *pPreModesetParams)
 {
     const NVConnectorEvoRec *pConnectorEvo = pDpLibConnector->pConnectorEvo;
     const NVDispEvoRec *pDispEvo = pConnectorEvo->pDispEvo;
@@ -597,45 +773,29 @@ void NotifyAttachBegin(NVDPLibConnectorPtr pDpLibConnector,
         }
     }
 
-    pDpLibConnector->connector->notifyAttachBegin(
-        pDpLibConnector->pGroup[head],
-        *pParams);
+    pPreModesetParams->head[head].pTarget = pDpLibConnector->pGroup[head];
+    pPreModesetParams->head[head].pModesetParams = pParams;
+
+    pPreModesetParams->headMask |= NVBIT(head);
 }
 
-/*
- * Notify the DisplayPort library that a modeset on a head begun by
- * nvDPNotifyAttachBegin is finished.
- */
-static void NotifyAttachEnd(NVDPLibConnectorPtr pDpLibConnector, NvU32 head)
+static void DPAttachEndOneHead(NVDPLibConnectorPtr pDpLibConnector, NvU32 head)
 {
-    pDpLibConnector->connector->notifyAttachEnd(false);
     pDpLibConnector->headMask |= NVBIT(head);
 }
 
-/*
- * Notify the DisplayPort library that the given head driving displays on this
- * connector is about to be shut down.
- */
-static void NotifyDetachBegin(NVDPLibConnectorPtr pDpLibConnector, const NvU32 head)
+static void DPDetachBeginOneHead(NVDPLibConnectorPtr pDpLibConnector,
+                                 const NvU32 head,
+                                 DisplayPort::DpPreModesetParams *pPreModesetParams)
 {
-    /*
-     * The firmware group is the VBIOS monitor group the DP Library manages
-     * internally. In notifyDetachBegin(NULL), the NULL defaults to firmware
-     * group.
-     */
-    pDpLibConnector->connector->notifyDetachBegin(
-        pDpLibConnector->headInFirmware ?
-            NULL : pDpLibConnector->pGroup[head]);
+    nvAssert((NVBIT(head) & pDpLibConnector->headMask) != 0x0);
+
+    pPreModesetParams->head[head].pTarget = NULL;
+    pPreModesetParams->headMask |= NVBIT(head);
 }
 
-/*
- * Notify the DisplayPort library that the driver has finished shutting down a
- * head that was previously driving this connector.
- */
-static void NotifyDetachEnd(NVDPLibConnectorPtr pDpLibConnector, const NvU32 head)
+static void DPDetachEndOneHead(NVDPLibConnectorPtr pDpLibConnector, const NvU32 head)
 {
-    pDpLibConnector->connector->notifyDetachEnd();
-
     if (!pDpLibConnector->headInFirmware) {
         const NVConnectorEvoRec *pConnectorEvo =
                                  pDpLibConnector->pConnectorEvo;
@@ -669,10 +829,12 @@ void nvDPPreSetMode(NVDPLibConnectorPtr pDpLibConnector,
 {
     const NVConnectorEvoRec *pConnectorEvo =
                              pDpLibConnector->pConnectorEvo;
+    DisplayPort::Connector *connector = pDpLibConnector->connector;
     NVDispEvoRec *pDispEvo = pConnectorEvo->pDispEvo;
     const NvU32 oldHeadMask = pDpLibConnector->headMask;
     const NvU32 newHeadMask =
         nvConnectorGetAttachedHeadMaskEvo(pConnectorEvo);
+    DisplayPort::DpPreModesetParams preModesetParams = { };
 
     for (NvU32 head = 0; head < pDispEvo->pDevEvo->numHeads; head++) {
 
@@ -680,17 +842,20 @@ void nvDPPreSetMode(NVDPLibConnectorPtr pDpLibConnector,
             (oldHeadMask & NVBIT(head)) == 0x0) {
 
             if (pModesetUpdateState->pDpLibModesetState[head] != NULL) {
-                NotifyAttachBegin(pDpLibConnector,
-                                  head,
-                                  pModesetUpdateState->pDpLibModesetState[head]);
+                DPAttachBeginOneHead(pDpLibConnector,
+                                    head,
+                                    pModesetUpdateState->pDpLibModesetState[head],
+                                    &preModesetParams);
             }
         } else if ((newHeadMask & NVBIT(head)) == 0x0 &&
                    (oldHeadMask & NVBIT(head)) != 0x0) {
 
-            NotifyDetachBegin(pDpLibConnector, head);
+            DPDetachBeginOneHead(pDpLibConnector, head, &preModesetParams);
 
         }
     }
+
+    connector->dpPreModeset(preModesetParams);
 }
 
 /*
@@ -703,10 +868,13 @@ void nvDPPostSetMode(NVDPLibConnectorPtr pDpLibConnector,
 {
     const NVConnectorEvoRec *pConnectorEvo =
                              pDpLibConnector->pConnectorEvo;
+    DisplayPort::Connector *connector = pDpLibConnector->connector;
     const NVDispEvoRec *pDispEvo = pConnectorEvo->pDispEvo;
     const NvU32 oldHeadMask = pDpLibConnector->headMask;
     const NvU32 newHeadMask =
         nvConnectorGetAttachedHeadMaskEvo(pConnectorEvo);
+
+    connector->dpPostModeset();
 
     for (NvU32 head = 0; head < pDispEvo->pDevEvo->numHeads; head++) {
 
@@ -714,12 +882,12 @@ void nvDPPostSetMode(NVDPLibConnectorPtr pDpLibConnector,
             (oldHeadMask & NVBIT(head)) == 0x0) {
 
             if (pModesetUpdateState->pDpLibModesetState[head] != NULL) {
-                NotifyAttachEnd(pDpLibConnector, head);
+                DPAttachEndOneHead(pDpLibConnector, head);
             }
         } else if ((newHeadMask & NVBIT(head)) == 0x0 &&
                    (oldHeadMask & NVBIT(head)) != 0x0) {
 
-            NotifyDetachEnd(pDpLibConnector, head);
+            DPDetachEndOneHead(pDpLibConnector, head);
 
         }
     }
@@ -803,28 +971,34 @@ void nvDPPause(NVDPLibConnectorPtr pNVDpLibConnector)
 static NvU32 GetFirmwareHead(NVConnectorEvoPtr pConnectorEvo)
 {
     NvU32 orIndex = pConnectorEvo->or.primary;
+    NvU32 ret;
 
     if (orIndex == NV_INVALID_OR ||
         pConnectorEvo->or.ownerHeadMask[orIndex] == 0) {
         return NV_INVALID_HEAD;
     }
 
-    return BIT_IDX_32(pConnectorEvo->or.ownerHeadMask[orIndex]);
+    ret = BIT_IDX_32(pConnectorEvo->or.ownerHeadMask[orIndex]);
+    nvAssert(ret < NV_MAX_HEADS);
+
+    return ret;
 }
 
 /*!
  * Determine whether an active connector shares an OR with this connector.
  */
-static bool ConnectorIsSharedWithActiveOR(NVConnectorEvoPtr pConnectorEvo)
+static bool IsDDCPartnerActive(NVDPLibConnectorPtr pNVDpLibConnector)
 {
+    NVConnectorEvoRec *pConnectorEvo =
+                       pNVDpLibConnector->pConnectorEvo;
     NVDispEvoPtr pDispEvo = pConnectorEvo->pDispEvo;
     NVConnectorEvoPtr pOtherConnectorEvo;
 
     FOR_ALL_EVO_CONNECTORS(pOtherConnectorEvo, pDispEvo) {
         if (pOtherConnectorEvo != pConnectorEvo &&
             nvIsConnectorActiveEvo(pOtherConnectorEvo) &&
-            (pOtherConnectorEvo->or.primary == pConnectorEvo->or.primary)) {
-            nvAssert(pOtherConnectorEvo->or.primary != NV_INVALID_OR);
+            nvDpyIdIsInDpyIdList(pOtherConnectorEvo->displayId,
+                pConnectorEvo->ddcPartnerDpyIdsList)) {
             return true;
         }
     }
@@ -839,10 +1013,12 @@ NvBool nvDPResume(NVDPLibConnectorPtr pNVDpLibConnector, NvBool plugged)
     NVDispEvoPtr pDispEvo = pConnectorEvo->pDispEvo;
     DisplayPort::Connector *c = pNVDpLibConnector->connector;
     const unsigned int firmwareHead = GetFirmwareHead(pConnectorEvo);
-    const bool firmwareLinkHandsOff = ConnectorIsSharedWithActiveOR(pConnectorEvo);
     bool dpyIdIsDynamic = false;
     /* By default allow MST */
     bool allowMST = true;
+
+    pNVDpLibConnector->linkHandoffEnabled =
+                            IsDDCPartnerActive(pNVDpLibConnector);
 
     if (firmwareHead != NV_INVALID_HEAD) {
         NVDpyId firmwareDpyId = nvInvalidDpyId();
@@ -872,7 +1048,7 @@ NvBool nvDPResume(NVDPLibConnectorPtr pNVDpLibConnector, NvBool plugged)
 
     pNVDpLibConnector->plugged = plugged;
     if (plugged && !pNVDpLibConnector->headInFirmware) {
-        NvBool ret = nvAssignSOREvo(pDispEvo,
+        NvBool ret = nvAssignSOREvo(pConnectorEvo,
                                     nvDpyIdToNvU32(pConnectorEvo->displayId),
                                     FALSE /* b2Heads1Or */,
                                     0 /* sorExcludeMask */);
@@ -883,7 +1059,7 @@ NvBool nvDPResume(NVDPLibConnectorPtr pNVDpLibConnector, NvBool plugged)
         }
     }
 
-    c->resume(firmwareLinkHandsOff,
+    c->resume(pNVDpLibConnector->linkHandoffEnabled,
               pNVDpLibConnector->headInFirmware,
               plugged,
               false /* isUefiSystem */,
@@ -937,7 +1113,8 @@ void nvDPSetAllowMultiStreamingOneConnector(
 }
 
 static NvBool IsDpSinkMstCapableForceSst(const NVDispEvoRec *pDispEvo,
-                                         const NvU32 apiHead)
+                                         const NvU32 apiHead,
+                                         void *pData)
 {
     const NVDispApiHeadStateEvoRec *pApiHeadState =
         &pDispEvo->apiHeadState[apiHead];
@@ -959,7 +1136,8 @@ static NvBool IsDpSinkMstCapableForceSst(const NVDispEvoRec *pDispEvo,
 
 static NvBool IsDpLinkTransitionWaitingForHeadShutDown(
     const NVDispEvoRec *pDispEvo,
-    const NvU32 apiHead)
+    const NvU32 apiHead,
+    void *pData)
 {
     const NVDispApiHeadStateEvoRec *pApiHeadState =
         &pDispEvo->apiHeadState[apiHead];
@@ -994,7 +1172,9 @@ void nvDPSetAllowMultiStreaming(NVDevEvoPtr pDevEvo, NvBool allowMST)
         return;
     }
 
-    nvShutDownApiHeads(pDevEvo, IsDpSinkMstCapableForceSst);
+    nvShutDownApiHeads(pDevEvo, pDevEvo->pNvKmsOpenDev,
+                       IsDpSinkMstCapableForceSst, NULL /* pData */,
+                       TRUE /* doRasterLock */);
 
     /*
      * Heads driving MST capable sinks in force SST mode, are shut down. Now you
@@ -1019,8 +1199,10 @@ void nvDPSetAllowMultiStreaming(NVDevEvoPtr pDevEvo, NvBool allowMST)
     }
 
     /* Shut down all DisplayPort heads that need to transition to/from SST. */
-    nvShutDownApiHeads(pDevEvo,
-                       IsDpLinkTransitionWaitingForHeadShutDown);
+    nvShutDownApiHeads(pDevEvo, pDevEvo->pNvKmsOpenDev,
+                       IsDpLinkTransitionWaitingForHeadShutDown,
+                       NULL /* pData */,
+                       TRUE /* doRasterLock */);
 
     /*
      * Handle any pending timers the DP library scheduled to notify us
@@ -1038,4 +1220,15 @@ enum NVDpLinkMode nvDPGetActiveLinkMode(NVDPLibConnectorPtr pDpLibConnector)
     }
     return linkConfig.multistream ? NV_DP_LINK_MODE_MST :
                 NV_DP_LINK_MODE_SST;
+}
+
+void nvDPSetLinkHandoff(NVDPLibConnectorPtr pDpLibConnector, NvBool enable)
+{
+    if (enable) {
+        pDpLibConnector->connector->enableLinkHandsOff();
+        pDpLibConnector->linkHandoffEnabled = TRUE;
+    } else {
+        pDpLibConnector->linkHandoffEnabled = FALSE;
+        pDpLibConnector->connector->releaseLinkHandsOff();
+    }
 }

@@ -43,28 +43,7 @@
 #include <drm/drm_atomic_uapi.h>
 #endif
 
-/*
- * The inclusion of drm_framebuffer.h was removed from drm_crtc.h by commit
- * 720cf96d8fecde29b72e1101f8a567a0ce99594f ("drm: Drop drm_framebuffer.h from
- * drm_crtc.h") in linux-next, expected in v5.19-rc7.
- *
- * We only need drm_framebuffer.h for drm_framebuffer_put(), and it is always
- * present (v4.9+) when drm_framebuffer_{put,get}() is present (v4.12+), so it
- * is safe to unconditionally include it when drm_framebuffer_get() is present.
- */
-#if defined(NV_DRM_FRAMEBUFFER_GET_PRESENT)
 #include <drm/drm_framebuffer.h>
-#endif
-
-static void __nv_drm_framebuffer_put(struct drm_framebuffer *fb)
-{
-#if defined(NV_DRM_FRAMEBUFFER_GET_PRESENT)
-    drm_framebuffer_put(fb);
-#else
-    drm_framebuffer_unreference(fb);
-#endif
-
-}
 
 /*
  * drm_atomic_helper_disable_all() has been added by commit
@@ -150,7 +129,6 @@ int nv_drm_atomic_helper_disable_all(struct drm_device *dev,
             goto free;
     }
 
-#if defined(NV_DRM_ROTATION_AVAILABLE)
     nv_drm_for_each_plane(plane, dev) {
         plane_state = drm_atomic_get_plane_state(state, plane);
         if (IS_ERR(plane_state)) {
@@ -160,7 +138,6 @@ int nv_drm_atomic_helper_disable_all(struct drm_device *dev,
 
         plane_state->rotation = DRM_MODE_ROTATE_0;
     }
-#endif
 
     nv_drm_for_each_connector_in_state(state, conn, conn_state, i) {
         ret = drm_atomic_set_crtc_for_connector(conn_state, NULL);
@@ -190,28 +167,14 @@ free:
                 WARN_ON(plane->state->crtc);
 
                 if (plane->old_fb)
-                    __nv_drm_framebuffer_put(plane->old_fb);
+                    drm_framebuffer_put(plane->old_fb);
            }
            plane->old_fb = NULL;
        }
     }
 
-#if defined(NV_DRM_ATOMIC_STATE_REF_COUNTING_PRESENT)
     drm_atomic_state_put(state);
-#else
-    if (ret != 0) {
-        drm_atomic_state_free(state);
-    } else {
-        /*
-         * In case of success, drm_atomic_commit() takes care to cleanup and
-         * free @state.
-         *
-         * Comment placed above drm_atomic_commit() says: The caller must not
-         * free or in any other way access @state. If the function fails then
-         * the caller must clean up @state itself.
-         */
-    }
-#endif
+
     return ret;
 }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -32,8 +32,82 @@
 #include "deprecated/rmapi_deprecated.h"
 #include "gpu/mem_mgr/mem_utils.h"
 #include "core/system.h"
+#include "ctrl/ctrl0000/ctrl0000gpu.h"
 
 #include "class/cl003e.h" // NV01_MEMORY_SYSTEM
+
+static NvU64
+_sysmemGetNextSmallerPageSize
+(
+    OBJGPU *pGpu,
+    NvU32  *pAttr,
+    NvU32  *pAttr2
+)
+{
+    NvU64 pageSize = 0ULL;
+    NvU64 nextPageSize;
+
+    switch (DRF_VAL(OS32, _ATTR, _PAGE_SIZE, *pAttr))
+    {
+        case NVOS32_ATTR_PAGE_SIZE_4KB:
+            pageSize = RM_PAGE_SIZE;
+            break;
+        case NVOS32_ATTR_PAGE_SIZE_BIG:
+            pageSize = RM_PAGE_SIZE_64K;
+            break;
+        case NVOS32_ATTR_PAGE_SIZE_HUGE:
+            switch (DRF_VAL(OS32, _ATTR2, _PAGE_SIZE_HUGE, *pAttr2))
+            {
+                case NVOS32_ATTR2_PAGE_SIZE_HUGE_DEFAULT:
+                case NVOS32_ATTR2_PAGE_SIZE_HUGE_2MB:
+                    pageSize = RM_PAGE_SIZE_2M;
+                    break;
+                case NVOS32_ATTR2_PAGE_SIZE_HUGE_512MB:
+                    pageSize = RM_PAGE_SIZE_512M;
+                    break;
+                case NVOS32_ATTR2_PAGE_SIZE_HUGE_256GB:
+                    pageSize = RM_PAGE_SIZE_256G;
+            }
+            break;
+        default:
+            NV_PRINTF(LEVEL_ERROR, "Invalid page size attribute: 0x%x\n", DRF_VAL(OS32, _ATTR, _PAGE_SIZE, *pAttr));
+            return 0ULL;
+    }
+
+    // Reached smallest page size. Return 0 to stop retrying.
+    if (pageSize == osGetPageSize())
+    {
+        return 0ULL;
+    }
+
+    switch (pageSize)
+    {
+        case RM_PAGE_SIZE_64K:
+        case RM_PAGE_SIZE_128K:
+            nextPageSize = RM_PAGE_SIZE;
+            *pAttr = FLD_SET_DRF(OS32, _ATTR, _PAGE_SIZE, _4KB, *pAttr);
+            break;
+        case RM_PAGE_SIZE_2M:
+            nextPageSize = RM_PAGE_SIZE_64K;
+            *pAttr = FLD_SET_DRF(OS32, _ATTR, _PAGE_SIZE, _BIG, *pAttr);
+            break;
+        case RM_PAGE_SIZE_512M:
+            nextPageSize = RM_PAGE_SIZE_2M;
+            *pAttr = FLD_SET_DRF(OS32, _ATTR, _PAGE_SIZE, _HUGE, *pAttr);
+            *pAttr2 = FLD_SET_DRF(OS32, _ATTR2, _PAGE_SIZE_HUGE, _2MB, *pAttr2);
+            break;
+        case RM_PAGE_SIZE_256G:
+            nextPageSize = RM_PAGE_SIZE_512M;
+            *pAttr = FLD_SET_DRF(OS32, _ATTR, _PAGE_SIZE, _HUGE, *pAttr);
+            *pAttr2 = FLD_SET_DRF(OS32, _ATTR2, _PAGE_SIZE_HUGE, _512MB, *pAttr2);
+            break;
+        default:
+            NV_PRINTF(LEVEL_ERROR, "Invalid page size: 0x%llx\n", pageSize);
+            return 0ULL;
+    }
+
+    return nextPageSize;
+}
 
 /*!
  * sysmemConstruct
@@ -69,24 +143,34 @@ sysmemConstruct_IMPL
     MEMORY_ALLOCATION_REQUEST allocRequest = {0};
     MEMORY_ALLOCATION_REQUEST *pAllocRequest = &allocRequest;
     OBJGPU *pGpu = pMemory->pGpu;
-    HWRESOURCE_INFO hwResource;
+    HWRESOURCE_INFO hwResource = {0};
     RsResourceRef *pResourceRef = pCallContext->pResourceRef;
-    NvU32 gpuCacheAttrib;
     NV_STATUS rmStatus = NV_OK;
     NvHandle hClient = pCallContext->pClient->hClient;
+    RmClient *pRmClient = dynamicCast(pCallContext->pClient, RmClient);
     NvHandle hParent = pCallContext->pResourceRef->pParentRef->hResource;
     NvU64 sizeOut;
     NvU64 offsetOut;
     MEMORY_DESCRIPTOR *pMemDesc;
-    NvU32 Cache;
     NvU32 flags;
-    StandardMemory *pStdMemory = staticCast(pSystemMemory, StandardMemory);
+    RM_ATTR_PAGE_SIZE pageSizeAttr;
+    NvBool bRetry = NV_FALSE;
+
+    NV_ASSERT_OR_RETURN(pRmClient != NULL, NV_ERR_INVALID_CLIENT);
+
+    if (RMCFG_FEATURE_PLATFORM_GSP && !pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB))
+    {
+        NV_ASSERT_FAILED("System memory can't be allocated on GSP without 0FB");
+        return NV_ERR_NOT_SUPPORTED;
+    }
 
     // Copy-construction has already been done by the base Memory class
     if (RS_IS_COPY_CTOR(pParams))
+    {
         return NV_OK;
+    }
 
-    NV_CHECK_OK_OR_RETURN(LEVEL_ERROR, stdmemValidateParams(pGpu, hClient, pAllocData));
+    NV_CHECK_OK_OR_RETURN(LEVEL_ERROR, stdmemValidateParams(pGpu, pRmClient, pAllocData));
     NV_CHECK_OR_RETURN(LEVEL_ERROR,
                        DRF_VAL(OS32, _ATTR, _LOCATION, pAllocData->attr) != NVOS32_ATTR_LOCATION_VIDMEM &&
                            !(pAllocData->flags & NVOS32_ALLOC_FLAGS_VIRTUAL),
@@ -111,116 +195,111 @@ sysmemConstruct_IMPL
     {
     }
 
-    rmStatus = sysmemInitAllocRequest(pGpu, pSystemMemory, pAllocRequest);
-
-    if (rmStatus != NV_OK)
-        goto failed;
-
-    NV_ASSERT(pAllocRequest->pMemDesc);
-    pMemDesc = pAllocRequest->pMemDesc;
-
-    // Copy final heap size/offset back to client struct
     //
-    // What should we return ?. System or the Device physical address.
-    // Return the Device physical address for now.
-    // May change with the heap refactoring !.
+    // Enable retrying the allocation only if the page size is default.
+    // Each new attempt decreases the page size to the next supported RM value
+    // until the minimum OS granularity is reached.
     //
-    // System and Device physical address can be got using the nv0041CtrlCmdGetSurfacePhysAttr ctrl call
-    offsetOut = memdescGetPhysAddr(pMemDesc, AT_GPU, 0);
-    sizeOut = pMemDesc->Size;
-    pAllocData->limit = sizeOut - 1;
-
-    //
-    // For system memory default to GPU uncached.  GPU caching is different from
-    // the expected default memory model since it is not coherent.  Clients must
-    // understand this an handle any coherency requirements explicitly.
-    //
-    if (DRF_VAL(OS32, _ATTR2, _GPU_CACHEABLE, pAllocData->attr2) ==
-        NVOS32_ATTR2_GPU_CACHEABLE_DEFAULT)
+    if (FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _DEFAULT, pAllocData->attr) &&
+        (GPU_GET_MEMORY_MANAGER(pGpu)->bSysmemPageSizeDefaultAllowLargePages))
     {
-        pAllocData->attr2 = FLD_SET_DRF(OS32, _ATTR2, _GPU_CACHEABLE, _NO,
-                                        pAllocData->attr2);
+        bRetry = NV_TRUE;
     }
 
-    if (DRF_VAL(OS32, _ATTR2, _GPU_CACHEABLE, pAllocData->attr2) ==
-        NVOS32_ATTR2_GPU_CACHEABLE_YES)
+    do
     {
-        gpuCacheAttrib = NV_MEMORY_CACHED;
-    }
-    else
-    {
-        gpuCacheAttrib = NV_MEMORY_UNCACHED;
-    }
+        NV_CHECK_OK_OR_RETURN(LEVEL_INFO,
+            sysmemInitAllocRequest(pGpu, pSystemMemory, pAllocRequest));
 
-    if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_UNCACHED)
-        Cache = NV_MEMORY_UNCACHED;
-    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_CACHED)
-        Cache = NV_MEMORY_CACHED;
-    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_WRITE_COMBINE)
-        Cache = NV_MEMORY_WRITECOMBINED;
-    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_WRITE_THROUGH)
-        Cache = NV_MEMORY_CACHED;
-    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_WRITE_PROTECT)
-        Cache = NV_MEMORY_CACHED;
-    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_WRITE_BACK)
-        Cache = NV_MEMORY_CACHED;
-    else
-        Cache = 0;
+        // Memdesc should be allocated by now.
+        NV_ASSERT_OR_RETURN(pAllocRequest->pMemDesc, NV_ERR_INVALID_STATE);
+        pMemDesc = pAllocRequest->pMemDesc;
 
-    ct_assert(NVOS32_ATTR_COHERENCY_UNCACHED      == NVOS02_FLAGS_COHERENCY_UNCACHED);
-    ct_assert(NVOS32_ATTR_COHERENCY_CACHED        == NVOS02_FLAGS_COHERENCY_CACHED);
-    ct_assert(NVOS32_ATTR_COHERENCY_WRITE_COMBINE == NVOS02_FLAGS_COHERENCY_WRITE_COMBINE);
-    ct_assert(NVOS32_ATTR_COHERENCY_WRITE_THROUGH == NVOS02_FLAGS_COHERENCY_WRITE_THROUGH);
-    ct_assert(NVOS32_ATTR_COHERENCY_WRITE_PROTECT == NVOS02_FLAGS_COHERENCY_WRITE_PROTECT);
-    ct_assert(NVOS32_ATTR_COHERENCY_WRITE_BACK    == NVOS02_FLAGS_COHERENCY_WRITE_BACK);
+        // Copy final heap size back to client struct
+        sizeOut = pMemDesc->Size;
+        pAllocData->limit = sizeOut - 1;
 
-    flags = DRF_DEF(OS02, _FLAGS, _LOCATION, _PCI) |
-            DRF_DEF(OS02, _FLAGS, _MAPPING, _NO_MAP) |
-            DRF_NUM(OS02, _FLAGS, _COHERENCY, DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr));
+        memSetSysmemCacheAttrib(pGpu, pAllocData, pMemDesc);
 
-    NV_ASSERT(memdescGetAddressSpace(pMemDesc) == ADDR_SYSMEM);
-    memdescSetCpuCacheAttrib(pMemDesc, Cache);
+        // GPU cache snooping is a property of fully coherent platforms.
+        NV_CHECK_OK_OR_RETURN(LEVEL_INFO,
+            memSetGpuCacheSnoop(pGpu, pAllocData->attr, pMemDesc));
 
-    if (pCallContext->secInfo.privLevel < RS_PRIV_LEVEL_KERNEL)
-        memdescSetFlag(pMemDesc, MEMDESC_FLAGS_KERNEL_MODE, NV_FALSE);
+        ct_assert(NVOS32_ATTR_COHERENCY_UNCACHED      == NVOS02_FLAGS_COHERENCY_UNCACHED);
+        ct_assert(NVOS32_ATTR_COHERENCY_CACHED        == NVOS02_FLAGS_COHERENCY_CACHED);
+        ct_assert(NVOS32_ATTR_COHERENCY_WRITE_COMBINE == NVOS02_FLAGS_COHERENCY_WRITE_COMBINE);
+        ct_assert(NVOS32_ATTR_COHERENCY_WRITE_THROUGH == NVOS02_FLAGS_COHERENCY_WRITE_THROUGH);
+        ct_assert(NVOS32_ATTR_COHERENCY_WRITE_PROTECT == NVOS02_FLAGS_COHERENCY_WRITE_PROTECT);
+        ct_assert(NVOS32_ATTR_COHERENCY_WRITE_BACK    == NVOS02_FLAGS_COHERENCY_WRITE_BACK);
 
-    if (pAllocData->flags & NVOS32_ALLOC_FLAGS_TURBO_CIPHER_ENCRYPTED)
-        memdescSetFlag(pMemDesc, MEMDESC_FLAGS_ENCRYPTED, NV_TRUE);
+        flags = DRF_DEF(OS02, _FLAGS, _LOCATION, _PCI) |
+                DRF_DEF(OS02, _FLAGS, _MAPPING, _NO_MAP) |
+                DRF_NUM(OS02, _FLAGS, _COHERENCY, DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr));
 
-    if (FLD_TEST_DRF(OS32, _ATTR2, _NISO_DISPLAY, _YES, pAllocData->attr2))
-        memdescSetFlag(pMemDesc, MEMDESC_FLAGS_MEMORY_TYPE_DISPLAY_NISO, NV_TRUE);
+        NV_ASSERT(memdescGetAddressSpace(pMemDesc) == ADDR_SYSMEM);
 
-    memdescSetFlag(pMemDesc, MEMDESC_FLAGS_SYSMEM_OWNED_BY_CLIENT, NV_TRUE);
+        if (pCallContext->secInfo.privLevel < RS_PRIV_LEVEL_KERNEL)
+            memdescSetFlag(pMemDesc, MEMDESC_FLAGS_KERNEL_MODE, NV_FALSE);
 
-    memdescSetGpuCacheAttrib(pMemDesc, gpuCacheAttrib);
+        if (pAllocData->flags & NVOS32_ALLOC_FLAGS_TURBO_CIPHER_ENCRYPTED)
+            memdescSetFlag(pMemDesc, MEMDESC_FLAGS_ENCRYPTED, NV_TRUE);
 
-    if (FLD_TEST_DRF(OS32, _ATTR2, _FIXED_NUMA_NODE_ID, _YES, pAllocData->attr2))
-    {
-        //
-        // TODO: Add validation of NUMA Node ID. Bug: 3802992
-        // Invalid ID criteria:
-        // * NUMA is not supported on this platform
-        // * NUMA Node ID is of GPU
-        // * When memory is protected, if requested in unprotected memory
-        //
-        // Allow kernel to validate the following:
-        // * NUMA Node ID is not in range of [0,MAX_NUMANODES)
-        // * NUMA Node has no memory present
-        // * NUMA Node has no free memory
-        //
+        if (FLD_TEST_DRF(OS32, _ATTR2, _NISO_DISPLAY, _YES, pAllocData->attr2))
+            memdescSetFlag(pMemDesc, MEMDESC_FLAGS_MEMORY_TYPE_DISPLAY_NISO, NV_TRUE);
 
-        memdescSetNumaNode(pMemDesc, pAllocData->numaNode);
-    }
+        memdescSetFlag(pMemDesc, MEMDESC_FLAGS_SYSMEM_OWNED_BY_CLIENT, NV_TRUE);
 
-    rmStatus = memdescAlloc(pMemDesc);
-    if (rmStatus != NV_OK)
-    {
-        NV_PRINTF(LEVEL_ERROR,
-                  "*** Cannot allocate sysmem through fb heap\n");
-        memdescFree(pMemDesc);
-        memdescDestroy(pMemDesc);
-        goto failed;
-    }
+        if (FLD_TEST_DRF(OS32, _ATTR2, _FIXED_NUMA_NODE_ID, _YES, pAllocData->attr2))
+        {
+
+            if ((pGpu->cpuNumaNodeId != NV0000_CTRL_NO_NUMA_NODE) &&
+                (pAllocData->numaNode != pGpu->cpuNumaNodeId))
+            {
+                NV_PRINTF(LEVEL_ERROR, "NUMA node mismatch. Requested node: %u CPU node: %u\n",
+                        pAllocData->numaNode, pGpu->cpuNumaNodeId);
+                rmStatus = NV_ERR_INVALID_ARGUMENT;
+                goto failed_destroy_memdesc;
+            }
+
+            memdescSetNumaNode(pMemDesc, pAllocData->numaNode);
+        }
+
+        pageSizeAttr = dmaNvos32ToPageSizeAttr(pAllocData->attr, pAllocData->attr2);
+        NV_CHECK_OK_OR_GOTO(rmStatus, LEVEL_INFO,
+            memmgrSetMemDescPageSize_HAL(pGpu, GPU_GET_MEMORY_MANAGER(pGpu), pMemDesc,
+                                        AT_GPU, pageSizeAttr),
+            failed_destroy_memdesc);
+
+        memdescTagAlloc(rmStatus, NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_132, pMemDesc);
+        if (rmStatus != NV_OK)
+        {
+            if (bRetry)
+            {
+                NvU64 pageSize;
+                pageSize = _sysmemGetNextSmallerPageSize(pGpu, &pAllocData->attr, &pAllocData->attr2);
+                if (pageSize == 0)
+                {
+                    NV_CHECK_OK_OR_GOTO(rmStatus, LEVEL_ERROR, rmStatus, failed_destroy_memdesc);
+                }
+                NV_PRINTF(LEVEL_INFO, "Sysmem alloc failed, retrying with page size 0x%llx.\n", pageSize);
+
+                // Freeing memdescs to avoid leaks on retry.
+                memdescFree(pMemDesc);
+                memdescDestroy(pMemDesc);
+
+                pAllocRequest->pMemDesc = pMemDesc = NULL;
+            }
+            else
+            {
+                NV_CHECK_OK_OR_GOTO(rmStatus, LEVEL_ERROR, rmStatus, failed_destroy_memdesc);
+            }
+        }
+        else
+        {
+            // Got a valid allocation, set retry to false.
+            bRetry = NV_FALSE;
+        }
+    } while (bRetry);
 
     // ClientDB can set the pagesize for memdesc.
     // With GPU SMMU mapping, this needs to be set on the SMMU memdesc.
@@ -234,42 +313,52 @@ sysmemConstruct_IMPL
     //
     // fbAlloc_GF100() will set the page size attribute to BIG for these cases.
 
-    if (FLD_TEST_DRF(OS32, _ATTR2, _SMMU_ON_GPU, _ENABLE, pAllocData->attr2))
-    {
-        NV_PRINTF(LEVEL_ERROR, "SMMU mapping allocation is not supported.\n");
-        NV_ASSERT(0);
-        rmStatus = NV_ERR_NOT_SUPPORTED;
+    NV_ASSERT_OR_ELSE(!FLD_TEST_DRF(OS32, _ATTR2, _SMMU_ON_GPU, _ENABLE, pAllocData->attr2),
+        rmStatus = NV_ERR_NOT_SUPPORTED; goto failed_free_memdesc);
 
-        memdescFree(pMemDesc);
-        memdescDestroy(pMemDesc);
-        goto failed;
-    }
-    else if ((FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _BIG, pAllocData->attr) ||
+    if ((FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _BIG, pAllocData->attr) ||
               FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _HUGE, pAllocData->attr)) &&
-              FLD_TEST_DRF(OS32, _ATTR, _PHYSICALITY, _NONCONTIGUOUS, pAllocData->attr) &&
-             (stdmemGetSysmemPageSize_HAL(pGpu, pStdMemory) == RM_PAGE_SIZE))
+              FLD_TEST_DRF(OS32, _ATTR, _PHYSICALITY, _NONCONTIGUOUS, pAllocData->attr))
     {
-        NV_PRINTF(LEVEL_ERROR,
-                  "Non-contiguous allocation not supported where requested page size is larger than sysmem page size.\n");
-        NV_ASSERT(0);
-        rmStatus = NV_ERR_NOT_SUPPORTED;
+        NvBool bLargePageNonContigAllocSupported;
 
-        memdescFree(pMemDesc);
-        memdescDestroy(pMemDesc);
-        goto failed;
+        //
+        // The below checks verify whether a non-contig large page size sysmem request is supported by
+        // the platform. In the MODS case we can only support large page size sysmem requests
+        // if MODS supplied the sysmem page size regkey that is >4K.
+        // This check could be performed better, but avoiding a change in MODS behavior for now.
+        //
+        if (RMCFG_FEATURE_PLATFORM_UNIX)
+        {
+            bLargePageNonContigAllocSupported = NV_TRUE;
+        }
+        else if (RMCFG_FEATURE_MODS_FEATURES)
+        {
+            StandardMemory *pStdMemory = staticCast(pSystemMemory, StandardMemory);
+
+            if (stdmemGetSysmemPageSize_HAL(pGpu, pStdMemory) > RM_PAGE_SIZE)
+            {
+                bLargePageNonContigAllocSupported = NV_TRUE;
+            }
+            else
+            {
+                bLargePageNonContigAllocSupported = NV_FALSE;
+            }
+        }
+        else
+        {
+            bLargePageNonContigAllocSupported = NV_FALSE;
+        }
+
+        NV_CHECK_OR_ELSE(LEVEL_ERROR, bLargePageNonContigAllocSupported,
+            rmStatus = NV_ERR_NOT_SUPPORTED; goto failed_free_memdesc);
     }
 
-    rmStatus = memConstructCommon(pMemory, pAllocRequest->classNum, flags, pMemDesc, 0,
-                                  NULL, pAllocData->attr, pAllocData->attr2, 0, 0,
-                                  pAllocData->tag, &hwResource);
-    if (rmStatus != NV_OK)
-    {
-        NV_PRINTF(LEVEL_ERROR,
-                  "*** Cannot add symem through fb heap to client db\n");
-        memdescFree(pMemDesc);
-        memdescDestroy(pMemDesc);
-        goto failed;
-    }
+    NV_CHECK_OK_OR_GOTO(rmStatus, LEVEL_INFO,
+        memConstructCommon(pMemory, pAllocRequest->classNum, flags, pMemDesc, 0,
+                           NULL, pAllocData->attr, pAllocData->attr2, 0, 0,
+                           pAllocData->tag, &hwResource),
+        failed_free_memdesc);
 
     //
     // We need to force a kernel mapping of system memory-backed notifiers
@@ -277,14 +366,9 @@ sysmemConstruct_IMPL
     //
     if (pAllocData->type == NVOS32_TYPE_NOTIFIER)
     {
-        rmStatus = memCreateKernelMapping(pMemory, NV_PROTECT_READ_WRITE, NV_FALSE);
-        if (rmStatus != NV_OK)
-        {
-            memDestructCommon(pMemory);
-            memdescFree(pMemDesc);
-            memdescDestroy(pMemDesc);
-            goto failed;
-        }
+        NV_CHECK_OK_OR_GOTO(rmStatus, LEVEL_ERROR,
+            memCreateKernelMapping(pMemory, NV_PROTECT_READ_WRITE, NV_FALSE),
+            failed_destruct_common);
     }
 
     if (IS_VIRTUAL(pGpu))
@@ -300,37 +384,31 @@ sysmemConstruct_IMPL
         // Calculate os02flags as VGPU plugin allocates sysmem with legacy
         // RmAllocMemory API
         //
-        rmStatus = RmDeprecatedConvertOs32ToOs02Flags(pAllocData->attr,
-                                                      pAllocData->attr2,
-                                                      os32Flags,
-                                                      &os02Flags);
+        NV_CHECK_OK_OR_GOTO(rmStatus, LEVEL_INFO,
+            RmDeprecatedConvertOs32ToOs02Flags(pAllocData->attr,
+                                               pAllocData->attr2,
+                                               os32Flags,
+                                               &os02Flags),
+            failed_destruct_common);
 
-        if (rmStatus == NV_OK)
-        {
-            //
-            // vGPU:
-            //
-            // Since vGPU does all real hardware management in the
-            // host, if we are in guest OS (where IS_VIRTUAL(pGpu) is true),
-            // do an RPC to the host to do the hardware update.
-            //
-            NV_RM_RPC_ALLOC_MEMORY(pGpu,
-                                   hClient,
-                                   hParent,
-                                   pAllocRequest->hMemory,
-                                   pAllocRequest->classNum,
-                                   os02Flags,
-                                   pMemDesc,
-                                   rmStatus);
-        }
 
-        if (rmStatus != NV_OK)
-        {
-            memDestructCommon(pMemory);
-            memdescFree(pMemDesc);
-            memdescDestroy(pMemDesc);
-            goto failed;
-        }
+        //
+        // vGPU:
+        //
+        // Since vGPU does all real hardware management in the
+        // host, if we are in guest OS (where IS_VIRTUAL(pGpu) is true),
+        // do an RPC to the host to do the hardware update.
+        //
+        NV_RM_RPC_ALLOC_MEMORY(pGpu,
+                                hClient,
+                                hParent,
+                                pAllocRequest->hMemory,
+                                pAllocRequest->classNum,
+                                os02Flags,
+                                pMemDesc,
+                                rmStatus);
+
+        NV_CHECK_OK_OR_GOTO(rmStatus, LEVEL_ERROR, rmStatus, failed_destruct_common);
 
         pMemory->bRpcAlloc = NV_TRUE;
     }
@@ -340,7 +418,16 @@ sysmemConstruct_IMPL
 
     stdmemDumpOutputAllocParams(pAllocData);
 
-failed:
+    return rmStatus;
+
+// Resource cleanup on failure
+failed_destruct_common:
+    memDestructCommon(pMemory);
+failed_free_memdesc:
+    memdescFree(pMemDesc);
+failed_destroy_memdesc:
+    memdescDestroy(pMemDesc);
+
     return rmStatus;
 }
 
@@ -398,10 +485,13 @@ sysmemInitAllocRequest_SOC
 )
 {
     NV_MEMORY_ALLOCATION_PARAMS *pAllocParams = pAllocRequest->pUserParams;
-    NV_STATUS status = NV_OK;
     MEMORY_DESCRIPTOR *pMemDesc = NULL;
     NvBool bAllocedMemDesc = NV_FALSE;
-    NvBool bContig = NV_TRUE;
+    NvBool bContig   = NV_TRUE;
+    NvU32 localAttr  = pAllocParams->attr;
+    NvU32 localAttr2 = pAllocParams->attr2;
+    NvU64 pageSize   = 0;
+    NV_STATUS status = NV_OK;
 
     // Check for valid size.
     NV_CHECK_OR_RETURN(LEVEL_ERROR, pAllocParams->size != 0, NV_ERR_INVALID_ARGUMENT);
@@ -410,12 +500,12 @@ sysmemInitAllocRequest_SOC
     NV_CHECK_OR_RETURN(LEVEL_ERROR,(pAllocParams->type < NVOS32_NUM_MEM_TYPES), NV_ERR_INVALID_ARGUMENT);
 
     // If vidmem not requested explicitly, decide on the physical location.
-    if (FLD_TEST_DRF(OS32, _ATTR, _LOCATION, _PCI, pAllocParams->attr) ||
-        FLD_TEST_DRF(OS32, _ATTR, _LOCATION, _ANY, pAllocParams->attr))
+    if (FLD_TEST_DRF(OS32, _ATTR, _LOCATION, _PCI, localAttr) ||
+        FLD_TEST_DRF(OS32, _ATTR, _LOCATION, _ANY, localAttr))
     {
 
-        pAllocParams->attr = FLD_SET_DRF(OS32, _ATTR, _LOCATION,
-                                                _PCI, pAllocParams->attr);
+        localAttr = FLD_SET_DRF(OS32, _ATTR, _LOCATION,
+                                _PCI, localAttr);
     }
 
     if (pAllocParams->flags & NVOS32_ALLOC_FLAGS_FIXED_ADDRESS_ALLOCATE)
@@ -426,10 +516,10 @@ sysmemInitAllocRequest_SOC
         goto failed;
     }
 
-    CLEAR_HAL_ATTR(pAllocParams->attr)
-    CLEAR_HAL_ATTR2(pAllocParams->attr2)
+    CLEAR_HAL_ATTR(localAttr)
+    CLEAR_HAL_ATTR2(localAttr2)
 
-    bContig = FLD_TEST_DRF(OS32, _ATTR, _PHYSICALITY, _CONTIGUOUS, pAllocParams->attr);
+    bContig = FLD_TEST_DRF(OS32, _ATTR, _PHYSICALITY, _CONTIGUOUS, localAttr);
 
     // Allocate a memory descriptor if needed.
     if (pAllocRequest->pMemDesc == NULL)
@@ -450,16 +540,32 @@ sysmemInitAllocRequest_SOC
     // update contiguity attribute to reflect memdesc
     if (memdescGetContiguity(pAllocRequest->pMemDesc, AT_GPU))
     {
-        pAllocParams->attr = FLD_SET_DRF(OS32, _ATTR, _PHYSICALITY,
-                                          _CONTIGUOUS, pAllocParams->attr);
+        localAttr = FLD_SET_DRF(OS32, _ATTR, _PHYSICALITY,
+                                _CONTIGUOUS, localAttr);
     }
     else
     {
-        pAllocParams->attr = FLD_SET_DRF(OS32, _ATTR, _PHYSICALITY,
-                                          _NONCONTIGUOUS, pAllocParams->attr);
+        localAttr = FLD_SET_DRF(OS32, _ATTR, _PHYSICALITY,
+                                _NONCONTIGUOUS, localAttr);
     }
 
-    pAllocParams->offset = ~0;
+    // Select the sysmem alloc page size.
+    pageSize = memmgrDeterminePageSize(GPU_GET_MEMORY_MANAGER(pGpu),
+                                       pAllocRequest->hClient,
+                                       pAllocParams->size,
+                                       pAllocParams->format,
+                                       pAllocParams->flags,
+                                       &localAttr, &localAttr2);
+    if (!IsAMODEL(pGpu) && pageSize == 0)
+    {
+        status = NV_ERR_INVALID_STATE;
+        NV_PRINTF(LEVEL_ERROR, "memmgrDeterminePageSize failed, status: 0x%x\n", status);
+        goto failed;
+    }
+
+    pAllocParams->attr = localAttr;
+    pAllocParams->attr2 = localAttr2;
+    pAllocParams->offset = ~0ULL;
 
     return NV_OK;
 
@@ -469,6 +575,46 @@ failed:
         memdescDestroy(pAllocRequest->pMemDesc);
         pAllocRequest->pMemDesc = NULL;
     }
+
+    return status;
+}
+
+NV_STATUS
+sysmemInitAllocRequest_HMM
+(
+    OBJGPU *pGpu,
+    SystemMemory *pSystemMemory,
+    MEMORY_ALLOCATION_REQUEST *pAllocRequest
+)
+{
+    MemoryManager               *pMemoryManager     = GPU_GET_MEMORY_MANAGER(pGpu);
+    FB_ALLOC_INFO               *pFbAllocInfo       = NULL;
+    FB_ALLOC_PAGE_FORMAT        *pFbAllocPageFormat = NULL;
+    NV_STATUS                    status             = NV_OK;
+
+    pFbAllocInfo = portMemAllocNonPaged(sizeof(FB_ALLOC_INFO));
+    NV_ASSERT_TRUE_OR_GOTO(status, pFbAllocInfo != NULL, NV_ERR_NO_MEMORY, done);
+
+    pFbAllocPageFormat = portMemAllocNonPaged(sizeof(FB_ALLOC_PAGE_FORMAT));
+    NV_ASSERT_TRUE_OR_GOTO(status, pFbAllocPageFormat != NULL, NV_ERR_NO_MEMORY, done);
+
+    portMemSet(pFbAllocInfo, 0, sizeof(FB_ALLOC_INFO));
+    portMemSet(pFbAllocPageFormat, 0, sizeof(FB_ALLOC_PAGE_FORMAT));
+    pFbAllocInfo->pageFormat = pFbAllocPageFormat;
+
+    memUtilsInitFBAllocInfo(pAllocRequest->pUserParams, pFbAllocInfo, pAllocRequest->hClient, pAllocRequest->hParent);
+
+    NV_ASSERT_OK_OR_GOTO(status,
+        memmgrAllocResources(pGpu, pMemoryManager, pAllocRequest, pFbAllocInfo),
+        done);
+
+    NV_ASSERT_OK_OR_GOTO(status,
+        sysmemAllocResources(pGpu, pMemoryManager, pAllocRequest, pFbAllocInfo, pSystemMemory),
+        done);
+
+done:
+    portMemFree(pFbAllocPageFormat);
+    portMemFree(pFbAllocInfo);
 
     return status;
 }
@@ -495,7 +641,7 @@ sysmemAllocResources
     // than the capture OS so if we're running a replay where the requested page size is larger,
     // assume this is a contiguous piece of memory, if contiguity is not specified.
     //
-    if (FLD_TEST_DRF(OS32, _ATTR, _PHYSICALITY, _DEFAULT, pVidHeapAlloc->attr))
+    if (RMCFG_FEATURE_PLATFORM_MODS && FLD_TEST_DRF(OS32, _ATTR, _PHYSICALITY, _DEFAULT, pVidHeapAlloc->attr))
     {
         if ((FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _BIG, pVidHeapAlloc->attr) ||
              FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _HUGE, pVidHeapAlloc->attr)) &&
@@ -584,4 +730,32 @@ failed:
     }
 
     return status;
+}
+
+void sysmemDestruct_IMPL(SystemMemory *pSystemMemory)
+{
+    Memory             *pMemory  = staticCast(pSystemMemory, Memory);
+    NvHandle            hClient  = RES_GET_CLIENT_HANDLE(pMemory);
+    NvHandle            hParent  = RES_GET_PARENT_HANDLE(pMemory);
+    NvHandle            hMemory  = RES_GET_HANDLE(pMemory);
+    MEMORY_DESCRIPTOR  *pMemDesc = pMemory->pMemDesc;
+    OBJGPU             *pGpu     = pMemDesc->pGpu;
+
+    if (pMemDesc == NULL || pMemDesc->DupCount > 1)
+        return;
+
+    memDestructCommon(pMemory);
+
+    memdescFree(pMemDesc);
+
+    memdescDestroy(pMemDesc);
+
+    // if the allocation is RPC-ed, free using RPC
+    if (pMemory->bRpcAlloc && (IS_VIRTUAL(pGpu) || IS_FW_CLIENT(pGpu)))
+    {
+        NV_STATUS status = NV_OK;
+
+        NV_RM_RPC_FREE(pGpu, hClient, hParent, hMemory, status);
+        NV_ASSERT((status == NV_OK) || (status == NV_ERR_GPU_IN_FULLCHIP_RESET));
+    }
 }

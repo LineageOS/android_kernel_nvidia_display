@@ -28,10 +28,7 @@
 #include <drm/drmP.h>
 #endif
 
-#if defined(NV_DRM_DRM_PLANE_H_PRESENT)
 #include <drm/drm_plane.h>
-#endif
-
 #include <drm/drm_modes.h>
 #include <uapi/drm/drm_fourcc.h>
 

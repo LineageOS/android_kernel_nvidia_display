@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -21,10 +21,15 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include "nvUnixVersion.h"
+
 #include "gpu/dce_client/dce_client.h"
 #include "os/dce_rm_client_ipc.h"
 
 #include "os/os.h"
+
+#include "kernel/core/thread_state.h"
+#include "kernel/core/locks.h"
 
 #include "vgpu/rpc.h"
 #include "gpu/mem_mgr/virt_mem_allocator_common.h"
@@ -73,6 +78,13 @@ dceclientInitRpcInfra_IMPL
 
     pDceClient->pRpc->maxRpcSize = DCE_MAX_RPC_MSG_SIZE;
 
+    pDceClient->pRpc->message_buffer = portMemAllocNonPaged(DCE_MAX_RPC_MSG_SIZE);
+    if (pDceClient->pRpc->message_buffer == NULL)
+    {
+        NV_PRINTF(LEVEL_ERROR, "Cannot allocate memory for message_buffer\n");
+        goto done;
+    }
+
     // Register Synchronous IPC client for RPC to DCE RM
     pDceClient->clientId[DCE_CLIENT_RM_IPC_TYPE_SYNC] = 0;
     nvStatus = osTegraDceRegisterIpcClient(DCE_CLIENT_RM_IPC_TYPE_SYNC,
@@ -82,7 +94,7 @@ dceclientInitRpcInfra_IMPL
     {
         NV_PRINTF(LEVEL_ERROR, "Register dce ipc client failed for DCE_CLIENT_RM_IPC_TYPE_SYNC error 0x%x\n",
                                nvStatus);
-        goto ipc_register_fail;
+        goto done;
     }
 
     NV_PRINTF(LEVEL_INFO, "Registered dce ipc client DCE_CLIENT_RM_IPC_TYPE_SYNC handle: 0x%x\n",
@@ -97,12 +109,12 @@ dceclientInitRpcInfra_IMPL
     {
         NV_PRINTF(LEVEL_ERROR, "Register dce ipc client failed for DCE_CLIENT_RM_IPC_TYPE_EVENT error 0x%x\n",
                                nvStatus);
-        goto ipc_register_fail;
+        goto done;
     }
     NV_PRINTF(LEVEL_INFO, "Register dce ipc client DCE_CLIENT_RM_IPC_TYPE_EVENT: 0x%x\n",
                            pDceClient->clientId[DCE_CLIENT_RM_IPC_TYPE_EVENT]);
 
-ipc_register_fail:
+done:
     if (nvStatus != NV_OK)
     {
         dceclientDeinitRpcInfra(pDceClient);
@@ -120,8 +132,23 @@ dceclientDceRmInit_IMPL
 )
 {
     NV_STATUS nvStatus = NV_OK;
+    GPU_MASK  gpusLockedMask = 0;
+
+    if (bInit)
+    {
+        NV_ASSERT_OK_OR_GOTO(nvStatus,
+            rmGpuGroupLockAcquire(pGpu->gpuInstance, GPU_LOCK_GRP_SUBDEVICE,
+                                  GPUS_LOCK_FLAGS_NONE, RM_LOCK_MODULES_INIT, &gpusLockedMask),
+            done);
+    }
 
     NV_RM_RPC_DCE_RM_INIT(pGpu, bInit, nvStatus);
+
+done:
+    if (gpusLockedMask != 0)
+    {
+        rmGpuGroupLockRelease(gpusLockedMask, GPUS_LOCK_FLAGS_NONE);
+    }
 
     return nvStatus;
 }
@@ -141,8 +168,12 @@ dceclientDeinitRpcInfra_IMPL
         osTegraDceUnregisterIpcClient(pDceClient->clientId[i]);
     }
 
-    portMemFree(pDceClient->pRpc);
-    pDceClient->pRpc = NULL;
+    if (pDceClient->pRpc != NULL)
+    {
+        portMemFree(pDceClient->pRpc->message_buffer);
+        portMemFree(pDceClient->pRpc);
+        pDceClient->pRpc = NULL;
+    }
 }
 
 NV_STATUS
@@ -228,39 +259,6 @@ static void _dceclientrmPrintHdr
 }
 
 /**
- * Allocate memory for rpc message
- * TODO : Change static allocation of 4K to
- * a better dynamic allocation
- */
-static NV_STATUS _dceRpcAllocateMemory
-(
-    OBJRPC *pRpc
-)
-{
-    NvU32 *message_buffer;
-
-    message_buffer = portMemAllocNonPaged(DCE_MAX_RPC_MSG_SIZE);
-    if (message_buffer == NULL)
-    {
-        NV_PRINTF(LEVEL_ERROR, "Cannot allocate memory for message_buffer\n");
-        return NV_ERR_INSUFFICIENT_RESOURCES;
-    }
-
-    pRpc->message_buffer = message_buffer;
-
-    return NV_OK;
-}
-
-static void _dceRpcFreeMemory
-(
-    OBJRPC *pRpc
-)
-{
-    portMemFree(pRpc->message_buffer);
-    pRpc->message_buffer = NULL;
-}
-
-/**
  * Send RPC msg and check the result.
  */
 static NV_STATUS
@@ -334,13 +332,13 @@ void dceclientHandleAsyncRpcCallback
                 NV_STATUS          nvStatus     = NV_OK;
 
                 // Get the notification list that contains this event.
-                NV_CHECK_OR_RETURN_VOID(LEVEL_ERROR, CliGetEventInfo(rpc_params->hClient,
-                                                                     rpc_params->hEvent, &pEvent));
+                NV_ASSERT_OR_RETURN_VOID(CliGetEventInfo(rpc_params->hClient,
+                          rpc_params->hEvent, &pEvent));
 
                 if (pEvent->pNotifierShare != NULL)
                     pNotifyList = pEvent->pNotifierShare->pEventList;
 
-                NV_ASSERT(pNotifyList != NULL);
+                NV_ASSERT_OR_RETURN_VOID(pNotifyList != NULL);
 
                 // Send event to a specific hEvent.  Find hEvent in the notification list.
                 for (pNotifyEvent = pNotifyList; pNotifyEvent != NULL; pNotifyEvent = pNotifyEvent->Next)
@@ -407,14 +405,7 @@ NV_STATUS rpcRmApiControl_dce
     rpc_gsp_rm_control_v *rpc_params = NULL;
     NV_STATUS status = NV_ERR_NOT_SUPPORTED;
 
-    NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE : Prepare and send RmApiControl RPC\n");
-
-    status = _dceRpcAllocateMemory(pRpc);
-    if (status != NV_OK)
-    {
-        NV_PRINTF(LEVEL_ERROR, "NVRM_RPC_DCE: Memory Allocation Failed\n");
-        goto done;
-    }
+    NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE : Prepare and send RmApiControl RPC [cmd:0x%x]\n", cmd);
 
     msg_data = _dceRpcGetMessageData(pRpc);
     rpc_params = &msg_data->gsp_rm_control_v;
@@ -442,22 +433,20 @@ NV_STATUS rpcRmApiControl_dce
     }
 
     status = _dceRpcGetRpcResult(pRpc);
-    if (status == NV_ERR_NOT_SUPPORTED)
+    if (status != NV_OK)
     {
-        NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE: RM ctrl call cmd:0x%x not supported\n", cmd);
+         NV_PRINTF(status != NV_ERR_NOT_SUPPORTED ? LEVEL_ERROR : LEVEL_INFO,
+		  "NVRM_RPC_DCE: Failed RM ctrl call cmd:0x%x result 0x%x: %s\n",
+                  cmd, status, nvstatusToString(status));
     }
-    else if (status != NV_OK)
+    else
     {
-        NV_PRINTF(LEVEL_ERROR, "NVRM_RPC_DCE: Failed RM ctrl call cmd:0x%x result 0x%x:\n", cmd, status);
+        NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE: RPC for GSP RM Control Successful\n");
     }
 
     portMemCopy(pParamStructPtr, paramsSize, rpc_params->params, paramsSize);
 
-    NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE: RPC for GSP RM Control Successful\n");
-
 done:
-    if (pRpc->message_buffer)
-        _dceRpcFreeMemory(pRpc);
     return status;
 }
 
@@ -482,10 +471,6 @@ NV_STATUS rpcRmApiAlloc_dce
     NvBool bNullAllowed;
 
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE: Prepare and send RmApiAlloc RPC\n");
-
-    NV_ASSERT_OK_OR_GOTO(status,
-                         _dceRpcAllocateMemory(pRpc),
-                         done);
 
     msg_data = _dceRpcGetMessageData(pRpc);
     rpc_params = &msg_data->gsp_rm_alloc_v;
@@ -527,7 +512,8 @@ NV_STATUS rpcRmApiAlloc_dce
     status = _dceRpcGetRpcResult(pRpc);
     if (status != NV_OK)
     {
-        NV_PRINTF(LEVEL_ERROR, "NVRM_RPC_DCE: Failed RM Alloc Object result 0x%x:\n", status);
+        NV_PRINTF(LEVEL_ERROR, "NVRM_RPC_DCE: Failed RM Alloc Object 0x%x result 0x%x: %s\n",
+                  hClass, status, nvstatusToString(status));
     }
 
     // Deserialize the response
@@ -540,8 +526,6 @@ NV_STATUS rpcRmApiAlloc_dce
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE: RPC for GSP RM Alloc Successful\n");
 
 done:
-    if (pRpc->message_buffer)
-        _dceRpcFreeMemory(pRpc);
     return status;
 }
 
@@ -556,9 +540,6 @@ NV_STATUS rpcRmApiFree_dce(RM_API *pRmApi, NvHandle hClient, NvHandle hObject)
 
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE Free "
               "RPC Called for hClient: 0x%x\n", hClient);
-
-    status = _dceRpcAllocateMemory(pRpc);
-    NV_ASSERT_OK_OR_RETURN(status);
 
     msg_data = _dceRpcGetMessageData(pRpc);
     rpc_params = &msg_data->free_v.params;
@@ -591,9 +572,6 @@ NV_STATUS rpcRmApiFree_dce(RM_API *pRmApi, NvHandle hClient, NvHandle hObject)
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE: RPC for Free Successful\n");
 
 done:
-    if (pRpc->message_buffer)
-        _dceRpcFreeMemory(pRpc);
-
     return status;
 }
 
@@ -618,9 +596,6 @@ NV_STATUS rpcRmApiDupObject_dce
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE Dup Object "
               "RPC Called for hClient: 0x%x\n", hClient);
 
-
-    status = _dceRpcAllocateMemory(pRpc);
-    NV_ASSERT_OK_OR_RETURN(status);
 
     msg_data = _dceRpcGetMessageData(pRpc);
     rpc_params = &msg_data->dup_object_v.params;
@@ -656,7 +631,6 @@ NV_STATUS rpcRmApiDupObject_dce
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE: RPC for DUP OBJECT Successful\n");
 
 done:
-    portMemFree(pRpc->message_buffer);
     return status;
 }
 
@@ -669,6 +643,7 @@ rpcDceRmInit_dce
 {
     OBJGPU *pGpu = (OBJGPU*)pRmApi->pPrivateContext;
     OBJRPC *pRpc = GPU_GET_RPC(pGpu);
+    DceClient *pDceClientrm = GPU_GET_DCECLIENTRM(pGpu);
 
     rpc_generic_union *msg_data;
     NV_STATUS status = NV_ERR_NOT_SUPPORTED;
@@ -676,9 +651,6 @@ rpcDceRmInit_dce
 
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE RPC to trigger %s called\n",
               bInit ? "RmInitAdapter" : "RmShutdownAdapter");
-
-    status = _dceRpcAllocateMemory(pRpc);
-    NV_ASSERT_OK_OR_RETURN(status);
 
     msg_data = _dceRpcGetMessageData(pRpc);
     rpc_params = &msg_data->dce_rm_init_v;
@@ -705,58 +677,28 @@ rpcDceRmInit_dce
         NV_PRINTF(LEVEL_ERROR, "NVRM_RPC_DCE: Failed RM init/deinit result 0x%x:\n", status);
     }
 
-done:
-    portMemFree(pRpc->message_buffer);
-    return status;
-}
+    pDceClientrm->hInternalClient = rpc_params->hInternalClient;
 
-NV_STATUS
-rpcUnloadingGuestDriver_dce(
-    OBJGPU       *pGpu,
-    OBJRPC       *pRpc,
-    NvBool        bInPMTransition,
-    NvBool        bGc6Entering,
-    NvU32         newPMLevel
-)
-{
-    RM_API *pRmApi = NULL;
-    rpc_generic_union *msg_data;
-    NV_STATUS status = NV_ERR_NOT_SUPPORTED;
-    rpc_unloading_guest_driver_v *rpc_params = NULL;
-
-    status = _dceRpcAllocateMemory(pRpc);
-    NV_ASSERT_OK_OR_RETURN(status);
-
-    pRmApi = GPU_GET_PHYSICAL_RMAPI(pGpu);
-    msg_data = _dceRpcGetMessageData(pRpc);
-    rpc_params = &msg_data->unloading_guest_driver_v;
-
-    status = rpcWriteCommonHeader(pGpu, pRpc,
-                                  NV_VGPU_MSG_FUNCTION_UNLOADING_GUEST_DRIVER,
-                                  sizeof(rpc_unloading_guest_driver_v));
-    if (status != NV_OK)
+    if (bInit)
     {
-        NV_PRINTF(LEVEL_ERROR, "NVRM_RPC_DCE: Writing RPC Header Failed [0x%x]\n", status);
-        goto done;
-    }
+        NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_V2_PARAMS *pGbvParams = portMemAllocNonPaged(sizeof(*pGbvParams));
 
-    rpc_params->bInPMTransition = bInPMTransition;
-    rpc_params->bGc6Entering = bGc6Entering;
-    rpc_params->newLevel = newPMLevel;
+        NV_ASSERT_TRUE_OR_GOTO(status, pGbvParams != NULL, NV_ERR_NO_MEMORY, done);
 
-    status = _dceRpcIssueAndWait(pRmApi);
-    if (status != NV_OK)
-    {
-        goto done;
-    }
+        status = rpcRmApiControl_dce(pRmApi, pDceClientrm->hInternalClient, pDceClientrm->hInternalClient,
+                            NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION_V2, pGbvParams, sizeof(*pGbvParams));
+        NV_ASSERT_OK(status);
 
-    status = _dceRpcGetRpcResult(pRpc);
-    if (status != NV_OK)
-    {
-        NV_PRINTF(LEVEL_ERROR, "NVRM_RPC_DCE: Failed Fw Unload result 0x%x:\n", status);
+        if (status == NV_OK &&
+            portStringCompare(NV_VERSION_STRING, pGbvParams->driverVersionBuffer, sizeof(NV_VERSION_STRING)) != 0)
+        {
+            NV_PRINTF(LEVEL_WARNING, "Possibly incompatible DCE RM version! CPU RM: %s DCE RM: %s\n",
+                      NV_VERSION_STRING, pGbvParams->driverVersionBuffer);
+        }
+
+        portMemFree(pGbvParams);
     }
 
 done:
-    portMemFree(pRpc->message_buffer);
     return status;
 }
