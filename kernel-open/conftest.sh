@@ -2464,6 +2464,22 @@ compile_test() {
             compile_check_conftest "$CODE" "NV_PM_RUNTIME_AVAILABLE" "" "generic"
         ;;
 
+        pm_domain_available)
+            #
+            # Determine whether dev_pm_genpd_suspend() exists.
+            #
+            # This was added to the kernel in commit fc51989062138
+            # ("PM: domains: Rename pm_genpd_syscore_poweroff|poweron()")
+            # in v5.11-rc1 (2020-11-10),
+            #
+            CODE="
+            #include <linux/pm_domain.h>
+            void pm_domain_conftest(void) {
+                dev_pm_genpd_suspend();
+            }"
+            compile_check_conftest "$CODE" "NV_PM_DOMAIN_AVAILABLE" "" "functions"
+        ;;
+
         dma_direct_map_resource)
             #
             # Determine whether dma_is_direct() exists.

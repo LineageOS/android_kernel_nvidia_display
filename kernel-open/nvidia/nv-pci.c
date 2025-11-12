@@ -78,6 +78,13 @@
 #include <linux/pci-ats.h>
 #endif
 
+/*
+ * Set the default devfreq suspend frequency to 315 MHz
+ * considering the balance between power consumption
+ * and performance based on various scenarios.
+ */
+#define NV_PCI_TEGRA_DEVFREQ_SUSPEND_FREQ 315000000
+
 extern int NVreg_GrdmaPciTopoCheckOverride;
 
 static void
@@ -604,19 +611,19 @@ static const struct nv_pci_tegra_devfreq_data gb10b_tegra_devfreq_table[] = {
     {
         .clk_name = "gpc0clk",
         .icc_name = "gpu-write",
-        .gpc_fuse_field = BIT(3),
+        .gpc_fuse_field = BIT(0),
         .devfreq_clk = TEGRASOC_DEVFREQ_CLK_GPC,
     },
     {
         .clk_name = "gpc1clk",
         .icc_name = "gpu-write",
-        .gpc_fuse_field = BIT(4),
+        .gpc_fuse_field = BIT(1),
         .devfreq_clk = TEGRASOC_DEVFREQ_CLK_GPC,
     },
     {
         .clk_name = "gpc2clk",
         .icc_name = "gpu-write",
-        .gpc_fuse_field = BIT(5),
+        .gpc_fuse_field = BIT(2),
         .devfreq_clk = TEGRASOC_DEVFREQ_CLK_GPC,
     },
     {
@@ -664,6 +671,7 @@ nv_pci_gb10b_devfreq_target(struct device *dev, unsigned long *freq, u32 flags)
     //
     if (pm_runtime_suspended(&pdev->dev))
     {
+        *freq = tdev->devfreq->scaling_min_freq;
         return 0;
     }
 
@@ -738,7 +746,10 @@ nv_pci_tegra_devfreq_get_cur_freq(struct device *dev, unsigned long *freq)
 {
     struct nv_pci_tegra_devfreq_dev *tdev = to_tegra_devfreq_dev(dev);
 
-    *freq = clk_get_rate(tdev->clk);
+    if (!pm_runtime_suspended(dev->parent))
+        *freq = clk_get_rate(tdev->clk);
+    else
+        *freq = tdev->devfreq->scaling_min_freq;
 
     return 0;
 }
@@ -768,7 +779,7 @@ nv_pci_tegra_devfreq_get_dev_status(struct device *dev,
     {
         stat->total_time = 100;
         stat->busy_time = 0;
-        stat->current_frequency = clk_get_rate(tdev->clk);
+        stat->current_frequency = tdev->devfreq->scaling_min_freq;
         return 0;
     }
 
@@ -1036,10 +1047,6 @@ nv_pci_gb10b_add_devfreq_device(struct nv_pci_tegra_devfreq_dev *tdev)
         goto err_nv_pci_gb10b_add_devfreq_device_opp;
     }
 
-#if defined(NV_DEVFREQ_HAS_SUSPEND_FREQ)
-    tdev->devfreq->suspend_freq = tdev->devfreq->scaling_max_freq;
-#endif
-
 #if NV_HAS_COOLING_SUPPORTED
     err = nv_pci_tegra_init_cooling_device(tdev);
     if (err)
@@ -1184,7 +1191,13 @@ nv_pci_gb10b_register_devfreq(struct pci_dev *pdev)
             nvl->gpc_devfreq_dev->devfreq = NULL;
             goto error_slave_teardown;
         }
-
+#if defined(NV_DEVFREQ_HAS_SUSPEND_FREQ)
+        else
+        {
+            // Set the devfreq suspend frequency for the GPC devfreq device.
+            nvl->gpc_devfreq_dev->devfreq->suspend_freq = nvl->tegra_suspend_freq;
+        }
+#endif
         if (nvl->sys_devfreq_dev != NULL)
         {
             list_add_tail(&nvl->sys_devfreq_dev->gpc_cluster, &nvl->gpc_devfreq_dev->gpc_cluster);
@@ -1206,7 +1219,13 @@ nv_pci_gb10b_register_devfreq(struct pci_dev *pdev)
             nvl->nvd_devfreq_dev->devfreq = NULL;
             goto error_slave_teardown;
         }
-
+#if defined(NV_DEVFREQ_HAS_SUSPEND_FREQ)
+        else
+        {
+            // Set the devfreq suspend frequency for the NVD devfreq device.
+            nvl->nvd_devfreq_dev->devfreq->suspend_freq = nvl->tegra_suspend_freq;
+        }
+#endif
         if (nvl->sys_devfreq_dev != NULL)
         {
             list_add_tail(&nvl->sys_devfreq_dev->nvd_cluster, &nvl->nvd_devfreq_dev->nvd_cluster);
@@ -1527,12 +1546,49 @@ nv_pci_get_tegra_igpu_data(struct pci_dev *pdev)
     return NULL;
 }
 
+void nv_pci_tegra_boost_sys_uproc(struct device *dev)
+{
+#if defined(CONFIG_PM_DEVFREQ)
+    nv_linux_state_t *nvl = pci_get_drvdata(to_pci_dev(dev));
+    const struct nv_pci_tegra_devfreq_data *tdata;
+    struct clk *clk = NULL;
+    unsigned long max_freq;
+    int i;
+
+    for (i = 0; i < nvl->devfreq_table_size; i++)
+    {
+        tdata = &nvl->devfreq_table[i];
+
+        /*
+         * Don't boost the GPC, NVD clocks but only the uprocclk
+         * and sysclk. This saves power consumption of GPU rail
+         * and reduces impact to GPU suspend/resume latency.
+         */
+        if (strstr(tdata->clk_name, "uproc") || strstr(tdata->clk_name, "sys"))
+        {
+            clk = devm_clk_get(dev, tdata->clk_name);
+        }
+        else
+        {
+            continue;
+        }
+
+        max_freq = clk_round_rate(clk, ULONG_MAX);
+        clk_set_rate(clk, max_freq);
+    }
+#endif
+}
+
 static int
 nv_pci_tegra_register_devfreq(struct pci_dev *pdev)
 {
     nv_linux_state_t *nvl = pci_get_drvdata(pdev);
     const struct nv_pci_tegra_data *tegra_data = NULL;
     int err;
+#if defined(NV_DEVFREQ_HAS_SUSPEND_FREQ)
+    struct device_node *np = pdev->dev.of_node;
+    NvU32 suspend_freq = 0;
+#endif
 
     tegra_data = nv_pci_get_tegra_igpu_data(pdev);
 
@@ -1547,6 +1603,15 @@ nv_pci_tegra_register_devfreq(struct pci_dev *pdev)
     nvl->devfreq_resume = tegra_data->devfreq_resume;
     nvl->devfreq_enable_boost = tegra_data->devfreq_enable_boost;
     nvl->devfreq_disable_boost = tegra_data->devfreq_disable_boost;
+
+#if defined(NV_DEVFREQ_HAS_SUSPEND_FREQ)
+    of_property_read_u32(np, "nvidia,suspend-freq", &suspend_freq);
+    if (suspend_freq == 0)
+    {
+        suspend_freq = NV_PCI_TEGRA_DEVFREQ_SUSPEND_FREQ;
+    }
+    nvl->tegra_suspend_freq = suspend_freq;
+#endif
 
     err = tegra_data->devfreq_register(pdev);
     if (err != 0)
@@ -2061,6 +2126,8 @@ nv_pci_probe
 
     nv_kmem_cache_free_stack(sp);
 
+    nvidia_modeset_probe(nvl);
+
     return 0;
 
 goto err_free_all;
@@ -2157,6 +2224,8 @@ nv_pci_remove(struct pci_dev *pci_dev)
      * outlives all enqueued work items.
      */
     nv_linux_stop_open_q(nvl);
+
+    nvidia_modeset_remove(nv->gpu_id);
 
     LOCK_NV_LINUX_DEVICES();
     down(&nvl->ldata_lock);
@@ -2297,14 +2366,18 @@ nv_pci_shutdown(struct pci_dev *pci_dev)
 {
     nv_linux_state_t *nvl = pci_get_drvdata(pci_dev);
 
-    if ((nvl != NULL) && nvl->is_forced_shutdown)
-    {
-        nvl->is_forced_shutdown = NV_FALSE;
-        return;
-    }
-
     if (nvl != NULL)
     {
+        nv_state_t *nv = NV_STATE_PTR(nvl);
+
+        if (nvl->is_forced_shutdown)
+        {
+            nvl->is_forced_shutdown = NV_FALSE;
+            return;
+        }
+
+        nvidia_modeset_remove(nv->gpu_id);
+
         nvl->nv_state.is_shutdown = NV_TRUE;
     }
 

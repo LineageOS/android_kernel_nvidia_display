@@ -157,6 +157,19 @@ extern "C" {
 
 #define MAKE_NV_PRINTF_STR(str) str
 
+#if NVOS_IS_DCECORE
+#define NV_PRINTF_EX(module, level, format, ...)                            \
+    do                                                                      \
+    {                                                                       \
+        if (NV_PRINTF_LEVEL_ENABLED(level))                                 \
+        {                                                                   \
+            LIBOS_LOG_INTERNAL(LIBOS_LOG_ENTRY, level,                      \
+                format, ##__VA_ARGS__);                                     \
+        }                                                                   \
+        NV_PRINTF_STRING(module, level, format, ##__VA_ARGS__);             \
+    } while (0)
+#endif
+
 /**
  * @def NV_PRINTF(level, format, args...)
  * @brief Standard formatted printing/logging interface.

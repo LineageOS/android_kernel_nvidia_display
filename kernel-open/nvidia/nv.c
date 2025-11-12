@@ -4420,12 +4420,14 @@ nvidia_suspend(
     }
     nv = NV_STATE_PTR(nvl);
 
-#if defined(NV_PM_RUNTIME_AVAILABLE)
+#if defined(NV_PM_RUNTIME_AVAILABLE) && defined(NV_PM_DOMAIN_AVAILABLE)
     /* Handle GenPD suspend sequence for Tegra PCI iGPU */
     if (dev_is_pci(dev) && nv->is_tegra_pci_igpu_rg_enabled)
     {
         /* Turn on the GPU power before saving PCI configuration */
         pm_runtime_forbid(dev);
+
+        dev_pm_genpd_suspend(dev);
 
         /*
          * If a PCI device is attached to a GenPD power domain,
@@ -4499,7 +4501,7 @@ nvidia_resume(
 {
     NV_STATUS status = NV_OK;
     struct pci_dev *pci_dev;
-#if defined(NV_PM_RUNTIME_AVAILABLE)
+#if defined(NV_PM_RUNTIME_AVAILABLE) && defined(NV_PM_DOMAIN_AVAILABLE)
     struct pci_bus *bus;
     struct pci_host_bridge *bridge;
     struct device *ctrl;
@@ -4518,7 +4520,7 @@ nvidia_resume(
     }
     nv = NV_STATE_PTR(nvl);
 
-#if defined(NV_PM_RUNTIME_AVAILABLE)
+#if defined(NV_PM_RUNTIME_AVAILABLE) && defined(NV_PM_DOMAIN_AVAILABLE)
     /* Handle GenPD resume sequence for Tegra PCI iGPU */
     if (dev_is_pci(dev) && nv->is_tegra_pci_igpu_rg_enabled)
     {
@@ -4538,6 +4540,8 @@ nvidia_resume(
         nv_printf(NV_DBG_INFO,
             "NVRM: restore GPU pm_domain after suspend\n");
         dev->pm_domain = ctrl->pm_domain;
+
+        dev_pm_genpd_resume(dev);
 
         pm_runtime_allow(dev);
     }
@@ -4912,6 +4916,8 @@ int nv_pmops_runtime_suspend(
     }
 #endif
 
+    nv_pci_tegra_boost_sys_uproc(dev);
+
     err = nvidia_transition_dynamic_power(dev, NV_TRUE);
     if (err)
     {
@@ -4947,6 +4953,8 @@ int nv_pmops_runtime_resume(
     nv_linux_state_t *nvl = pci_get_drvdata(pci_dev);
 #endif
     int err;
+
+    nv_pci_tegra_boost_sys_uproc(dev);
 
     err = nvidia_transition_dynamic_power(dev, NV_FALSE);
     if (err)
@@ -5774,7 +5782,7 @@ NvBool NV_API_CALL nv_pci_tegra_register_power_domain
     NvBool attach
 )
 {
-#if defined(NV_PM_RUNTIME_AVAILABLE)
+#if defined(NV_PM_RUNTIME_AVAILABLE) && defined(NV_PM_DOMAIN_AVAILABLE)
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     struct pci_dev *pci_dev = nvl->pci_dev;
     struct device_node *node = pci_dev->dev.of_node;
@@ -5809,7 +5817,7 @@ NvBool NV_API_CALL nv_pci_tegra_pm_init
     nv_state_t *nv
 )
 {
-#if defined(NV_PM_RUNTIME_AVAILABLE)
+#if defined(NV_PM_RUNTIME_AVAILABLE) && defined(NV_PM_DOMAIN_AVAILABLE)
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     struct pci_dev *pci_dev = nvl->pci_dev;
     struct pci_bus *bus = pci_dev->bus;
@@ -5846,7 +5854,7 @@ void NV_API_CALL nv_pci_tegra_pm_deinit
     nv_state_t *nv
 )
 {
-#if defined(NV_PM_RUNTIME_AVAILABLE)
+#if defined(NV_PM_RUNTIME_AVAILABLE) && defined(NV_PM_DOMAIN_AVAILABLE)
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     struct pci_dev *pci_dev = nvl->pci_dev;
     struct pci_bus *bus = pci_dev->bus;
@@ -6222,7 +6230,8 @@ void NV_API_CALL nv_set_gpu_pg_mask
  *
  * Make sure the GPU PG feature is allowable only when runtime PM is supported here.
  */
-#if defined(NV_BPMP_MRQ_HAS_STRAP_SET) && defined(NV_PM_RUNTIME_AVAILABLE)
+#if defined(NV_BPMP_MRQ_HAS_STRAP_SET)
+#if defined(NV_PM_RUNTIME_AVAILABLE) && defined(NV_PM_DOMAIN_AVAILABLE)
     struct mrq_strap_request request;
     NvS32 ret, api_ret;
     NV_STATUS status = NV_ERR_NOT_SUPPORTED;
@@ -6278,7 +6287,8 @@ void NV_API_CALL nv_set_gpu_pg_mask
     nv_printf(NV_DBG_INFO, "NVRM: set gpu_pg_mask %d success\n", nv->tegra_pci_igpu_pg_mask);
 #else
     nv_printf(NV_DBG_INFO, "NVRM: gpu_pg_mask configuration is not supported\n");
-#endif // defined(NV_BPMP_MRQ_HAS_STRAP_SET) && defined(NV_PM_RUNTIME_AVAILABLE)
+#endif // defined(NV_PM_RUNTIME_AVAILABLE) && defined(NV_PM_DOMAIN_AVAILABLE)
+#endif // defined(NV_BPMP_MRQ_HAS_STRAP_SET)
 }
 
 module_init(nvidia_init_module);

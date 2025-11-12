@@ -21,6 +21,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include "class/cl003e.h"
 #include "class/cl0040.h" /* NV01_MEMORY_LOCAL_USER */
 #include "class/cl84a0.h" /* NV01_MEMORY_LIST_XXX */
 #include "class/cl00b1.h" /* NV01_MEMORY_HW_RESOURCES */
@@ -521,6 +522,31 @@ done:
     return NV_OK;
 }
 
+static NvBool _checkVidmemClassValidity(RsResourceRef   *pResourceRef,
+                                        Memory          *pMemory)
+{
+    if ((pResourceRef->externalClassId == NV01_MEMORY_LOCAL_USER ||
+         pResourceRef->externalClassId == NV01_MEMORY_LIST_FBMEM ||
+         pResourceRef->externalClassId == NV01_MEMORY_LIST_OBJECT) &&
+         (pMemory->categoryClassId == NV01_MEMORY_LOCAL_USER))
+    {
+        return NV_TRUE;
+    }
+    return NV_FALSE;
+}
+static NvBool _checkSysMemClassValidity(RsResourceRef   *pResourceRef,
+                                        Memory          *pMemory)
+{
+    if ((pResourceRef->externalClassId == NV01_MEMORY_SYSTEM ||
+         pResourceRef->externalClassId == NV01_MEMORY_LIST_SYSTEM ||
+         pResourceRef->externalClassId == NV01_MEMORY_LIST_OBJECT) &&
+         (pMemory->categoryClassId == NV01_MEMORY_SYSTEM))
+    {
+        return NV_TRUE;
+    }
+    return NV_FALSE;
+}
+
 //
 // _gpuCollectMemInfo
 //
@@ -537,7 +563,8 @@ _gpuCollectMemInfo
     Heap                                             *pTargetedHeap,
     NV2080_CTRL_GPU_PID_INFO_VIDEO_MEMORY_USAGE_DATA *pData,
     NvBool                                            bIsGuestProcess,
-    NvBool                                            bGlobalInfo
+    NvBool                                            bGlobalInfo,
+    NvBool                                            isZeroFb
 )
 {
     RS_ITERATOR      iter;
@@ -568,10 +595,7 @@ _gpuCollectMemInfo
         //    type NVOS32_TYPE_UNUSED. So while calculating the per process FB
         //    usage, only consider the allocation if memory type is not
         //    NVOS32_TYPE_UNUSED.
-        if ((pResourceRef->externalClassId == NV01_MEMORY_LOCAL_USER ||
-                pResourceRef->externalClassId == NV01_MEMORY_LIST_FBMEM ||
-                pResourceRef->externalClassId == NV01_MEMORY_LIST_OBJECT ) &&
-            (pMemory->categoryClassId == NV01_MEMORY_LOCAL_USER) &&
+        if (((isZeroFb && _checkSysMemClassValidity(pResourceRef, pMemory)) || _checkVidmemClassValidity(pResourceRef, pMemory)) &&
             (bGlobalInfo || (pMemory->pHeap == pTargetedHeap)) &&
             (RES_GET_HANDLE(pMemory->pDevice) == hDevice) &&
             (pMemory->pMemDesc != NULL) &&
@@ -683,7 +707,7 @@ gpuFindClientInfoWithPidIterator_IMPL
                         // clients, RM needs to provide the unique list being used by the client
                         _gpuCollectMemInfo(hClient, hDevice, pHeap,
                                            &pData->vidMemUsage, ((subPid != 0) ? NV_TRUE : NV_FALSE),
-                                           bGlobalInfo);
+                                           bGlobalInfo, pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB));
                         break;
                     }
                     default:
