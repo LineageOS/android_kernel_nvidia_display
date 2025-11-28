@@ -1910,7 +1910,7 @@ static NV_STATUS RmGetAllocPrivate(
     bPeerIoMem = memdescGetFlag(pMemDesc, MEMDESC_FLAGS_PEER_IO_MEM);
 
     if (!(pMemDesc->Allocated || bPeerIoMem ||
-          (memdescGetFlag(pMemDesc, MEMDESC_FLAGS_ALLOC_FROM_SCANOUT_CARVEOUT)) ||
+          memdescIsCarveoutMemory(pMemDesc) ||
           (memdescGetFlag(pMemDesc, MEMDESC_FLAGS_ALLOW_EXT_SYSMEM_USER_CPU_MAPPING))))
     {
         NV_PRINTF(LEVEL_ERROR, "Mmap is not allowed\n");
@@ -4784,7 +4784,8 @@ NV_STATUS NV_API_CALL rm_pmu_perfmon_get_load(
         return NV_ERR_INVALID_ARGUMENT;
     }
 
-    if (nvp->dynamic_power.state == NV_DYNAMIC_POWER_STATE_IDLE_INDICATED)
+    if (nvp->dynamic_power.state != NV_DYNAMIC_POWER_STATE_IN_USE &&
+        nvp->dynamic_power.state != NV_DYNAMIC_POWER_STATE_IDLE_INSTANT)
     {
         *load = 0;
         return NV_OK;

@@ -659,17 +659,15 @@ nv_pci_gb10b_devfreq_target(struct device *dev, unsigned long *freq, u32 flags)
 #endif
 
     //
-    // When GPU is suspended(railgated), the PM runtime suspend callback should
-    // suspend all devfreq devices, and devfreq cycle should not be triggered.
+    // GPU can be under suspending/suspended/resuming state defined the runtime
+    // PM (RPM) framework. When device is under either of these states, DVFS based
+    // on GPU load information should be disabled.
     //
-    // However, users are still able to change the devfreq governor from the
-    // sysfs interface and indirectly invoke the update_devfreq function, which
-    // will further call the target callback function.
+    // Complete load-based DVFS cycle involve GPU load query through rmapi and
+    // clock scaling through BPMP MRQ_CLK mailbox request, which will awake the
+    // GPU and contradict the suspended state.
     //
-    // Early stop the process here before clk_set_rate/clk_get_rate, since these
-    // calls served by BPMP will awake the GPU.
-    //
-    if (pm_runtime_suspended(&pdev->dev))
+    if (!pm_runtime_active(&pdev->dev))
     {
         *freq = tdev->devfreq->scaling_min_freq;
         return 0;
@@ -746,7 +744,15 @@ nv_pci_tegra_devfreq_get_cur_freq(struct device *dev, unsigned long *freq)
 {
     struct nv_pci_tegra_devfreq_dev *tdev = to_tegra_devfreq_dev(dev);
 
-    if (!pm_runtime_suspended(dev->parent))
+    //
+    // When GPU is suspended(railgated), the PM runtime suspend callback should
+    // suspend all devfreq devices, and devfreq cycle should not be triggered.
+    //
+    // However, users are still able to change the devfreq governor from the
+    // sysfs interface and indirectly invoke the update_devfreq function, which
+    // will further call the get_dev_status callback function.
+    //
+    if (pm_runtime_active(dev->parent))
         *freq = clk_get_rate(tdev->clk);
     else
         *freq = tdev->devfreq->scaling_min_freq;
@@ -768,14 +774,15 @@ nv_pci_tegra_devfreq_get_dev_status(struct device *dev,
     NV_STATUS status;
 
     //
-    // When GPU is suspended(railgated), the PM runtime suspend callback should
-    // suspend all devfreq devices, and devfreq cycle should not be triggered.
+    // GPU can be under suspending/suspended/resuming state defined the runtime
+    // PM (RPM) framework. When device is under either of these states, DVFS based
+    // on GPU load information should be disabled.
     //
-    // However, users are still able to change the devfreq governor from the
-    // sysfs interface and indirectly invoke the update_devfreq function, which
-    // will further call the get_dev_status callback function.
+    // Complete load-based DVFS cycle involve GPU load query through rmapi and
+    // clock scaling through BPMP MRQ_CLK mailbox request, which will awake the
+    // GPU and contradict the suspended state.
     //
-    if (pm_runtime_suspended(&pdev->dev))
+    if (!pm_runtime_active(&pdev->dev))
     {
         stat->total_time = 100;
         stat->busy_time = 0;
@@ -2162,8 +2169,7 @@ failed:
     return -1;
 }
 
-static void
-nv_pci_remove(struct pci_dev *pci_dev)
+static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_use)
 {
     nv_linux_state_t *nvl = NULL;
     nv_state_t *nv;
@@ -2171,9 +2177,6 @@ nv_pci_remove(struct pci_dev *pci_dev)
     NvU8 regs_bar_index = nv_bar_index_to_os_bar_index(pci_dev,
                                                        NV_GPU_BAR_INDEX_REGS);
 
-    nv_printf(NV_DBG_SETUP, "NVRM: removing GPU %04x:%02x:%02x.%x\n",
-              NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
-              NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
 
 #ifdef NV_PCI_SRIOV_SUPPORT
     if (pci_dev->is_virtfn)
@@ -2186,15 +2189,9 @@ nv_pci_remove(struct pci_dev *pci_dev)
     }
 #endif /* NV_PCI_SRIOV_SUPPORT */
 
-    if (nv_kmem_cache_alloc_stack(&sp) != 0)
-    {
-        return;
-    }
-
     nvl = pci_get_drvdata(pci_dev);
     if (!nvl || (nvl->pci_dev != pci_dev))
     {
-        nv_kmem_cache_free_stack(sp);
         return;
     }
 
@@ -2229,6 +2226,21 @@ nv_pci_remove(struct pci_dev *pci_dev)
 
     LOCK_NV_LINUX_DEVICES();
     down(&nvl->ldata_lock);
+
+    if (!block_if_gpu_in_use && (NV_ATOMIC_READ(nvl->usage_count) != 0))
+    {
+        up(&nvl->ldata_lock);
+        UNLOCK_NV_LINUX_DEVICES();
+        return;
+    }
+
+    if (nv_kmem_cache_alloc_stack(&sp) != 0)
+    {
+        up(&nvl->ldata_lock);
+        UNLOCK_NV_LINUX_DEVICES();
+        return;
+    }
+
     nv->flags |= NV_FLAG_PCI_REMOVE_IN_PROGRESS;
 
     rm_notify_gpu_removal(sp, nv);
@@ -2251,7 +2263,6 @@ nv_pci_remove(struct pci_dev *pci_dev)
          */
         while (NV_ATOMIC_READ(nvl->usage_count) != 0)
         {
-
             /*
              * While waiting, release the locks so that other threads can make
              * forward progress.
@@ -2270,7 +2281,7 @@ nv_pci_remove(struct pci_dev *pci_dev)
                 nv_printf(NV_DBG_ERRORS,
                           "NVRM: Failed removal of device %04x:%02x:%02x.%x!\n",
                           NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
-                          NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));  
+                          NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
                 WARN_ON(1);
                 goto done;
             }
@@ -2362,28 +2373,42 @@ done:
 }
 
 static void
+nv_pci_remove(struct pci_dev *pci_dev)
+{
+
+    nv_printf(NV_DBG_SETUP, "NVRM: removing GPU %04x:%02x:%02x.%x\n",
+              NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
+              NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
+
+    nv_pci_remove_helper(pci_dev, true);
+}
+
+static void
 nv_pci_shutdown(struct pci_dev *pci_dev)
 {
     nv_linux_state_t *nvl = pci_get_drvdata(pci_dev);
-
-    if (nvl != NULL)
+    
+    if (!nvl || (nvl->pci_dev != pci_dev))
     {
-        nv_state_t *nv = NV_STATE_PTR(nvl);
+        return;
+    }
 
-        if (nvl->is_forced_shutdown)
-        {
-            nvl->is_forced_shutdown = NV_FALSE;
-            return;
-        }
-
-        nvidia_modeset_remove(nv->gpu_id);
-
-        nvl->nv_state.is_shutdown = NV_TRUE;
+    if (nvl->is_forced_shutdown)
+    {
+        nvl->is_forced_shutdown = NV_FALSE;
+        return;
     }
 
 #if defined(CONFIG_PM_DEVFREQ)
     nv_pci_tegra_unregister_devfreq(pci_dev);
 #endif
+
+    nv_pci_remove_helper(pci_dev, false);
+
+    if (pci_get_drvdata(pci_dev) != NULL)
+    {
+        nvl->nv_state.is_shutdown = NV_TRUE;
+    }
 
     /* pci_clear_master is not defined for !CONFIG_PCI */
 #ifdef CONFIG_PCI
