@@ -29,6 +29,8 @@
 #include "gpu/gpu.h"
 #include "ctrl/ctrl2080.h"
 
+#include "gpu/mem_mgr/mem_mgr.h"
+
 NV_STATUS
 gpuGetRegBaseOffset_FWCLIENT
 (

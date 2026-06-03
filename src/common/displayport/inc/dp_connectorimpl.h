@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -23,7 +23,7 @@
 
 /******************************* DisplayPort********************************\
 *                                                                           *
-* Module: dp_connectorimpl.cpp                                              *
+* Module: dp_connectorimpl.h                                                *
 *    DP connector implementation                                            *
 *                                                                           *
 \***************************************************************************/
@@ -44,6 +44,8 @@
 #include "dp_deviceimpl.h"
 #include "dp_qse.h"
 #include "./dptestutil/dp_testmessage.h"
+
+#include "dp_displayid2.h"
 
 // HDCP abort codes
 #define    HDCP_FLAGS_ABORT_DEVICE_REVOKED     0x00000800 // Abort due to a revoked device in DP1.2 topology
@@ -127,6 +129,7 @@ namespace DisplayPort
         bool    bIsDiscoveryDetectActive;       // To tell device discovery is active ( isDiscoveryDetectComplete is also used as DD notify and not want to impacts that. )
         bool    isDiscoveryDetectComplete;      // To tell device discovery is finished.
         bool    bDeferNotifyLostDevice;         // To tell if we should defer notify lost device event to client.
+        bool    bSkipPanelPowerWrite;           // Skip writing panel power state when the regkey is set.
 
         HDCPValidateData hdcpValidateData;      // Cache the HDCP ValidateData.
         unsigned authRetries;                   // Retry counter for the authentication.
@@ -140,6 +143,7 @@ namespace DisplayPort
         bool    bPConConnected;                 // HDMI2.1-Protocol Converter (Support SRC control mode) connected.
         bool    bSkipAssessLinkForPCon;         // Skip assessLink() for PCON. DD will call assessFRLLink later.
         bool    bHdcpAuthOnlyOnDemand;          // True if only initiate Hdcp authentication on demand and MST won't auto-trigger authenticate at device attach.
+        bool    bMstRestoreHdcpStateAtAttach;   // True if restore previous HDCP state at attach
         bool    bHdcpStrmEncrEnblOnlyOnDemand;  // True if only initiate Hdcp Stream Encryption Enable on demand and MST won't auto-trigger.
         bool    bReassessMaxLink;               // Retry assessLink() if the first assessed link config is lower than the panel max config.
 
@@ -255,6 +259,9 @@ namespace DisplayPort
         List pendingEdidReads;                   // List of DevicePendingEDIDRead structures.
                                                  // This list tracks the currently in progress MST Edid Reads
 
+        List pendingDid2Reads;                   // List of DevicePendingDID2Read structures.
+                                                     // This list tracks the currently in progress MST Did2 Reads
+
         Device          * lastDeviceSetForVbios;
 
         QSENonceGenerator * qseNonceGenerator;
@@ -272,6 +279,14 @@ namespace DisplayPort
 
         // Flag to check if the system is UEFI.
         bool        bIsUefiSystem;
+
+        //
+        // Flag to minimize link config for SST if it is 128b/132b.
+        // Enables gR-3336 if set.
+        //
+        bool        bEnable128b132bDSCLnkCfgReduction;
+
+        bool        bSkipResetLinkStateDuringPlug;
 
         // Flag to check if LT should be skipped.
         bool        bSkipLt;
@@ -340,6 +355,15 @@ namespace DisplayPort
         //
         bool        bForceHeadShutdownOnModeTransition;
 
+        // Use max DSC compression for MST topologies
+        bool        bUseMaxDSCCompressionMST;
+
+        //
+        // Sets connector to HDMI for Dongle if
+        // port type is DP++.
+        //
+        bool        bSetConnectorHdmiForDongle;
+
         // Flag to tell whether to send QSE after stream encryption on
         bool        bIsEncryptionQseValid;
 
@@ -354,12 +378,21 @@ namespace DisplayPort
         //
         NvU32       LT2FecLatencyMs;
 
+        bool        bIgnoreCapsAndForceHighestLc;
+
         // On eDP, do not cache the source OUI if it reads 0. See bug 4793112
         bool        bSkipZeroOuiCache;
 
         bool        bForceHeadShutdownFromRegkey;
 
         bool        bForceHeadShutdownPerMonitor;
+
+        // Enable stats collection for compoundQueryAttach()
+        bool        bEnableCqaStatsCollection;
+        NvU64       cqaStatsMinUs = static_cast<NvU64>(-1);
+        NvU64       cqaStatsMaxUs = 0;
+        NvU64       cqaStatsSumUs = 0;
+        NvU64       cqaStatsCount = 0;
 
         //
         // Dual SST Partner connector object pointer
@@ -403,6 +436,12 @@ namespace DisplayPort
         bool        bForceDisableTunnelBwAllocation;
         bool        bDisableEffBppSST8b10b;
 
+        // Use regkey DP_DSC_DEVID_WAR to toggle this flag.
+        bool        bEnableDevId;
+
+        // To skip NLP similar to fakeMuxDevice on non-DSC DDS
+        bool        bIgnoreUnplugUnlessRequested;
+
         Group *perHeadAttachedGroup[NV_MAX_HEADS];
         NvU32 inTransitionHeadMask;
 
@@ -412,15 +451,24 @@ namespace DisplayPort
         void setPolicyForceLTAtNAB(bool enabled);
         void setPolicyAssessLinkSafely(bool enabled);
 
+        void setDisplayId2MSTPolicy(DISPLAYID2_MST_POLICY policy) { return; };
+        virtual void discoveryNewDevice(const DiscoveryManager::Device &device);
+        bool bDisableNativeDisplayId2xSupport;
+
         void discoveryDetectComplete();
-        void discoveryNewDevice(const DiscoveryManager::Device &device);
         void discoveryLostDevice(const Address &address);
-        void processNewDevice(const DiscoveryManager::Device &device,
-            const Edid &edid,
-            bool isMultistream,
-            DwnStreamPortType portType,
-            DwnStreamPortAttribute portAttribute,
-            bool isCompliance = false);
+
+        struct ProcessNewDeviceParams {
+            const DiscoveryManager::Device &device;
+            const Edid &edid;
+            const DisplayID2x &displayId2x;
+            bool isMultistream;
+            DwnStreamPortType portType;
+            DwnStreamPortAttribute portAttribute;
+            bool isCompliance;
+        };
+
+        void processNewDevice(const ProcessNewDeviceParams &params);
 
         void applyEdidWARs(Edid &edid, DiscoveryManager::Device &device);
         virtual void handleEdidWARs(Edid &edid, DiscoveryManager::Device &device){};
@@ -610,6 +658,7 @@ namespace DisplayPort
             unsigned rasterBlankEndX,
             unsigned depth) ;
 
+        void ensureMstNodesPoweredUp(Group * target);
         virtual void readRemoteHdcpCaps();
         virtual void notifyAttachEnd(bool modesetCancelled);
         virtual void notifyDetachBegin(Group * target);
@@ -629,6 +678,7 @@ namespace DisplayPort
         bool     allocateMaxDpTunnelBw();
         NvU64    getMaxTunnelBw();
         void     enableDpTunnelingBwAllocationSupport();
+        void     cancelDpTunnelBwAllocation();
 
         void assessLink(LinkTrainingType trainType = NORMAL_LINK_TRAINING);
 
@@ -692,6 +742,7 @@ namespace DisplayPort
         void freeTimeslice(GroupImpl * targetGroup);
         void flushTimeslotsToHardware();
         void hdcpRenegotiate(NvU64 cN, NvU64 cKsv);
+        void hdcpActiveGroupsSetECF();
         bool getHDCPAbortCodesDP12(NvU32 &hdcpAbortCodesDP12);
         bool getOuiSink(unsigned &ouiId, unsigned char * modelName, size_t modelNameBufferSize, NvU8 &chipRevision);
         bool hdcpValidateKsv(const NvU8 *ksv, NvU32 Size);
@@ -784,6 +835,11 @@ namespace DisplayPort
         {
             activeLinkConfig.setLTCounter(0);
         }
+
+        virtual bool isDpInTunnelingSupported();
+        virtual bool isDpInTunnelingPanelReplayOptimizationSupported();
+        virtual bool isDpInTunnelingBwAllocationSupported();
+        virtual bool getUSBDpInAdapterInfo(NvU32 displayId, NV0073_CTRL_DP_USB4_INFO *pInfo);
     };
 
     //

@@ -142,6 +142,8 @@ typedef enum {
     UvmGpuCompressionTypeCount = 2
 } UvmGpuCompressionType;
 
+#define UVM_PMA_MAX_LOCALIZED_REGION_COUNT    2
+
 //
 // Mirrored in PMA (PMA_STATS)
 //
@@ -153,6 +155,9 @@ typedef struct UvmPmaStatistics_tag
     volatile NvU64 numPages2mProtected;       // PMA-wide 2MB pages count in protected memory
     volatile NvU64 numFreePages64kProtected;  // PMA-wide free 64KB page count in protected memory
     volatile NvU64 numFreePages2mProtected;   // PMA-wide free 2MB pages count in protected memory
+    volatile NvU64 numPages2mLocalizable[UVM_PMA_MAX_LOCALIZED_REGION_COUNT];  // Localizable free 64KB per-uGPU frame count
+    volatile NvU64 numFreePages64kLocalizable[UVM_PMA_MAX_LOCALIZED_REGION_COUNT];  // Localizable free 64KB per-uGPU frame count
+    volatile NvU64 numFreePages2mLocalizable[UVM_PMA_MAX_LOCALIZED_REGION_COUNT];  // Localizable free 64KB per-uGPU frame count
 } UvmPmaStatistics;
 
 typedef enum

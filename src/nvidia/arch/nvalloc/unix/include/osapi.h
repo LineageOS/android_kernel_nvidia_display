@@ -120,6 +120,7 @@ NvBool     RmGpuHasIOSpaceEnabled (nv_state_t *);
 
 void       RmFreeUnusedClients    (nv_state_t *, nv_file_private_t *);
 NV_STATUS  RmIoctl                (nv_state_t *, nv_file_private_t *, NvU32, void *, NvU32);
+NV_STATUS  RmValidateIoctl        (NvU32, NvU32);
 
 void       RmI2cAddGpuPorts(nv_state_t *);
 
@@ -165,6 +166,17 @@ void       RmUnInitAcpiMethods      (OBJSYS *);
 void       RmInflateOsToRmPageArray (RmPhysAddr *, NvU64);
 void       RmDeflateRmToOsPageArray (RmPhysAddr *, NvU64);
 
+void convertPageArrayBetweenOsAndRm(
+    RmPhysAddr *pteArray, 
+    NvU64 pageCountFrom,
+    NvU64 pageSizeFrom,
+    NvU64 pageCountTo,
+    NvU64 pageSizeTo,
+    NvU64 *newPageCountTo);
+
+#define IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc) \
+    (SYS_GET_INSTANCE()->bEnableDynamicGranularityPageArrays && !memdescGetContiguity(pMemDesc, AT_CPU))
+
 void       RmInitPowerManagement    (nv_state_t *);
 void       RmDestroyPowerManagement (nv_state_t *);
 
@@ -177,6 +189,8 @@ void       RmUpdateGc6ConsoleRefCount (nv_state_t *, NvBool);
 
 NvBool     rm_get_uefi_console_status (nv_state_t *);
 NvU64      rm_get_uefi_console_size (nv_state_t *, NvU64 *);
+
+void       rm_check_s0ix_regkey_and_platform_support(void);
 
 RM_API    *RmUnixRmApiPrologue      (nv_state_t *, THREAD_STATE_NODE *, NvU32 module);
 void       RmUnixRmApiEpilogue      (nv_state_t *, THREAD_STATE_NODE *);

@@ -27,6 +27,17 @@
 #include "nv-linux.h"
 #include "nv-reg.h"
 
+#if IS_ENABLED(CONFIG_DRM)
+#include <drm/drm_device.h>
+#include <drm/drm_drv.h>
+
+#if defined(NV_DRM_DRMP_H_PRESENT)
+#include <drm/drmP.h>
+#endif
+
+#include <drm/drm_gem.h>
+#endif /* IS_ENABLED(CONFIG_DRM) */
+
 #define NV_DMA_DEV_PRINTF(debuglevel, dma_dev, format, ... )                \
     nv_printf(debuglevel, "NVRM: %s: " format,                              \
               (((dma_dev) && ((dma_dev)->dev)) ? dev_name((dma_dev)->dev) : \
@@ -61,16 +72,11 @@ static NV_STATUS nv_dma_map_contig(
     NvU64 *va
 )
 {
-#if defined(NV_DMA_MAP_PAGE_ATTRS_PRESENT) && defined(NV_DMA_ATTR_SKIP_CPU_SYNC_PRESENT)
     *va = dma_map_page_attrs(dma_map->dev, dma_map->pages[0], 0,
                              dma_map->page_count * PAGE_SIZE,
                              DMA_BIDIRECTIONAL,
                              (dma_map->cache_type == NV_MEMORY_UNCACHED) ?
                               DMA_ATTR_SKIP_CPU_SYNC : 0);
-#else
-    *va = dma_map_page(dma_map->dev, dma_map->pages[0], 0,
-            dma_map->page_count * PAGE_SIZE, DMA_BIDIRECTIONAL);
-#endif
     if (dma_mapping_error(dma_map->dev, *va))
     {
         return NV_ERR_OPERATING_SYSTEM;
@@ -95,16 +101,11 @@ static NV_STATUS nv_dma_map_contig(
 
 static void nv_dma_unmap_contig(nv_dma_map_t *dma_map)
 {
-#if defined(NV_DMA_MAP_PAGE_ATTRS_PRESENT) && defined(NV_DMA_ATTR_SKIP_CPU_SYNC_PRESENT)
     dma_unmap_page_attrs(dma_map->dev, dma_map->mapping.contig.dma_addr,
                          dma_map->page_count * PAGE_SIZE,
                          DMA_BIDIRECTIONAL,
                          (dma_map->cache_type == NV_MEMORY_UNCACHED) ?
                           DMA_ATTR_SKIP_CPU_SYNC : 0);
-#else
-    dma_unmap_page(dma_map->dev, dma_map->mapping.contig.dma_addr,
-            dma_map->page_count * PAGE_SIZE, DMA_BIDIRECTIONAL);
-#endif
 }
 
 static void nv_fill_scatterlist
@@ -728,33 +729,11 @@ static NvBool nv_dma_use_map_resource
 #endif
     }
 
+#if defined(NV_DMA_MAP_OPS_HAS_MAP_PHYS)
+    return (ops->map_phys != NULL);
+#else
     return (ops->map_resource != NULL);
-}
-
-/* DMA-map a peer device's C2C aperture for peer access. */
-NV_STATUS NV_API_CALL nv_dma_map_non_pci_peer
-(
-    nv_dma_device_t *dma_dev,
-    NvU64            page_count,
-    NvU64           *va
-)
-{
-    NV_STATUS status;
-
-    if (nv_dma_use_map_resource(dma_dev))
-    {
-        status = nv_dma_map_mmio(dma_dev, page_count, va);
-    }
-    else
-    {
-        /*
-         * Best effort - can't map through the iommu but at least try to
-         * use SPA as is.
-         */
-        status = NV_OK;
-    }
-
-    return status;
+#endif
 }
 
 /* DMA-map a peer PCI device's BAR for peer access. */
@@ -919,7 +898,46 @@ void NV_API_CALL nv_dma_cache_invalidate
 #endif
 }
 
-#if defined(NV_DRM_AVAILABLE)
+//
+// Note: For mapping GPU memory on third-party devices using dma-buf/nv-p2p in CDMM,
+// there isn't a kernel API that can be used for page-less coherent memory
+// on pre-6.18 kernels. Kernel 6.18 introduces dma_map_phys which doesn't require
+// struct page and uses physical addresses directly.
+// So this is only a WAR on CDMM for kernels older than 6.18. UVM creates
+// ZONE_DEVICE coherent pages for GPU memory in CDMM. RM uses these for DMA mapping.
+//
+// nv_dma_get_dev_pagemap adds a reference on the ZONE_DEVICE pagemap so the pages
+// don't go away when the DMA mapping is in progress.
+//
+void* NV_API_CALL nv_dma_get_dev_pagemap
+(
+    NvU64 phys_addr
+)
+{
+#if defined(NV_MEMORY_DEVICE_COHERENT_PRESENT)
+    return NV_GET_DEV_PAGEMAP(PHYS_PFN(phys_addr));
+#else
+    return NULL;
+#endif
+}
+
+//
+// nv_dma_put_dev_pagemap removes the reference on the ZONE_DEVICE pagemap.
+//
+void NV_API_CALL nv_dma_put_dev_pagemap
+(
+    void *pgmap
+)
+{
+#if defined(NV_MEMORY_DEVICE_COHERENT_PRESENT)
+    if (pgmap != NULL)
+    {
+        put_dev_pagemap((struct dev_pagemap*) pgmap);
+    }
+#endif
+}
+
+#if IS_ENABLED(CONFIG_DRM)
 
 static inline void
 nv_dma_gem_object_put_unlocked(struct drm_gem_object *gem)
@@ -1000,4 +1018,4 @@ void NV_API_CALL nv_dma_release_sgt
 )
 {
 }
-#endif /* NV_DRM_AVAILABLE */
+#endif /* IS_ENABLED(CONFIG_DRM) */

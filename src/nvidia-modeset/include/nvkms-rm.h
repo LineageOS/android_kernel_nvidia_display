@@ -66,12 +66,8 @@ NvBool nvRmSetDpmsEvo(NVDpyEvoPtr pDpyEvo, NvS64 value);
 NvBool nvRmAllocSysmem(NVDevEvoPtr pDevEvo, NvU32 memoryHandle,
                        NvU32 *ctxDmaFlags, void **ppBase, NvU64 size,
                        NvKmsMemoryIsoType isoType);
-NvBool nvRMAllocateBaseChannels(NVDevEvoPtr pDevEvo);
-NvBool nvRMAllocateOverlayChannels(NVDevEvoPtr pDevEvo);
 NvBool nvRMAllocateWindowChannels(NVDevEvoPtr pDevEvo);
 NvBool nvRMSetupEvoCoreChannel(NVDevEvoPtr pDevEvo);
-void nvRMFreeBaseChannels(NVDevEvoPtr pDevEvo);
-void nvRMFreeOverlayChannels(NVDevEvoPtr pDevEvo);
 void nvRMFreeWindowChannels(NVDevEvoPtr pDevEvo);
 void nvRMFreeEvoCoreChannel(NVDevEvoPtr pDevEvo);
 NvBool nvRMSyncEvoChannel(
@@ -116,8 +112,7 @@ void nvRmUnmapFbConsoleMemory(NVDevEvoPtr pDevEvo);
 NvBool nvRmAllocEvoDma(NVDevEvoPtr pDevEvo,
                        NVEvoDmaPtr pDma,
                        NvU64 limit,
-                       NvU32 ctxDmaFlags,
-                       NvU32 subDeviceMask);
+                       NvU32 ctxDmaFlags);
 void nvRmFreeEvoDma(NVDevEvoPtr pDevEvo, NVEvoDmaPtr pDma);
 NvBool nvRmQueryDpAuxLog(NVDispEvoRec *pDispEvo, NvS64 *pValue);
 NvU64 nvRmGetGpuTime(NVDevEvoPtr pDevEvo);

@@ -168,6 +168,11 @@ NvU32 osGetGridCspSupport(void)
     return 0;
 }
 
+NvBool osIsGridSupported(OBJGPU *pGpu)
+{
+    return NV_FALSE;
+}
+
 void initVGXSpecificRegistry(OBJGPU *pGpu)
 {}
 

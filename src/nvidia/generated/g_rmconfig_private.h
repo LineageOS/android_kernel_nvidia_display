@@ -487,10 +487,6 @@
 #define IsdPASCALorBetter(pGpu)        (0 && (pGpu))
 
 
-// Any COMPUTE chip?
-#define IsCOMPUTE(pGpu)                (0 && (pGpu))
-
-
 // Any PASCAL chip?
 #define IsPASCAL(pGpu)                 (IsPASCAL_CLASSIC_GPUS(pGpu) || IsPASCAL_TEGRA_BIG_GPUS(pGpu))
 #define IsPASCALorBetter(pGpu)         (IsPASCAL_CLASSIC_GPUSorBetter(pGpu) || IsPASCAL_TEGRA_BIG_GPUSorBetter(pGpu))
@@ -499,6 +495,10 @@
 // Any PASCAL_CLASSIC_GPUS chip?
 #define IsPASCAL_CLASSIC_GPUS(pGpu)    (0 && (pGpu))
 #define IsPASCAL_CLASSIC_GPUSorBetter(pGpu) (0 && (pGpu))
+
+
+// Any COMPUTE chip?
+#define IsCOMPUTE(pGpu)                (0 && (pGpu))
 
 
 // Any dVOLTA chip?
@@ -658,11 +658,6 @@
 #define IsPASCAL_TEGRA_BIG_GPUSorBetter(pGpu) (0 && (pGpu))
 
 
-// Any DISPLAYLESS_TEGRA_BIG_GPUS chip?
-#define IsDISPLAYLESS_TEGRA_BIG_GPUS(pGpu) (0 && (pGpu))
-#define IsDISPLAYLESS_TEGRA_BIG_GPUSorBetter(pGpu) (0 && (pGpu))
-
-
 // Any tVOLTA chip?
 #define IstVOLTA(pGpu)                 (0 && (pGpu))
 #define IstVOLTAorBetter(pGpu)         (0 && (pGpu))
@@ -671,6 +666,11 @@
 // Any VOLTA_TEGRA_BIG_GPUS chip?
 #define IsVOLTA_TEGRA_BIG_GPUS(pGpu)   (0 && (pGpu))
 #define IsVOLTA_TEGRA_BIG_GPUSorBetter(pGpu) (0 && (pGpu))
+
+
+// Any DISPLAYLESS_TEGRA_BIG_GPUS chip?
+#define IsDISPLAYLESS_TEGRA_BIG_GPUS(pGpu) (0 && (pGpu))
+#define IsDISPLAYLESS_TEGRA_BIG_GPUSorBetter(pGpu) (0 && (pGpu))
 
 
 // Any TURING_TEGRA_BIG_GPUS chip?

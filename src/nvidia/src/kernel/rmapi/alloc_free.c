@@ -357,6 +357,16 @@ serverResLock_Prologue
                 goto done;
             }
         }
+        else if (rmGpuLocksGetOwnedMask() != 0)
+        {
+            //
+            // Caller owns some of the GPU lock but requests all GPU locks.
+            // Violating locking order.
+            //
+            NV_ASSERT(0);
+            status = NV_ERR_INVALID_LOCK_STATE;
+            goto done;
+        }
         else
         {
             if ((status = rmGpuLocksAcquire(API_LOCK_FLAGS_NONE, RM_LOCK_MODULES_CLIENT)) != NV_OK)
@@ -1225,9 +1235,9 @@ rmapiAllocWithSecInfo
                   hParent, *phObject, hClass);
     }
 
+done:
     portMemFree(pLockInfo);
 
-done:
     rmapiEpilogue(pRmApi, &rmApiContext);
 
     return status;
@@ -1270,6 +1280,7 @@ resservResourceFactory
     Dynamic    *pDynamic = NULL;
     RsResource *pResource = NULL;
     OBJGPU     *pGpu = NULL;
+    NvU32       prevGpuInst = NV_U32_MAX;
 
     pResDesc = RsResInfoByExternalClassId(pParams->externalClassId);
     if (pResDesc == NULL)
@@ -1313,6 +1324,11 @@ resservResourceFactory
         return NV_ERR_NOT_SUPPORTED;
     }
 
+    if (pGpu != NULL)
+    {
+        prevGpuInst = gpumgrSetCurrentGpuInstance(pGpu->gpuInstance);
+    }
+
     status = objCreateDynamicWithFlags(&pDynamic,
                                        (Object*)pGpu,
                                        pResDesc->pClassInfo,
@@ -1320,12 +1336,17 @@ resservResourceFactory
                                        pCallContext,
                                        pParams);
     if (status != NV_OK)
-        return status;
+    {
+        goto done;
+    }
 
     pResource = dynamicCast(pDynamic, RsResource);
 
     if (pResource == NULL)
-        return NV_ERR_INSUFFICIENT_RESOURCES;
+    {
+        status = NV_ERR_INSUFFICIENT_RESOURCES;
+        goto done;
+    }
 
     if (pResDesc->internalClassId == classId(Subdevice)  || pResDesc->internalClassId == classId(Device) ||
         pResDesc->internalClassId == classId(DispCommon))
@@ -1346,6 +1367,12 @@ resservResourceFactory
     }
 
     *ppResource = pResource;
+
+done:
+    if (pGpu != NULL)
+    {
+        gpumgrSetCurrentGpuInstance(prevGpuInst);
+    }
 
     return status;
 }

@@ -22,7 +22,6 @@
  */
 
 #include "nv-kthread-q.h"
-#include "nv-list-helpers.h"
 
 #include <linux/kthread.h>
 #include <linux/interrupt.h>
@@ -42,17 +41,6 @@
 // named kernel thread (kthread). You can then insert arbitrary functions
 // into the queue, and those functions will be run in the context of the
 // queue's kthread.
-
-#ifndef WARN
-    // Only *really* old kernels (2.6.9) end up here. Just use a simple printk
-    // to implement this, because such kernels won't be supported much longer.
-    #define WARN(condition, format...) ({                    \
-        int __ret_warn_on = !!(condition);                   \
-        if (unlikely(__ret_warn_on))                         \
-            printk(KERN_ERR format);                         \
-        unlikely(__ret_warn_on);                             \
-    })
-#endif
 
 #define NVQ_WARN(fmt, ...)                                   \
     do {                                                     \

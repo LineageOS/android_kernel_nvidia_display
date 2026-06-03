@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2010-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2010-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -40,6 +40,8 @@
 namespace DisplayPort
 {
     typedef NvU64 LinkRate;
+    #define LinkRate_fmtx NvU64_fmtx
+    #define LinkRate_fmtu NvU64_fmtu
 
     class LinkRates : virtual public Object
     {
@@ -514,7 +516,8 @@ namespace DisplayPort
 
         unsigned pbnTotal()
         {
-            return PBNForSlots(totalUsableTimeslots);
+            NvU32 slots = totalUsableTimeslots;
+            return PBNForSlots(slots);
         }
 
         NvU64 getBytesPerTimeslot();

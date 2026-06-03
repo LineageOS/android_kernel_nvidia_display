@@ -40,7 +40,6 @@
 #include "nvkms-vrr.h"
 #include "nvkms-sync.h"
 #include <class/clc37dcrcnotif.h> // NVC37D_NOTIFIER_CRC
-#include <ctrl/ctrlc372/ctrlc372chnc.h>
 #include <ctrl/ctrl0041.h> // NV0041_CTRL_GET_SURFACE_PHYS_ATTR_PARAMS
 #include <nvmisc.h>
 #include <class/clc973.h> // NVC973_DISP_CAPABILITIES
@@ -312,8 +311,15 @@ static void EvoSetRasterParamsC9(NVDevEvoPtr pDevEvo, int head,
                                  const NVEvoColorRec *pOverscanColor,
                                  NVEvoUpdateState *updateState)
 {
+    NVEvoChannelPtr pChannel = pDevEvo->core;
+    const NvU32 rasterHBlankDelay =
+        nvEvoGetRasterParamsHBlankDelayC6(pTimings, pDscInfo);
+
     nvAssert(tilePosition == 0);
     EvoSetRasterParams9(pDevEvo, head, pTimings, pOverscanColor, updateState);
+
+    nvDmaSetStartEvoMethod(pChannel, NVC97D_HEAD_SET_RASTER_HBLANK_DELAY(head), 1);
+    nvDmaSetEvoMethodData(pChannel, rasterHBlankDelay);
 }
 
 static void EvoSetOCsc1C9(NVDispEvoPtr pDispEvo, const NvU32 head)
@@ -490,7 +496,6 @@ static void EvoSetHeadControlC9(NVDevEvoPtr pDevEvo, int sd, int head,
     }
 
     // Convert head control state to EVO method values.
-    nvAssert(!pHC->interlaced);
     data |= DRF_DEF(C97D, _HEAD_SET_CONTROL, _STRUCTURE, _PROGRESSIVE);
 
     nvAssert(pHC->serverLockPin != NV_EVO_LOCK_PIN_ERROR);
@@ -745,7 +750,6 @@ static void EvoSetViewportPointInC9(NVDevEvoPtr pDevEvo, const int head,
 }
 
 static void EvoSetOutputScalerC9(const NVDispEvoRec *pDispEvo, const NvU32 head,
-                                 const NvU32 imageSharpeningValue,
                                  NVEvoUpdateState *updateState)
 {
     NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
@@ -1039,7 +1043,10 @@ static void EvoSetDitherC9(NVDispEvoPtr pDispEvo, const int head,
             ditherControl |=
                 DRF_DEF(C97D, _HEAD_SET_DITHER_CONTROL, _BITS, _TO_8_BITS);
             break;
-        /* XXXnvdisplay: Support DITHER_TO_{10,12}_BITS (see also bug 1729668). */
+        case NV0073_CTRL_SPECIFIC_OR_DITHER_TYPE_10_BITS:
+            ditherControl |=
+                DRF_DEF(C97D, _HEAD_SET_DITHER_CONTROL, _BITS, _TO_10_BITS);
+            break;
         default:
             nvAssert(!"Unknown ditherType");
             // Fall through
@@ -1187,7 +1194,6 @@ static void EvoStartHeadCRC32CaptureC9(NVDevEvoPtr pDevEvo,
                                        const enum nvKmsTimingsProtocol protocol,
                                        const NvU32 orIndex,
                                        NvU32 head,
-                                       NvU32 sd,
                                        NVEvoUpdateState *updateState)
 {
     const NvU32 winChannel = head << 1;
@@ -1233,7 +1239,7 @@ static void EvoStartHeadCRC32CaptureC9(NVDevEvoPtr pDevEvo,
         DRF_DEF(C97D, _HEAD_SET_CRC_CONTROL, _CRC_DURING_SNOOZE, _DISABLE));
 
     /* Reset the CRC notifier */
-    nvEvoResetCRC32Notifier(pDma->subDeviceAddress[sd],
+    nvEvoResetCRC32Notifier(pDma->cpuAddress,
                             NVC37D_NOTIFIER_CRC_STATUS_0,
                             DRF_BASE(NVC37D_NOTIFIER_CRC_STATUS_0_DONE),
                             NVC37D_NOTIFIER_CRC_STATUS_0_DONE_FALSE);
@@ -1826,7 +1832,6 @@ NVEvoHAL nvEvoC9 = {
     nvEvoSetUsageBoundsC5,                        /* SetUsageBounds */
     nvEvoUpdateC3,                                /* Update */
     nvEvoIsModePossibleC3,                        /* IsModePossible */
-    nvEvoPrePostIMPC3,                            /* PrePostIMP */
     nvEvoSetNotifierC3,                           /* SetNotifier */
     nvEvoGetCapabilitiesC6,                       /* GetCapabilities */
     nvEvoFlipC6,                                  /* Flip */
@@ -1883,30 +1888,14 @@ NVEvoHAL nvEvoC9 = {
     EvoSetSemaphoreSurfaceAddressAndControlC9,    /* SetSemaphoreSurfaceAddressAndControl */
     EvoSetAcqSemaphoreSurfaceAddressAndControlC9, /* SetAcqSemaphoreSurfaceAddressAndControl */
     {                                             /* caps */
-        TRUE,                                     /* supportsNonInterlockedUsageBoundsUpdate */
-        TRUE,                                     /* supportsDisplayRate */
-        FALSE,                                    /* supportsFlipLockRGStatus */
-        TRUE,                                     /* needDefaultLutSurface */
-        TRUE,                                     /* hasUnorm10OLUT */
-        FALSE,                                    /* supportsImageSharpening */
-        TRUE,                                     /* supportsHDMIVRR */
-        FALSE,                                    /* supportsCoreChannelSurface */
-        FALSE,                                     /* supportsHDMIFRL */
+        TRUE,                                     /* supportsHDMIFRL */
         FALSE,                                    /* supportsSetStorageMemoryLayout */
         TRUE,                                     /* supportsIndependentAcqRelSemaphore */
-        FALSE,                                    /* supportsCoreLut */
-        TRUE,                                     /* supportsSynchronizedOverlayPositionUpdate */
         TRUE,                                     /* supportsVblankSyncObjects */
-        FALSE,                                    /* requiresScalingTapsInBothDimensions */
         FALSE,                                    /* supportsMergeMode */
-        FALSE,                                     /* supportsHDMI10BPC */
+        TRUE,                                     /* supportsHDMI10BPC */
         TRUE,                                     /* supportsDPAudio192KHz */
-        TRUE,                                     /* supportsInputColorSpace */
-        TRUE,                                     /* supportsInputColorRange */
         TRUE,                                     /* supportsYCbCr422OverHDMIFRL */
-        NV_EVO3_SUPPORTED_DITHERING_MODES,        /* supportedDitheringModes */
-        sizeof(NVC372_CTRL_IS_MODE_POSSIBLE_PARAMS), /* impStructSize */
-        NV_EVO_SCALER_2TAPS,                      /* minScalerTaps */
         NV_EVO3_X_EMULATED_SURFACE_MEMORY_FORMATS_C6, /* xEmulatedSurfaceMemoryFormats */
     },
 };

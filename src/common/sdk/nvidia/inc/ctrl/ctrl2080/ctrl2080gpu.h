@@ -48,7 +48,7 @@
 #define NV_GRID_LICENSED_PRODUCT_GAMING  "NVIDIA Cloud Gaming"
 #define NV_GRID_LICENSED_PRODUCT_VPC     "NVIDIA Virtual PC"
 #define NV_GRID_LICENSED_PRODUCT_VAPPS   "NVIDIA Virtual Applications"
-#define NV_GRID_LICENSED_PRODUCT_COMPUTE "NVIDIA Virtual Compute Server"
+#define NV_GRID_LICENSED_PRODUCT_COMPUTE "NVIDIA vGPU for Compute"
 
 
 
@@ -95,7 +95,6 @@ typedef NVXXXX_CTRL_XXX_INFO NV2080_CTRL_GPU_INFO;
 #define NV2080_CTRL_GPU_INFO_INDEX_NVENC_STATS_REPORTING_STATE         (0x00000031U)
 
 
-#define NV2080_CTRL_GPU_INFO_INDEX_4K_PAGE_ISOLATION_REQUIRED          (0x00000033U)
 #define NV2080_CTRL_GPU_INFO_INDEX_DISPLAY_ENABLED                     (0x00000034U)
 #define NV2080_CTRL_GPU_INFO_INDEX_MOBILE_CONFIG_ENABLED               (0x00000035U)
 #define NV2080_CTRL_GPU_INFO_INDEX_GPU_PROFILING_CAPABILITY            (0x00000036U)
@@ -117,8 +116,12 @@ typedef NVXXXX_CTRL_XXX_INFO NV2080_CTRL_GPU_INFO;
 
 #define NV2080_CTRL_GPU_INFO_INDEX_COHERENT_GPU_MEMORY_MODE            (0x00000044U)
 
-#define NV2080_CTRL_GPU_INFO_MAX_LIST_SIZE                             (0x00000045U)
-#define NV2080_CTRL_GPU_INFO_INDEX_GROUP_ID                30:24
+#define NV2080_CTRL_GPU_INFO_INDEX_COMPR_BIT_BACKING_COPY_TYPE         (0x00000045U)
+
+#define NV2080_CTRL_GPU_INFO_MAX_LIST_SIZE                             (0x00000046U)
+
+#define NV2080_CTRL_GPU_INFO_INDEX_TYPE                    30:28
+#define NV2080_CTRL_GPU_INFO_INDEX_TYPE_SPECIFIC_ID        27:24
 #define NV2080_CTRL_GPU_INFO_INDEX_RESERVED                31:31
 
 /* valid minor revision extended values */
@@ -183,10 +186,6 @@ typedef NVXXXX_CTRL_XXX_INFO NV2080_CTRL_GPU_INFO;
 #define NV2080_CTRL_GPU_INFO_NVENC_STATS_REPORTING_STATE_ENABLED       (0x00000001U)
 #define NV2080_CTRL_GPU_INFO_NVENC_STATS_REPORTING_STATE_NOT_SUPPORTED (0x00000002U)
 
-/* valid 4K PAGE isolation requirement values */
-#define NV2080_CTRL_GPU_INFO_INDEX_4K_PAGE_ISOLATION_REQUIRED_NO       (0x00000000U)
-#define NV2080_CTRL_GPU_INFO_INDEX_4K_PAGE_ISOLATION_REQUIRED_YES      (0x00000001U)
-
 /* valid display enabled values */
 #define NV2080_CTRL_GPU_INFO_DISPLAY_ENABLED_NO                        (0x00000000U)
 #define NV2080_CTRL_GPU_INFO_DISPLAY_ENABLED_YES                       (0x00000001U)
@@ -243,6 +242,10 @@ typedef NVXXXX_CTRL_XXX_INFO NV2080_CTRL_GPU_INFO;
 #define NV2080_CTRL_GPU_INFO_INDEX_COHERENT_GPU_MEMORY_MODE_NUMA       (0x00000001U)
 #define NV2080_CTRL_GPU_INFO_INDEX_COHERENT_GPU_MEMORY_MODE_DRIVER     (0x00000002U)
 
+/* valid compression bit backing copy type values */
+#define NV2080_CTRL_GPU_INFO_INDEX_COMP_BIT_BACKING_COPY_TYPE_PHYSICAL (0x00000000U)
+#define NV2080_CTRL_GPU_INFO_INDEX_COMP_BIT_BACKING_COPY_TYPE_VIRTUAL  (0x00000001U)
+
 /*
  * NV2080_CTRL_CMD_GPU_GET_INFO
  *
@@ -287,16 +290,10 @@ typedef struct NV2080_CTRL_GPU_GET_INFO_V2_PARAMS {
 /*
  * NV2080_CTRL_CMD_GPU_GET_NAME_STRING
  *
- * This command returns the name of the GPU in string form in either ASCII
- * or UNICODE format.
+ * This command returns the name of the GPU in string form in ASCII format.
  *
  *   gpuNameStringFlags
- *     This field specifies flags to use while creating the GPU name string.
- *     Valid flags values:
- *       NV2080_CTRL_GPU_GET_NAME_STRING_FLAGS_TYPE_ASCII
- *         The returned name string should be in standard ASCII format.
- *       NV2080_CTRL_GPU_GET_NAME_STRING_FLAGS_TYPE_UNICODE
- *         The returned name string should be in unicode format.
+ *     Ignored, to be removed. Callers should not be setting it at all.
  *   gpuNameString
  *     This field contains the buffer into which the name string should be
  *     returned.  The length of the returned string will be no more than
@@ -308,25 +305,23 @@ typedef struct NV2080_CTRL_GPU_GET_INFO_V2_PARAMS {
  *   NV_ERR_INVALID_ARGUMENT
  *   NV_ERR_OPERATING_SYSTEM
  */
-#define NV2080_CTRL_CMD_GPU_GET_NAME_STRING                (0x20800110U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_GPU_INTERFACE_ID << 8) | NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS_MESSAGE_ID" */
+#define NV2080_CTRL_CMD_GPU_GET_NAME_STRING              (0x20800110U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_GPU_INTERFACE_ID << 8) | NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS_MESSAGE_ID" */
 
-#define NV2080_GPU_MAX_NAME_STRING_LENGTH                  (0x0000040U)
+#define NV2080_GPU_MAX_NAME_STRING_LENGTH                (0x0000040U)
 
 // This field is deprecated - 'gpuNameStringFlags' is now a simple scalar.
 // Field maintained (and extended from 0:0) for compile-time compatibility.
 #define NV2080_CTRL_GPU_GET_NAME_STRING_FLAGS_TYPE                    31:0
 
-/* valid gpu name string flags */
-#define NV2080_CTRL_GPU_GET_NAME_STRING_FLAGS_TYPE_ASCII   (0x00000000U)
-#define NV2080_CTRL_GPU_GET_NAME_STRING_FLAGS_TYPE_UNICODE (0x00000001U)
+/* valid gpu name string flags - deprecated, should not set anything */
+#define NV2080_CTRL_GPU_GET_NAME_STRING_FLAGS_TYPE_ASCII (0x00000000U)
 
 #define NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS_MESSAGE_ID (0x10U)
 
 typedef struct NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS {
     NvU32 gpuNameStringFlags;
-    union {
-        NvU8  ascii[NV2080_GPU_MAX_NAME_STRING_LENGTH];
-        NvU16 unicode[NV2080_GPU_MAX_NAME_STRING_LENGTH];
+    struct {
+        NvU8 ascii[NV2080_GPU_MAX_NAME_STRING_LENGTH];
     } gpuNameString;
 } NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS;
 
@@ -852,40 +847,6 @@ typedef struct NV2080_CTRL_GPU_GET_ENGINE_FAULT_INFO_PARAMS {
 
 
 
-/*
- * NV2080_CTRL_CMD_GPU_QUERY_MODE
- *
- * This command is used to detect the mode of the GPU associated with the
- * subdevice.
- *
- *   mode
- *     This parameter returns the current mode of GPU.  Legal values for
- *     this parameter include:
- *       NV2080_CTRL_GPU_QUERY_MODE_GRAPHICS_MODE
- *         The GPU is currently operating in graphics mode.
- *       NV2080_CTRL_GPU_QUERY_MODE_COMPUTE_MODE
- *         The GPU is currently operating in compute mode.
- *       NV2080_CTRL_GPU_QUERY_MODE_UNKNOWN_MODE
- *         The current mode of the GPU could not be determined.
- *
- * Possible status values returned are:
- *   NV_OK
- */
-#define NV2080_CTRL_CMD_GPU_QUERY_MODE           (0x20800128U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_GPU_INTERFACE_ID << 8) | NV2080_CTRL_GPU_QUERY_MODE_PARAMS_MESSAGE_ID" */
-
-/* valid mode parameter values */
-#define NV2080_CTRL_GPU_QUERY_MODE_UNKNOWN_MODE  (0x00000000U)
-#define NV2080_CTRL_GPU_QUERY_MODE_GRAPHICS_MODE (0x00000001U)
-#define NV2080_CTRL_GPU_QUERY_MODE_COMPUTE_MODE  (0x00000002U)
-
-#define NV2080_CTRL_GPU_QUERY_MODE_PARAMS_MESSAGE_ID (0x28U)
-
-typedef struct NV2080_CTRL_GPU_QUERY_MODE_PARAMS {
-    NvU32 mode;
-} NV2080_CTRL_GPU_QUERY_MODE_PARAMS;
-
-
-
 /*!
  * NV2080_CTRL_GPU_PROMOTE_CTX_BUFFER_ENTRY
  * Data block describing a virtual context buffer to be promoted
@@ -1144,7 +1105,7 @@ typedef struct NV2080_CTRL_GPU_QUERY_ECC_INTR_PARAMS {
 #define NV2080_CTRL_GPU_ECC_UNIT_GSP                           (0x0000001DU)
 
 
-#define NV2080_CTRL_GPU_ECC_UNIT_COUNT                         (0x00000024U)
+#define NV2080_CTRL_GPU_ECC_UNIT_COUNT                         (0x00000029U)
 
 
 
@@ -1743,15 +1704,16 @@ typedef struct NV2080_CTRL_GPU_GET_ENGINE_PARTNERLIST_PARAMS {
  * PMC_BOOT_42 of the GPU as the hash message.
  *
  *   index
- *     (Input) "Select which GID set to get." Or so the original documentation
- *     said. In reality, there is only one GID per GPU, and the implementation
- *     completely ignores this parameter. You can too.
+ *     Index is ignored for GPU UUID. If MODE_UGPU is set in flags, index specifies
+ *     the which uGPU ID should be returned.
  *
  *   flags (Input) The _FORMAT* flags designate ascii or binary format. Binary
  *     format returns the raw bytes of either the 16-byte SHA-1 ID or the
  *     32-byte SHA-256 ID.
  *
  *     The _TYPE* flags needs to specify the _SHA1 type.
+ *
+ *     The _MODE* flags specify what type of GID to produce.
  *
  *   length
  *     (Output) Actual GID length, in bytes.
@@ -1764,6 +1726,8 @@ typedef struct NV2080_CTRL_GPU_GET_ENGINE_PARTNERLIST_PARAMS {
  *   NV_OK
  *   NV_ERR_NOT_SUPPORTED
  *   NV_ERR_INVALID_STATE
+ *   NV_ERR_INVALID_PARAMETER
+ *   NV_ERR_INVALID_INDEX
  */
 #define NV2080_CTRL_CMD_GPU_GET_GID_INFO      (0x2080014aU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_GPU_INTERFACE_ID << 8) | NV2080_CTRL_GPU_GET_GID_INFO_PARAMS_MESSAGE_ID" */
 
@@ -1789,6 +1753,10 @@ typedef struct NV2080_CTRL_GPU_GET_GID_INFO_PARAMS {
 
 #define NV2080_GPU_CMD_GPU_GET_GID_FLAGS_TYPE                    2:2
 #define NV2080_GPU_CMD_GPU_GET_GID_FLAGS_TYPE_SHA1     (0x00000000U)
+
+#define NV2080_GPU_CMD_GPU_GET_GID_FLAGS_MODE                    5:3
+#define NV2080_GPU_CMD_GPU_GET_GID_FLAGS_MODE_GPU      (0x00000000U)
+#define NV2080_GPU_CMD_GPU_GET_GID_FLAGS_MODE_UGPU     (0x00000001U)
 
 /*
  * NV2080_CTRL_CMD_GPU_GET_INFOROM_OBJECT_VERSION
@@ -2621,7 +2589,7 @@ typedef struct NV2080_CTRL_GPU_SET_PARTITION_INFO {
 #define NV2080_CTRL_GPU_MAX_PARTITIONS                                   0x00000008U
 #define NV2080_CTRL_GPU_MAX_PARTITION_IDS                                0x00000009U
 #define NV2080_CTRL_GPU_MAX_SMC_IDS                                      0x00000008U
-#define NV2080_CTRL_GPU_MAX_GPC_PER_SMC                                  0x00000010U
+#define NV2080_CTRL_GPU_MAX_GPC_PER_SMC                                  0x00000020U
 #define NV2080_CTRL_GPU_MAX_CE_PER_SMC                                   0x00000008U
 
 #define NV2080_CTRL_GPU_PARTITION_FLAG_MEMORY_SIZE              1:0
@@ -4155,6 +4123,8 @@ typedef struct NV2080_CTRL_GPU_GET_COMPUTE_PROFILES_PARAMS {
 
 
 
+#define NV2080_CTRL_GPU_FABRIC_PROBE_CAP_UC_LOOPBACK_SUPPORTED  NVBIT64(2)
+
 #define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_DEGRADED_BW                    1:0
 #define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_DEGRADED_BW_NOT_SUPPORTED      0
 #define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_DEGRADED_BW_TRUE               1
@@ -4182,6 +4152,14 @@ typedef struct NV2080_CTRL_GPU_GET_COMPUTE_PROFILES_PARAMS {
 #define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_INCORRECT_CONFIGURATION_INCORRECT_CHASSIS_SN 3
 #define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_INCORRECT_CONFIGURATION_NO_PARTITION         4
 #define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_INCORRECT_CONFIGURATION_INSUFFICIENT_NVLINKS 5
+#define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_INCORRECT_CONFIGURATION_INCOMPATIBLE_GPU_FW  6
+#define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_INCORRECT_CONFIGURATION_INVALID_LOCATION     7
+#define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_INCORRECT_CONFIGURATION_GPU_STATE_INVALID    8
+
+#define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_PARTITION_ASSIGNED 13:12
+#define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_PARTITION_ASSIGNED_NOT_SUPPORTED 0
+#define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_PARTITION_ASSIGNED_TRUE          1
+#define NV2080_CTRL_GPU_FABRIC_HEALTH_MASK_PARTITION_ASSIGNED_FALSE         2
 
 #define NV2080_CTRL_GPU_FABRIC_HEALTH_SUMMARY_NOT_SUPPORTED 0
 #define NV2080_CTRL_GPU_FABRIC_HEALTH_SUMMARY_HEALTHY 1
@@ -4506,6 +4484,7 @@ typedef enum NV2080_CTRL_GPU_RECOVERY_ACTION {
     NV2080_CTRL_GPU_RECOVERY_ACTION_NODE_REBOOT = 2,
     NV2080_CTRL_GPU_RECOVERY_ACTION_DRAIN_P2P = 3,
     NV2080_CTRL_GPU_RECOVERY_ACTION_DRAIN_AND_RESET = 4,
+    NV2080_CTRL_GPU_RECOVERY_ACTION_RECOVER_IMEX_DOMAIN = 5,
 } NV2080_CTRL_GPU_RECOVERY_ACTION;
 
 #define NV2080_CTRL_GPU_GET_RECOVERY_ACTION_PARAMS_MESSAGE_ID (0xB2U)
@@ -4672,6 +4651,7 @@ typedef struct NV2080_CTRL_GPU_RPC_GSP_TEST_PARAMS {
 #define NV2080_CTRL_GPU_RPC_GSP_TEST_SERIALIZED_INTEGRITY 0x1
 #define NV2080_CTRL_GPU_RPC_GSP_TEST_UNSERIALIZED 0x2
 #define NV2080_CTRL_GPU_RPC_GSP_TEST_SERIALIZED_NOP 0x3
+#define NV2080_CTRL_GPU_RPC_GSP_TEST_TIMEOUT 0x4
 
 /*
  * NV2080_CTRL_CMD_GPU_RPC_GSP_QUERY_SIZES
@@ -4724,7 +4704,10 @@ typedef struct NV2080_CTRL_RUSD_GET_SUPPORTED_FEATURES_PARAMS {
  * @brief Set RUSD featuress
  *
  * permanentPolledDataMask
- *     This field specifies which RUSD data should be polled.  
+ *     When a permanent polling data mask is set, RUSD will start polling the
+ *     set of specified polling data as long as there's an active userspace
+ *     channel, even if there's no active RUSD clients.
+ *     This field specifies which data to poll in permanent RUSD polling.
  *
  * @return NV_OK
  */
@@ -4735,5 +4718,114 @@ typedef struct NV2080_CTRL_RUSD_GET_SUPPORTED_FEATURES_PARAMS {
 typedef struct NV2080_CTRL_GPU_RUSD_SET_FEATURES_PARAMS {
     NV_DECLARE_ALIGNED(NvU64 permanentPolledDataMask, 8);
 } NV2080_CTRL_GPU_RUSD_SET_FEATURES_PARAMS;
+
+/*
+ * NV2080_CTRL_CMD_GPU_FORCE_GSP_UNLOAD
+ *
+ * This command is used to trigger GSP Unload
+ *
+ *  flags[IN]
+ *     Flags passed by caller - For future use.
+ *
+ * Possible status values returned are:
+ *   NV_OK
+ *   NV_ERR_INSUFFICIENT_PERMISSIONS
+ *   NV_ERR_NOT_SUPPORTED
+ */
+#define NV2080_CTRL_CMD_GPU_FORCE_GSP_UNLOAD (0x208001ecU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_GPU_INTERFACE_ID << 8) | NV2080_CTRL_GPU_FORCE_GSP_UNLOAD_PARAMS_MESSAGE_ID" */
+
+#define NV2080_CTRL_GPU_FORCE_GSP_UNLOAD_PARAMS_MESSAGE_ID (0xecU)
+
+typedef struct NV2080_CTRL_GPU_FORCE_GSP_UNLOAD_PARAMS {
+    NvU32 flags;
+} NV2080_CTRL_GPU_FORCE_GSP_UNLOAD_PARAMS;
+
+/*
+ * NV2080_CTRL_CMD_GPU_VGA_SR_READ_WRITE
+ *
+ * This control is supported only on MODS.
+ *
+ *  bRead[IN]
+ *  head[IN]
+ *  index[IN]
+ *  data[IN/OUT]
+ *
+ * Possible status values returned are:
+ *   NV_OK
+ *   NV_ERR_NOT_SUPPORTED
+ */
+#define NV2080_CTRL_CMD_GPU_VGA_SR_READ_WRITE (0x208001edU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_GPU_INTERFACE_ID << 8) | NV2080_CTRL_GPU_VGA_SR_READ_WRITE_PARAMS_MESSAGE_ID" */
+
+#define NV2080_CTRL_GPU_VGA_SR_READ_WRITE_PARAMS_MESSAGE_ID (0xedU)
+
+typedef struct NV2080_CTRL_GPU_VGA_SR_READ_WRITE_PARAMS {
+    NvBool bWrite;
+    NvU32  head;
+    NvU8   index;
+    NvU8   data;
+} NV2080_CTRL_GPU_VGA_SR_READ_WRITE_PARAMS;
+
+
+
+/* 
+ * NV2080_CTRL_CMD_GPU_ERROR_INJECTION_CONTROL
+ *
+ * @brief Injects an error for testing purposes
+ *
+ * Possible status values returned are:
+ *  NV_OK
+ *  NV_ERR_NOT_SUPPORTED
+ */
+
+typedef enum NV2080_CTRL_GPU_INJECT_ERROR_TYPE {
+    NV2080_CTRL_GPU_INJECT_ERROR_MESSAGE_QUEUE = 0,
+    NV2080_CTRL_GPU_INJECT_ERROR__COUNT = 1,
+} NV2080_CTRL_GPU_INJECT_ERROR_TYPE;
+
+#define NV2080_CTRL_CMD_GPU_ERROR_INJECTION_CONTROL (0x208001efU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_GPU_INTERFACE_ID << 8) | NV2080_CTRL_GPU_ERROR_INJECTION_CONTROL_PARAMS_MESSAGE_ID" */
+
+#define NV2080_CTRL_GPU_ERROR_INJECTION_CONTROL_PARAMS_MESSAGE_ID (0xefU)
+
+typedef struct NV2080_CTRL_GPU_ERROR_INJECTION_CONTROL_PARAMS {
+    NvU32 errorType;
+} NV2080_CTRL_GPU_ERROR_INJECTION_CONTROL_PARAMS;
+
+/*
+ * NV2080_CTRL_CMD_GPU_CHECK_MEM_SUBSYS_ERROR
+ *
+ * @brief Detect if there is a memory subsystem HW error
+ *
+ *  flags[IN]
+ *     Flags passed by caller - For future use.
+ *
+ * Possible status values returned are:
+ *   NV_OK
+ *   NV_ERR_MEMORY_ERROR
+ */
+#define NV2080_CTRL_CMD_GPU_CHECK_MEM_SUBSYS_ERROR (0x208001f0U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_GPU_INTERFACE_ID << 8) | NV2080_CTRL_GPU_CHECK_MEM_SUBSYS_ERROR_PARAMS_MESSAGE_ID" */
+
+#define NV2080_CTRL_GPU_CHECK_MEM_SUBSYS_ERROR_PARAMS_MESSAGE_ID (0xf0U)
+
+typedef struct NV2080_CTRL_GPU_CHECK_MEM_SUBSYS_ERROR_PARAMS {
+    NvU32 flags;
+} NV2080_CTRL_GPU_CHECK_MEM_SUBSYS_ERROR_PARAMS;
+
+/* 
+ * NV2080_CTRL_CMD_GPU_GET_DEFAULT_TIMEOUT
+ *
+ * @brief Returns the RM default timeout in ms
+ *
+ * Possible status values returned are:
+ *  NV_OK
+ *  NV_ERR_GENERIC
+ */
+
+#define NV2080_CTRL_CMD_GPU_GET_DEFAULT_TIMEOUT (0x208001f1U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_GPU_INTERFACE_ID << 8) | NV2080_CTRL_GPU_GET_DEFAULT_TIMEOUT_PARAMS_MESSAGE_ID" */
+
+#define NV2080_CTRL_GPU_GET_DEFAULT_TIMEOUT_PARAMS_MESSAGE_ID (0xf1U)
+
+typedef struct NV2080_CTRL_GPU_GET_DEFAULT_TIMEOUT_PARAMS {
+    NvU32 defaultTimeout;
+} NV2080_CTRL_GPU_GET_DEFAULT_TIMEOUT_PARAMS;
 
 /* _ctrl2080gpu_h_ */

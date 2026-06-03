@@ -36,26 +36,26 @@
 // and then checked back in. You cannot make changes to these sections without
 // corresponding changes to the buildmeister script
 #ifndef NV_BUILD_BRANCH
-    #define NV_BUILD_BRANCH             bugfix_main
+    #define NV_BUILD_BRANCH             r595_00
 #endif
 #ifndef NV_PUBLIC_BRANCH
-    #define NV_PUBLIC_BRANCH             bugfix_main
+    #define NV_PUBLIC_BRANCH             r595_00
 #endif
 
-#if defined(NV_LINUX) || defined(NV_BSD) || defined(NV_SUNOS)
-#define NV_BUILD_BRANCH_VERSION         "dev/gpu_drv/bugfix_main-16490"
-#define NV_BUILD_CHANGELIST_NUM         (32065427)
+#if defined(NV_LINUX) || defined(NV_BSD) || defined(NV_SUNOS) || defined(NV_DCECORE)
+#define NV_BUILD_BRANCH_VERSION         "rel/gpu_drv/r595/r595_00-269"
+#define NV_BUILD_CHANGELIST_NUM         (38005262)
 #define NV_BUILD_TYPE                   "Nightly"
-#define NV_BUILD_NAME                   "dev/gpu_drv/bugfix_main-16490"
-#define NV_LAST_OFFICIAL_CHANGELIST_NUM (30396442)
+#define NV_BUILD_NAME                   "rel/gpu_drv/r595/r595_00-269"
+#define NV_LAST_OFFICIAL_CHANGELIST_NUM (38005068)
 
 #else     /* Windows builds */
-#define NV_BUILD_BRANCH_VERSION         "bugfix_main-17962"
-#define NV_BUILD_CHANGELIST_NUM         (32066877)
-#define NV_BUILD_TYPE                   "Nightly"
-#define NV_BUILD_NAME                   "bugfix_main-221115"
-#define NV_LAST_OFFICIAL_CHANGELIST_NUM (32066644)
-#define NV_BUILD_BRANCH_BASE_VERSION    R530
+#define NV_BUILD_BRANCH_VERSION         "r595_00-231"
+#define NV_BUILD_CHANGELIST_NUM         (38004493)
+#define NV_BUILD_TYPE                   "Official"
+#define NV_BUILD_NAME                   "596.56"
+#define NV_LAST_OFFICIAL_CHANGELIST_NUM (38004493)
+#define NV_BUILD_BRANCH_BASE_VERSION    R595
 #endif
 // End buildmeister python edited section
 

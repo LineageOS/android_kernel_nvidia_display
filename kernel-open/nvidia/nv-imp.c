@@ -79,20 +79,20 @@ nv_imp_get_uefi_data
     NvU32 *floor_bw_kbps
 )
 {
-    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     NV_STATUS status = NV_OK;
-    NvU32 value = 0;
-    int ret = 0;
 
     *iso_bw_kbps = 0;
     *floor_bw_kbps = 0;
 #if NV_SUPPORTS_PLATFORM_DISPLAY_DEVICE
+    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
+    NvU32 value = 0;
+    int ret = 0;
+
     ret = of_property_read_u32(nvl->dev->of_node, "nvidia,iso-bandwidth-kbps", &value);
     if (ret != 0)
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: Unable to read nvidia,iso-bandwidth-kbps\n");
         status = NV_ERR_GENERIC;
-        goto done;
     }
     else
     {
@@ -104,15 +104,15 @@ nv_imp_get_uefi_data
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: Unable to read nvidia,dram-floor-kbps\n");
         status = NV_ERR_GENERIC;
-        goto done;
     }
     else
     {
         *floor_bw_kbps = value;
     }
+#else
+    status = NV_ERR_NOT_SUPPORTED;
 #endif
 
-done:
     return status;
 }
 

@@ -55,16 +55,11 @@ extern "C" {
 #include "mem_mgr/mem.h"
 
 /* ------------------------ Forward Declarations ---------------------------- */
-
 struct OBJOS;
 
-#ifndef __NVOC_CLASS_OBJOS_TYPEDEF__
-#define __NVOC_CLASS_OBJOS_TYPEDEF__
-typedef struct OBJOS OBJOS;
-#endif /* __NVOC_CLASS_OBJOS_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_OBJOS
-#define __nvoc_class_id_OBJOS 0xaa1d70
+#define __nvoc_class_id_OBJOS 0xaa1d70u
+typedef struct OBJOS OBJOS;
 #endif /* __nvoc_class_id_OBJOS */
 
 
@@ -120,13 +115,9 @@ struct NVOC_METADATA__OBJHYPERVISOR {
     const struct NVOC_METADATA__Object metadata__Object;
 };
 
-#ifndef __NVOC_CLASS_OBJHYPERVISOR_TYPEDEF__
-#define __NVOC_CLASS_OBJHYPERVISOR_TYPEDEF__
-typedef struct OBJHYPERVISOR OBJHYPERVISOR;
-#endif /* __NVOC_CLASS_OBJHYPERVISOR_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_OBJHYPERVISOR
-#define __nvoc_class_id_OBJHYPERVISOR 0x33c1ba
+#define __nvoc_class_id_OBJHYPERVISOR 0x33c1bau
+typedef struct OBJHYPERVISOR OBJHYPERVISOR;
 #endif /* __nvoc_class_id_OBJHYPERVISOR */
 
 // Casting support
@@ -146,79 +137,83 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJHYPERVISOR;
 #define PDB_PROP_HYPERVISOR_DRIVERVM_ENABLED_BASE_CAST
 #define PDB_PROP_HYPERVISOR_DRIVERVM_ENABLED_BASE_NAME PDB_PROP_HYPERVISOR_DRIVERVM_ENABLED
 
+
 NV_STATUS __nvoc_objCreateDynamic_OBJHYPERVISOR(OBJHYPERVISOR**, Dynamic*, NvU32, va_list);
 
 NV_STATUS __nvoc_objCreate_OBJHYPERVISOR(OBJHYPERVISOR**, Dynamic*, NvU32);
-#define __objCreate_OBJHYPERVISOR(ppNewObj, pParent, createFlags) \
-    __nvoc_objCreate_OBJHYPERVISOR((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
+#define __objCreate_OBJHYPERVISOR(__nvoc_ppNewObj, __nvoc_pParent, __nvoc_createFlags) \
+    __nvoc_objCreate_OBJHYPERVISOR((__nvoc_ppNewObj), staticCast((__nvoc_pParent), Dynamic), (__nvoc_createFlags))
 
 
-// Wrapper macros
+// Wrapper macros for implementation functions
+#define hypervisorIsVgxHyper() hypervisorIsVgxHyper_IMPL()
+
+NV_STATUS hypervisorConstruct_IMPL(struct OBJHYPERVISOR *arg_this);
+#define __nvoc_hypervisorConstruct(arg_this) hypervisorConstruct_IMPL(arg_this)
+
+void hypervisorDestruct_IMPL(struct OBJHYPERVISOR *arg_this);
+#define __nvoc_hypervisorDestruct(arg_this) hypervisorDestruct_IMPL(arg_this)
+
+#ifdef __nvoc_hypervisor_h_disabled
+static inline NV_STATUS hypervisorInjectInterrupt(struct OBJHYPERVISOR *arg_this, VGPU_NS_INTR *arg2) {
+    NV_ASSERT_FAILED_PRECOMP("OBJHYPERVISOR was disabled!");
+    return NV_ERR_NOT_SUPPORTED;
+}
+#else // __nvoc_hypervisor_h_disabled
+#define hypervisorInjectInterrupt(arg_this, arg2) hypervisorInjectInterrupt_IMPL(arg_this, arg2)
+#endif // __nvoc_hypervisor_h_disabled
+
+#ifdef __nvoc_hypervisor_h_disabled
+static inline void hypervisorSetHypervVgpuSupported(struct OBJHYPERVISOR *arg_this) {
+    NV_ASSERT_FAILED_PRECOMP("OBJHYPERVISOR was disabled!");
+}
+#else // __nvoc_hypervisor_h_disabled
+#define hypervisorSetHypervVgpuSupported(arg_this) hypervisorSetHypervVgpuSupported_IMPL(arg_this)
+#endif // __nvoc_hypervisor_h_disabled
+
+
+// Wrapper macros for halified functions
+#define hypervisorIsVgxHyper_HAL() hypervisorIsVgxHyper()
+#define hypervisorInjectInterrupt_HAL(arg_this, arg2) hypervisorInjectInterrupt(arg_this, arg2)
+#define hypervisorSetHypervVgpuSupported_HAL(arg_this) hypervisorSetHypervVgpuSupported(arg_this)
 
 // Dispatch functions
+// Virtual method declarations and/or inline definitions
+// Exported method declarations and/or inline definitions
+// HAL method declarations without bodies
 NvBool hypervisorIsVgxHyper_IMPL(void);
 
+NV_STATUS hypervisorInjectInterrupt_IMPL(struct OBJHYPERVISOR *arg_this, VGPU_NS_INTR *arg2);
 
-#define hypervisorIsVgxHyper() hypervisorIsVgxHyper_IMPL()
-#define hypervisorIsVgxHyper_HAL() hypervisorIsVgxHyper()
+void hypervisorSetHypervVgpuSupported_IMPL(struct OBJHYPERVISOR *arg_this);
 
-NV_STATUS hypervisorInjectInterrupt_IMPL(struct OBJHYPERVISOR *arg1, VGPU_NS_INTR *arg2);
-
-
-#ifdef __nvoc_hypervisor_h_disabled
-static inline NV_STATUS hypervisorInjectInterrupt(struct OBJHYPERVISOR *arg1, VGPU_NS_INTR *arg2) {
-    NV_ASSERT_FAILED_PRECOMP("OBJHYPERVISOR was disabled!");
-    return NV_ERR_NOT_SUPPORTED;
-}
-#else //__nvoc_hypervisor_h_disabled
-#define hypervisorInjectInterrupt(arg1, arg2) hypervisorInjectInterrupt_IMPL(arg1, arg2)
-#endif //__nvoc_hypervisor_h_disabled
-
-#define hypervisorInjectInterrupt_HAL(arg1, arg2) hypervisorInjectInterrupt(arg1, arg2)
-
-void hypervisorSetHypervVgpuSupported_IMPL(struct OBJHYPERVISOR *arg1);
-
-
-#ifdef __nvoc_hypervisor_h_disabled
-static inline void hypervisorSetHypervVgpuSupported(struct OBJHYPERVISOR *arg1) {
-    NV_ASSERT_FAILED_PRECOMP("OBJHYPERVISOR was disabled!");
-}
-#else //__nvoc_hypervisor_h_disabled
-#define hypervisorSetHypervVgpuSupported(arg1) hypervisorSetHypervVgpuSupported_IMPL(arg1)
-#endif //__nvoc_hypervisor_h_disabled
-
-#define hypervisorSetHypervVgpuSupported_HAL(arg1) hypervisorSetHypervVgpuSupported(arg1)
-
-static inline NvBool hypervisorCheckForObjectAccess(NvHandle hClient) {
+// Inline HAL method definitions
+// Static dispatch method declarations
+// Static inline method definitions
+static inline NvBool hypervisorCheckForObjectAccess(NvHandle hClient){
     return NV_FALSE;
 }
 
-static inline NvBool hypervisorIsType(HYPERVISOR_TYPE hyperType) {
+static inline NvBool hypervisorIsType(HYPERVISOR_TYPE hyperType){
     return NV_FALSE;
 }
 
-static inline NV_STATUS hypervisorDetection(struct OBJHYPERVISOR *arg1, struct OBJOS *arg2) {
+static inline NV_STATUS hypervisorDetection(struct OBJHYPERVISOR *arg_this, struct OBJOS *arg2){
     return NV_ERR_NOT_SUPPORTED;
 }
 
-static inline NvBool hypervisorPcieP2pDetection(struct OBJHYPERVISOR *arg1, NvU32 arg2) {
+static inline NvBool hypervisorPcieP2pDetection(struct OBJHYPERVISOR *arg_this, NvU32 arg2){
     return NV_FALSE;
 }
 
-static inline HYPERVISOR_TYPE hypervisorGetHypervisorType(struct OBJHYPERVISOR *arg1) {
+static inline HYPERVISOR_TYPE hypervisorGetHypervisorType(struct OBJHYPERVISOR *arg_this){
     return OS_HYPERVISOR_UNKNOWN;
 }
 
-static inline void hypervisorSetHypervisorType(struct OBJHYPERVISOR *pHypervisor, HYPERVISOR_TYPE type) {
+static inline void hypervisorSetHypervisorType(struct OBJHYPERVISOR *pHypervisor, HYPERVISOR_TYPE type){
     return;
 }
 
-NV_STATUS hypervisorConstruct_IMPL(struct OBJHYPERVISOR *arg_);
-
-#define __nvoc_hypervisorConstruct(arg_) hypervisorConstruct_IMPL(arg_)
-void hypervisorDestruct_IMPL(struct OBJHYPERVISOR *arg1);
-
-#define __nvoc_hypervisorDestruct(arg1) hypervisorDestruct_IMPL(arg1)
 #undef PRIVATE_FIELD
 
 

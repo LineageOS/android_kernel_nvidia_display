@@ -132,7 +132,7 @@ typedef struct THREAD_STATE_DB
      * Thread state sequencer id counter.  The last allocated thread state
      * sequencer id via @ref threadStateInitXYZ().
      */
-    NvU32   threadSeqCntr;
+    PORT_ATOMIC NvU32   threadSeqCntr;
     /*!
      * Thread state sequencer id counter for only GSP task_interrupt.
      */
@@ -187,6 +187,8 @@ typedef struct THREAD_STATE_DB
 #define THREAD_STATE_FLAGS_TIMEOUT_INITED               NVBIT(5)
 #define THREAD_STATE_FLAGS_DEVICE_INIT                  NVBIT(7)
 #define THREAD_STATE_FLAGS_STATE_FREE_CB_ENABLED        NVBIT(8)
+#define THREAD_STATE_FLAGS_IS_KERNEL_THREAD             NVBIT(9)
+#define THREAD_STATE_FLAGS_IS_EXITING                   NVBIT(10)
 
 // These Threads run exclusively between a conditional acquire
 #define THREAD_STATE_FLAGS_EXCLUSIVE_RUNNING   (THREAD_STATE_FLAGS_IS_ISR                       | \

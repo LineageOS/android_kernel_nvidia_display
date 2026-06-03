@@ -16,7 +16,7 @@
 
 
 #ifdef DEBUG
-char __nvoc_class_id_uniqueness_check__0xe0ac20 = 1;
+char __nvoc_class_id_uniqueness_check__e0ac20 = 1;
 #endif
 
 extern const struct NVOC_CLASS_DEF __nvoc_class_def_Device;
@@ -30,7 +30,7 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_GpuResource;
 void __nvoc_init__GpuResource(GpuResource*);
 void __nvoc_init__Device(Device*, RmHalspecOwner *pRmhalspecowner);
 void __nvoc_init_funcTable_Device(Device*, RmHalspecOwner *pRmhalspecowner);
-NV_STATUS __nvoc_ctor_Device(Device*, RmHalspecOwner *pRmhalspecowner, struct CALL_CONTEXT *arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL *arg_pParams);
+NV_STATUS __nvoc_ctor_Device(Device*, RmHalspecOwner *pRmhalspecowner, struct CALL_CONTEXT *pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL *pParams);
 void __nvoc_init_dataField_Device(Device*, RmHalspecOwner *pRmhalspecowner);
 void __nvoc_dtor_Device(Device*);
 
@@ -106,32 +106,33 @@ NV_STATUS __nvoc_up_thunk_RsResource_deviceUnmapFrom(struct Device *pResource, R
 NvU32 __nvoc_up_thunk_RsResource_deviceGetRefCount(struct Device *pResource);    // this
 void __nvoc_up_thunk_RsResource_deviceAddAdditionalDependants(struct RsClient *pClient, struct Device *pResource, RsResourceRef *pReference);    // this
 
+// Class-specific details for Device
 const struct NVOC_CLASS_DEF __nvoc_class_def_Device = 
 {
-    /*classInfo=*/ {
-        /*size=*/               sizeof(Device),
-        /*classId=*/            classId(Device),
-        /*providerId=*/         &__nvoc_rtti_provider,
+    .classInfo.size =               sizeof(Device),
+    .classInfo.classId =            classId(Device),
+    .classInfo.providerId =         &__nvoc_rtti_provider,
 #if NV_PRINTF_STRINGS_ALLOWED
-        /*name=*/               "Device",
+    .classInfo.name =               "Device",
 #endif
-    },
-    /*objCreatefn=*/        (NVOC_DYNAMIC_OBJ_CREATE) &__nvoc_objCreateDynamic_Device,
-    /*pCastInfo=*/          &__nvoc_castinfo__Device,
-    /*pExportInfo=*/        &__nvoc_export_info__Device
+    .objCreatefn =        (NVOC_DYNAMIC_OBJ_CREATE) &__nvoc_objCreateDynamic_Device,
+    .pCastInfo =          &__nvoc_castinfo__Device,
+    .pExportInfo =        &__nvoc_export_info__Device
 };
 
+// By default, all exported methods are enabled.
 #if !defined(NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG)
 #define NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(x)      (0)
 #endif
 
+// Exported method array
 static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[] = 
 {
     {               /*  [0] */
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x10bu)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdGpuGetClasslist_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdGpuGetClasslist_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x10bu)
         /*flags=*/      0x10bu,
         /*accessRight=*/0x0u,
@@ -146,7 +147,7 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x509u)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdGpuGetNumSubdevices_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdGpuGetNumSubdevices_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x509u)
         /*flags=*/      0x509u,
         /*accessRight=*/0x0u,
@@ -161,7 +162,7 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x5u)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdGpuModifyGpuSwStatePersistence_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdGpuModifyGpuSwStatePersistence_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x5u)
         /*flags=*/      0x5u,
         /*accessRight=*/0x0u,
@@ -176,7 +177,7 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x9u)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdGpuQueryGpuSwStatePersistence_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdGpuQueryGpuSwStatePersistence_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x9u)
         /*flags=*/      0x9u,
         /*accessRight=*/0x0u,
@@ -191,7 +192,7 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x109u)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdGpuGetVirtualizationMode_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdGpuGetVirtualizationMode_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x109u)
         /*flags=*/      0x109u,
         /*accessRight=*/0x0u,
@@ -206,12 +207,12 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x8u)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdGpuVirtualizationSwitchToVga_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdGpuVirtualizationSwitchToVga_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x8u)
         /*flags=*/      0x8u,
         /*accessRight=*/0x0u,
         /*methodId=*/   0x800290u,
-        /*paramSize=*/  0,
+        /*paramSize=*/  0 /* Singleton parameter list */,
         /*pClassInfo=*/ &(__nvoc_class_def_Device.classInfo),
 #if NV_PRINTF_STRINGS_ALLOWED
         /*func=*/       "deviceCtrlCmdGpuVirtualizationSwitchToVga"
@@ -221,7 +222,7 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x1010bu)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdGpuGetClasslistV2_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdGpuGetClasslistV2_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x1010bu)
         /*flags=*/      0x1010bu,
         /*accessRight=*/0x0u,
@@ -236,7 +237,7 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x10bu)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdGpuGetFindSubDeviceHandle_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdGpuGetFindSubDeviceHandle_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x10bu)
         /*flags=*/      0x10bu,
         /*accessRight=*/0x0u,
@@ -251,7 +252,7 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x40049u)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdGpuGetBrandCaps_DISPATCH,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdGpuGetBrandCaps_5baef9,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x40049u)
         /*flags=*/      0x40049u,
         /*accessRight=*/0x0u,
@@ -266,7 +267,7 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x44u)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdGpuSetVgpuVfBar1Size_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdGpuSetVgpuVfBar1Size_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x44u)
         /*flags=*/      0x44u,
         /*accessRight=*/0x0u,
@@ -281,7 +282,7 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x8u)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdGpuSetVgpuHeterogeneousMode_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdGpuSetVgpuHeterogeneousMode_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x8u)
         /*flags=*/      0x8u,
         /*accessRight=*/0x0u,
@@ -296,7 +297,7 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x8u)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdGpuGetVgpuHeterogeneousMode_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdGpuGetVgpuHeterogeneousMode_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x8u)
         /*flags=*/      0x8u,
         /*accessRight=*/0x0u,
@@ -311,7 +312,7 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x1u)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdOsUnixVTSwitch_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdOsUnixVTSwitch_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x1u)
         /*flags=*/      0x1u,
         /*accessRight=*/0x0u,
@@ -326,7 +327,7 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
 #if NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x1u)
         /*pFunc=*/      (void (*)(void)) NULL,
 #else
-        /*pFunc=*/      (void (*)(void)) deviceCtrlCmdOsUnixVTGetFBInfo_IMPL,
+        /*pFunc=*/      (void (*)(void)) &deviceCtrlCmdOsUnixVTGetFBInfo_IMPL,
 #endif // NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x1u)
         /*flags=*/      0x1u,
         /*accessRight=*/0x0u,
@@ -337,7 +338,6 @@ static const struct NVOC_EXPORTED_METHOD_DEF __nvoc_exported_method_def_Device[]
         /*func=*/       "deviceCtrlCmdOsUnixVTGetFBInfo"
 #endif
     },
-
 };
 
 
@@ -600,17 +600,24 @@ void __nvoc_up_thunk_RsResource_deviceAddAdditionalDependants(struct RsClient *p
 
 const struct NVOC_EXPORT_INFO __nvoc_export_info__Device = 
 {
-    /*numEntries=*/     14,
-    /*pExportEntries=*/ __nvoc_exported_method_def_Device
+    .numEntries=     14,
+    .pExportEntries= __nvoc_exported_method_def_Device
 };
 
+
+// Destruct Device object.
+void __nvoc_deviceDestruct(Device*);
 void __nvoc_dtor_GpuResource(GpuResource*);
-void __nvoc_dtor_Device(Device *pThis) {
+void __nvoc_dtor_Device(Device* pThis) {
+
+// Call destructor.
     __nvoc_deviceDestruct(pThis);
+
+// Recurse to superclass destructors.
     __nvoc_dtor_GpuResource(&pThis->__nvoc_base_GpuResource);
+
     PORT_UNREFERENCED_VARIABLE(pThis);
 }
-
 void __nvoc_init_dataField_Device(Device *pThis, RmHalspecOwner *pRmhalspecowner) {
     RmVariantHal *rmVariantHal = &pRmhalspecowner->rmVariantHal;
     const unsigned long rmVariantHal_HalVarIdx = (unsigned long)rmVariantHal->__nvoc_HalVarIdx;
@@ -620,22 +627,29 @@ void __nvoc_init_dataField_Device(Device *pThis, RmHalspecOwner *pRmhalspecowner
     PORT_UNREFERENCED_VARIABLE(rmVariantHal_HalVarIdx);
 }
 
-NV_STATUS __nvoc_ctor_GpuResource(GpuResource* , struct CALL_CONTEXT *, struct RS_RES_ALLOC_PARAMS_INTERNAL *);
-NV_STATUS __nvoc_ctor_Device(Device *pThis, RmHalspecOwner *pRmhalspecowner, struct CALL_CONTEXT * arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL * arg_pParams) {
-    NV_STATUS status = NV_OK;
-    status = __nvoc_ctor_GpuResource(&pThis->__nvoc_base_GpuResource, arg_pCallContext, arg_pParams);
-    if (status != NV_OK) goto __nvoc_ctor_Device_fail_GpuResource;
-    __nvoc_init_dataField_Device(pThis, pRmhalspecowner);
 
-    status = __nvoc_deviceConstruct(pThis, arg_pCallContext, arg_pParams);
+// Construct Device object.
+NV_STATUS __nvoc_ctor_GpuResource(GpuResource *pGpuResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL *pParams);    // inline
+NV_STATUS __nvoc_ctor_Device(Device *pResource, RmHalspecOwner *pRmhalspecowner, struct CALL_CONTEXT *pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL *pParams) {    // inline
+    NV_STATUS status = NV_OK;
+
+    // Recurse to ancestor constructor(s).
+    status = __nvoc_ctor_GpuResource(&pResource->__nvoc_base_GpuResource, pCallContext, pParams);
+    if (status != NV_OK) goto __nvoc_ctor_Device_fail_GpuResource;
+
+    // Initialize data fields.
+    __nvoc_init_dataField_Device(pResource, pRmhalspecowner);
+
+    // Call the constructor for this class.
+    status = __nvoc_deviceConstruct(pResource, pCallContext, pParams);
     if (status != NV_OK) goto __nvoc_ctor_Device_fail__init;
     goto __nvoc_ctor_Device_exit; // Success
 
+    // Unwind on error.
 __nvoc_ctor_Device_fail__init:
-    __nvoc_dtor_GpuResource(&pThis->__nvoc_base_GpuResource);
+    __nvoc_dtor_GpuResource(&pResource->__nvoc_base_GpuResource);
 __nvoc_ctor_Device_fail_GpuResource:
 __nvoc_ctor_Device_exit:
-
     return status;
 }
 
@@ -647,81 +661,11 @@ static void __nvoc_init_funcTable_Device_1(Device *pThis, RmHalspecOwner *pRmhal
     PORT_UNREFERENCED_VARIABLE(pRmhalspecowner);
     PORT_UNREFERENCED_VARIABLE(rmVariantHal);
     PORT_UNREFERENCED_VARIABLE(rmVariantHal_HalVarIdx);
-
-    // deviceCtrlCmdGpuGetClasslist -- exported (id=0x800201)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x10bu)
-    pThis->__deviceCtrlCmdGpuGetClasslist__ = &deviceCtrlCmdGpuGetClasslist_IMPL;
-#endif
-
-    // deviceCtrlCmdGpuGetClasslistV2 -- exported (id=0x800292)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x1010bu)
-    pThis->__deviceCtrlCmdGpuGetClasslistV2__ = &deviceCtrlCmdGpuGetClasslistV2_IMPL;
-#endif
-
-    // deviceCtrlCmdGpuGetNumSubdevices -- exported (id=0x800280)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x509u)
-    pThis->__deviceCtrlCmdGpuGetNumSubdevices__ = &deviceCtrlCmdGpuGetNumSubdevices_IMPL;
-#endif
-
-    // deviceCtrlCmdGpuModifyGpuSwStatePersistence -- exported (id=0x800287)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x5u)
-    pThis->__deviceCtrlCmdGpuModifyGpuSwStatePersistence__ = &deviceCtrlCmdGpuModifyGpuSwStatePersistence_IMPL;
-#endif
-
-    // deviceCtrlCmdGpuQueryGpuSwStatePersistence -- exported (id=0x800288)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x9u)
-    pThis->__deviceCtrlCmdGpuQueryGpuSwStatePersistence__ = &deviceCtrlCmdGpuQueryGpuSwStatePersistence_IMPL;
-#endif
-
-    // deviceCtrlCmdGpuGetVirtualizationMode -- exported (id=0x800289)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x109u)
-    pThis->__deviceCtrlCmdGpuGetVirtualizationMode__ = &deviceCtrlCmdGpuGetVirtualizationMode_IMPL;
-#endif
-
-    // deviceCtrlCmdGpuSetVgpuVfBar1Size -- exported (id=0x800296)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x44u)
-    pThis->__deviceCtrlCmdGpuSetVgpuVfBar1Size__ = &deviceCtrlCmdGpuSetVgpuVfBar1Size_IMPL;
-#endif
-
-    // deviceCtrlCmdGpuGetBrandCaps -- halified (singleton optimized) exported (id=0x800294) body
-    pThis->__deviceCtrlCmdGpuGetBrandCaps__ = &deviceCtrlCmdGpuGetBrandCaps_5baef9;
-
-    // deviceCtrlCmdGpuVirtualizationSwitchToVga -- exported (id=0x800290)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x8u)
-    pThis->__deviceCtrlCmdGpuVirtualizationSwitchToVga__ = &deviceCtrlCmdGpuVirtualizationSwitchToVga_IMPL;
-#endif
-
-    // deviceCtrlCmdGpuSetVgpuHeterogeneousMode -- exported (id=0x800297)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x8u)
-    pThis->__deviceCtrlCmdGpuSetVgpuHeterogeneousMode__ = &deviceCtrlCmdGpuSetVgpuHeterogeneousMode_IMPL;
-#endif
-
-    // deviceCtrlCmdGpuGetVgpuHeterogeneousMode -- exported (id=0x800298)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x8u)
-    pThis->__deviceCtrlCmdGpuGetVgpuHeterogeneousMode__ = &deviceCtrlCmdGpuGetVgpuHeterogeneousMode_IMPL;
-#endif
-
-    // deviceCtrlCmdGpuGetFindSubDeviceHandle -- exported (id=0x800293)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x10bu)
-    pThis->__deviceCtrlCmdGpuGetFindSubDeviceHandle__ = &deviceCtrlCmdGpuGetFindSubDeviceHandle_IMPL;
-#endif
-
-    // deviceCtrlCmdOsUnixVTSwitch -- exported (id=0x801e01)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x1u)
-    pThis->__deviceCtrlCmdOsUnixVTSwitch__ = &deviceCtrlCmdOsUnixVTSwitch_IMPL;
-#endif
-
-    // deviceCtrlCmdOsUnixVTGetFBInfo -- exported (id=0x801e02)
-#if !NVOC_EXPORTED_METHOD_DISABLED_BY_FLAG(0x1u)
-    pThis->__deviceCtrlCmdOsUnixVTGetFBInfo__ = &deviceCtrlCmdOsUnixVTGetFBInfo_IMPL;
-#endif
-} // End __nvoc_init_funcTable_Device_1 with approximately 14 basic block(s).
+} // End __nvoc_init_funcTable_Device_1
 
 
-// Initialize vtable(s) for 39 virtual method(s).
+// Initialize vtable(s) for 25 virtual method(s).
 void __nvoc_init_funcTable_Device(Device *pThis, RmHalspecOwner *pRmhalspecowner) {
-
-    // Initialize vtable(s) with 14 per-object function pointer(s).
     __nvoc_init_funcTable_Device_1(pThis, pRmhalspecowner);
 }
 
@@ -751,76 +695,91 @@ void __nvoc_init__Device(Device *pThis, RmHalspecOwner *pRmhalspecowner) {
     __nvoc_init_funcTable_Device(pThis, pRmhalspecowner);
 }
 
-NV_STATUS __nvoc_objCreate_Device(Device **ppThis, Dynamic *pParent, NvU32 createFlags, struct CALL_CONTEXT * arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL * arg_pParams)
+NV_STATUS __nvoc_objCreate_Device(Device **__nvoc_ppThis, Dynamic *__nvoc_pParent, NvU32 __nvoc_createFlags, struct CALL_CONTEXT *pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL *pParams)
 {
-    NV_STATUS status;
-    Object *pParentObj = NULL;
-    Device *pThis;
+    NV_STATUS __nvoc_status;
+    Object *__nvoc_pParentObj = NULL;
+    Device *__nvoc_pThis;
     RmHalspecOwner *pRmhalspecowner;
 
-    // Assign `pThis`, allocating memory unless suppressed by flag.
-    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(Device), (void**)&pThis, (void**)ppThis);
-    if (status != NV_OK)
-        return status;
+    // Don't allocate memory if the caller has already done so.
+    if (__nvoc_createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+    {
+        NV_CHECK_OR_RETURN(LEVEL_ERROR, __nvoc_ppThis != NULL && *__nvoc_ppThis != NULL, NV_ERR_INVALID_PARAMETER);
+        __nvoc_pThis = *__nvoc_ppThis;
+    }
+
+    // Allocate memory
+    else
+    {
+        __nvoc_pThis = portMemAllocNonPaged(sizeof(Device));
+        NV_CHECK_OR_RETURN(LEVEL_ERROR, __nvoc_pThis != NULL, NV_ERR_NO_MEMORY);
+    }
 
     // Zero is the initial value for everything.
-    portMemSet(pThis, 0, sizeof(Device));
+    portMemSet(__nvoc_pThis, 0, sizeof(Device));
 
-    pThis->__nvoc_base_GpuResource.__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_base_Object.createFlags = createFlags;
+    __nvoc_pThis->__nvoc_base_GpuResource.__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_base_Object.createFlags = __nvoc_createFlags;
 
     // pParent must be a valid object that derives from a halspec owner class.
-    NV_ASSERT_OR_RETURN(pParent != NULL, NV_ERR_INVALID_ARGUMENT);
+    NV_CHECK_TRUE_OR_GOTO(__nvoc_status, LEVEL_ERROR, __nvoc_pParent != NULL, NV_ERR_INVALID_ARGUMENT, __nvoc_objCreate_Device_cleanup);
 
     // Link the child into the parent unless flagged not to do so.
-    if (!(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
+    if (!(__nvoc_createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
-        pParentObj = dynamicCast(pParent, Object);
-        objAddChild(pParentObj, &pThis->__nvoc_base_GpuResource.__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_base_Object);
+        __nvoc_pParentObj = dynamicCast(__nvoc_pParent, Object);
+        objAddChild(__nvoc_pParentObj, &__nvoc_pThis->__nvoc_base_GpuResource.__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_base_Object);
     }
     else
     {
-        pThis->__nvoc_base_GpuResource.__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_base_Object.pParent = NULL;
+        __nvoc_pThis->__nvoc_base_GpuResource.__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_base_Object.pParent = NULL;
     }
 
-    if ((pRmhalspecowner = dynamicCast(pParent, RmHalspecOwner)) == NULL)
-        pRmhalspecowner = objFindAncestorOfType(RmHalspecOwner, pParent);
-    NV_ASSERT_OR_RETURN(pRmhalspecowner != NULL, NV_ERR_INVALID_ARGUMENT);
+    // HALs are defined by the parent or the first super class.
+    if ((pRmhalspecowner = dynamicCast(__nvoc_pParent, RmHalspecOwner)) == NULL)
+        pRmhalspecowner = objFindAncestorOfType(RmHalspecOwner, __nvoc_pParent);
+    NV_CHECK_TRUE_OR_GOTO(__nvoc_status, LEVEL_ERROR, pRmhalspecowner != NULL, NV_ERR_INVALID_ARGUMENT, __nvoc_objCreate_Device_cleanup);
 
-    __nvoc_init__Device(pThis, pRmhalspecowner);
-    status = __nvoc_ctor_Device(pThis, pRmhalspecowner, arg_pCallContext, arg_pParams);
-    if (status != NV_OK) goto __nvoc_objCreate_Device_cleanup;
+    // Initialize vtable, RTTI, etc., then call constructor.
+    __nvoc_init__Device(__nvoc_pThis, pRmhalspecowner);
+    __nvoc_status = __nvoc_ctor_Device(__nvoc_pThis, pRmhalspecowner, pCallContext, pParams);
+    if (__nvoc_status != NV_OK) goto __nvoc_objCreate_Device_cleanup;
 
     // Assignment has no effect if NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT is set.
-    *ppThis = pThis;
+    *__nvoc_ppThis = __nvoc_pThis;
 
+    // Success
     return NV_OK;
 
+    // Do not call destructors here since the constructor already called them.
 __nvoc_objCreate_Device_cleanup:
 
     // Unlink the child from the parent if it was linked above.
-    if (pParentObj != NULL)
-        objRemoveChild(pParentObj, &pThis->__nvoc_base_GpuResource.__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_base_Object);
+    if (__nvoc_pParentObj != NULL)
+        objRemoveChild(__nvoc_pParentObj, &__nvoc_pThis->__nvoc_base_GpuResource.__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_base_Object);
 
-    // Do not call destructors here since the constructor already called them.
-    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
-        portMemSet(pThis, 0, sizeof(Device));
+    // Zero out memory that was allocated by caller.
+    if (__nvoc_createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(__nvoc_pThis, 0, sizeof(Device));
+
+    // Free memory allocated by `__nvoc_handleObjCreateMemAlloc`.
     else
     {
-        portMemFree(pThis);
-        *ppThis = NULL;
+        portMemFree(__nvoc_pThis);
+        *__nvoc_ppThis = NULL;
     }
 
-    // coverity[leaked_storage:FALSE]
-    return status;
+    // Failure
+    return __nvoc_status;
 }
 
-NV_STATUS __nvoc_objCreateDynamic_Device(Device **ppThis, Dynamic *pParent, NvU32 createFlags, va_list args) {
-    NV_STATUS status;
-    struct CALL_CONTEXT * arg_pCallContext = va_arg(args, struct CALL_CONTEXT *);
-    struct RS_RES_ALLOC_PARAMS_INTERNAL * arg_pParams = va_arg(args, struct RS_RES_ALLOC_PARAMS_INTERNAL *);
+NV_STATUS __nvoc_objCreateDynamic_Device(Device **__nvoc_ppThis, Dynamic *__nvoc_pParent, NvU32 __nvoc_createFlags, va_list __nvoc_args) {
+    NV_STATUS __nvoc_status;
+    struct CALL_CONTEXT *pCallContext = va_arg(__nvoc_args, struct CALL_CONTEXT *);
+    struct RS_RES_ALLOC_PARAMS_INTERNAL *pParams = va_arg(__nvoc_args, struct RS_RES_ALLOC_PARAMS_INTERNAL *);
 
-    status = __nvoc_objCreate_Device(ppThis, pParent, createFlags, arg_pCallContext, arg_pParams);
+    __nvoc_status = __nvoc_objCreate_Device(__nvoc_ppThis, __nvoc_pParent, __nvoc_createFlags, pCallContext, pParams);
 
-    return status;
+    return __nvoc_status;
 }
 

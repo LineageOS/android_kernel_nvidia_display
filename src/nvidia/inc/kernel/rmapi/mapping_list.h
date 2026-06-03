@@ -39,7 +39,6 @@ typedef struct Memory Memory;
 
 // dma information definitions
 typedef struct _def_client_dma_mapping_info CLI_DMA_MAPPING_INFO, *PCLI_DMA_MAPPING_INFO;
-typedef struct _def_client_dma_mapping_info_iterator CLI_DMA_MAPPING_INFO_ITERATOR, *PCLI_DMA_MAPPING_INFO_ITERATOR;
 
 // mapping information definitions
 typedef struct _def_client_dma_alloc_map_info           CLI_DMA_ALLOC_MAP_INFO;

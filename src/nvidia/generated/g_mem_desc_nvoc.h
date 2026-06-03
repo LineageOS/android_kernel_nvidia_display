@@ -47,56 +47,38 @@ extern "C" {
 #include "core/prelude.h"
 #include "poolalloc.h"
 
-
+#include "gpu/mem_mgr/rm_page_size.h"
+#include "os/nv_memory_iterator.h"
 
 struct OBJVASPACE;
 
-#ifndef __NVOC_CLASS_OBJVASPACE_TYPEDEF__
-#define __NVOC_CLASS_OBJVASPACE_TYPEDEF__
-typedef struct OBJVASPACE OBJVASPACE;
-#endif /* __NVOC_CLASS_OBJVASPACE_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_OBJVASPACE
-#define __nvoc_class_id_OBJVASPACE 0x6c347f
+#define __nvoc_class_id_OBJVASPACE 0x6c347fu
+typedef struct OBJVASPACE OBJVASPACE;
 #endif /* __nvoc_class_id_OBJVASPACE */
-
 
 
 struct OBJGPU;
 
-#ifndef __NVOC_CLASS_OBJGPU_TYPEDEF__
-#define __NVOC_CLASS_OBJGPU_TYPEDEF__
-typedef struct OBJGPU OBJGPU;
-#endif /* __NVOC_CLASS_OBJGPU_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_OBJGPU
-#define __nvoc_class_id_OBJGPU 0x7ef3cb
+#define __nvoc_class_id_OBJGPU 0x7ef3cbu
+typedef struct OBJGPU OBJGPU;
 #endif /* __nvoc_class_id_OBJGPU */
-
 
 
 struct Heap;
 
-#ifndef __NVOC_CLASS_Heap_TYPEDEF__
-#define __NVOC_CLASS_Heap_TYPEDEF__
-typedef struct Heap Heap;
-#endif /* __NVOC_CLASS_Heap_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_Heap
-#define __nvoc_class_id_Heap 0x556e9a
+#define __nvoc_class_id_Heap 0x556e9au
+typedef struct Heap Heap;
 #endif /* __nvoc_class_id_Heap */
-
 
 
 struct RsClient;
 
-#ifndef __NVOC_CLASS_RsClient_TYPEDEF__
-#define __NVOC_CLASS_RsClient_TYPEDEF__
-typedef struct RsClient RsClient;
-#endif /* __NVOC_CLASS_RsClient_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_RsClient
-#define __nvoc_class_id_RsClient 0x8f87e5
+#define __nvoc_class_id_RsClient 0x8f87e5u
+typedef struct RsClient RsClient;
 #endif /* __nvoc_class_id_RsClient */
 
 
@@ -117,8 +99,7 @@ typedef NvU32      NV_ADDRESS_SPACE;
 #define ADDR_REGMEM     3         // NV register memory space
 #define ADDR_VIRTUAL    4         // Virtual address space only
 #define ADDR_FABRIC_V2  6         // Fabric address space for the FLA based addressing. Will replace ADDR_FABRIC.
-#define ADDR_EGM        7         // Extended GPU Memory (EGM)
-#define ADDR_FABRIC_MC  8         // Multicast fabric address space (MCFLA)
+#define ADDR_FABRIC_MC  7         // Multicast fabric address space (MCFLA)
 
 typedef NvU32 MEMDESC_CUSTOM_HEAP;
 #define MEMDESC_CUSTOM_HEAP_NONE                0
@@ -217,7 +198,7 @@ typedef struct ADDRESS_TRANSLATION_ *ADDRESS_TRANSLATION;
 // Defines for commonly used transformations for page size
 //
 #define GET_PAGE_SHIFT(val) (BIT_IDX_32(val))
-#define GET_PAGE_MASK(val) ((1ULL << GET_PAGE_SHIFT(val)) - 1)
+#define GET_PAGE_MASK(val) (val - 1)
 #define GET_SIZE_FROM_PAGE_AND_COUNT(pageCount, pageSize) (((NvU64) pageCount) << (GET_PAGE_SHIFT(pageSize)))
 
 // Invalid PTE value
@@ -227,8 +208,6 @@ typedef struct ADDRESS_TRANSLATION_ *ADDRESS_TRANSLATION;
 // External flags:
 //   ALLOC_PER_SUBDEVICE    Allocate independent system memory for each GPU
 //   LOST_ON_SUSPEND        PM code will skip this allocation during S/R
-//   LOCKLESS_SYSMEM_ALLOC  System memory should be allocated unprotected by
-//                          the  RM lock
 //   GPU_PRIVILEGED         This memory will be marked as privileged in the GPU
 //                          page tables.  When set only GPU requestors who are
 //                          "privileged" are allowed to access this memory.
@@ -271,7 +250,6 @@ typedef struct ADDRESS_TRANSLATION_ *ADDRESS_TRANSLATION;
 #define MEMDESC_FLAGS_LOST_ON_SUSPEND              NVBIT64(2)
 #define MEMDESC_FLAGS_PRE_ALLOCATED                NVBIT64(3)
 #define MEMDESC_FLAGS_FIXED_ADDRESS_ALLOCATE       NVBIT64(4)
-#define MEMDESC_FLAGS_LOCKLESS_SYSMEM_ALLOC        NVBIT64(5)
 #define MEMDESC_FLAGS_GPU_IN_RESET                 NVBIT64(6)
 #define MEMDESC_ALLOC_FLAGS_PROTECTED              NVBIT64(7)
 #define MEMDESC_FLAGS_GUEST_ALLOCATED              NVBIT64(8)
@@ -293,9 +271,6 @@ typedef struct ADDRESS_TRANSLATION_ *ADDRESS_TRANSLATION;
 // Allocate in "fast" or "slow" memory, if there are multiple grades of memory (like mixed density)
 #define MEMDESC_FLAGS_HIGH_PRIORITY                NVBIT64(19)
 #define MEMDESC_FLAGS_LOW_PRIORITY                 NVBIT64(20)
-
-// Flag to specify if requested size should be rounded to page size
-#define MEMDESC_FLAGS_PAGE_SIZE_ALIGN_IGNORE       NVBIT64(21)
 
 #define MEMDESC_FLAGS_CPU_ONLY                     NVBIT64(22)
 
@@ -381,17 +356,9 @@ typedef struct ADDRESS_TRANSLATION_ *ADDRESS_TRANSLATION;
 // 32-bit addressable.
 #define MEMDESC_FLAGS_ALLOC_32BIT_ADDRESSABLE      NVBIT64(41)
 
-//
-// This flag causes linux to not try as hard to reclaim used pages. Useful when
-// we are retrying with successively smaller page sizes as in sysmemConstruct.
-//
-#define MEMDESC_FLAGS_ALLOC_NO_RECLAIM             NVBIT64(42)
+// unused                                          NVBIT64(42)
 
-//
-// If this flag is set then it indicates that the memory associated with
-// this descriptor was allocated from local EGM.
-//
-#define MEMDESC_FLAGS_ALLOC_FROM_EGM               NVBIT64(43)
+// unused                                          NVBIT64(43)
 
 //
 // Indicates that this memdesc is tracking client sysmem allocation as
@@ -443,6 +410,9 @@ typedef struct ADDRESS_TRANSLATION_ *ADDRESS_TRANSLATION;
 
 // Indicate if memdesc is tracking the uefi carveout memory.
 #define MEMDESC_FLAGS_ALLOC_FROM_UEFI_CARVEOUT     NVBIT64(55)
+
+// Indicate if FABRIC_V2 memdesc can be mapped to have traffic over NVLink fabric loopback.
+#define MEMDESC_FLAGS_ALLOW_FABRIC_LOOPBACK_MAPPING NVBIT64(56)
 
 //
 // RM internal allocations owner tags
@@ -621,19 +591,19 @@ typedef enum
     NV_FB_ALLOC_RM_INTERNAL_OWNER_GSP_NOTIFY_OP_SURFACE = 177U,
     NV_FB_ALLOC_RM_INTERNAL_OWNER_FAKE_WPR_RSVD         = 178U,
     NV_FB_ALLOC_RM_INTERNAL_OWNER_GR_SCRUB_CHANNEL      = 179U,
-    NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_147       = 180U,
+    NV_FB_ALLOC_RM_INTERNAL_OWNER_CMC_LOG_BUFFER        = 180U,
     NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_148       = 181U,
     NV_FB_ALLOC_RM_INTERNAL_OWNER_PMU_ACR_SHADOW_COPY   = 182U,
     NV_FB_ALLOC_RM_INTERNAL_OWNER_FLCN_BACKING_STORE    = 183U,
     NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_151       = 184U,
     NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_152       = 185U,
     NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_153       = 186U,
+    NV_FB_ALLOC_RM_INTERNAL_OWNER_GSP_TRACE_CRASH_BUFFER = 187U,
 
     //
     // Unused tags from here, for any new use-case it's required 
     // to replace the below tags with known verbose strings
     //
-    NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_154       = 187U,
     NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_155       = 188U,
     NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_156       = 189U,
     NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_157       = 190U,
@@ -729,7 +699,6 @@ typedef struct MEMORY_DESCRIPTOR
     NvU64 ActualSize;
 
     // The information returned from osAllocPages
-    NvP64 _address;
     void *_pMemData;
     MEM_DATA_RELEASE_CALL_BACK *_pMemDataReleaseCallback;
 
@@ -800,6 +769,8 @@ typedef struct MEMORY_DESCRIPTOR
     // Setting MEMDESC_CACHE_SNOOP_DEFER_TO_MAP defers making the choice to map time.
     //
     MEMDESC_CACHE_SNOOP cpuCacheSnoop;
+
+    NvBool bInvalidateL2OnFree;
 
     // The page kind of this memory
     NvU32 _pteKind;
@@ -1197,8 +1168,6 @@ NvU64 memdescGetGuestId(MEMORY_DESCRIPTOR *pMemDesc);
 void memdescSetGuestId(MEMORY_DESCRIPTOR *pMemDesc, NvU64 guestId);
 NvBool memdescGetFlag(MEMORY_DESCRIPTOR *pMemDesc, NvU64 flag);
 void memdescSetFlag(MEMORY_DESCRIPTOR *pMemDesc, NvU64 flag, NvBool bValue);
-NvP64 memdescGetAddress(MEMORY_DESCRIPTOR *pMemDesc);
-void memdescSetAddress(MEMORY_DESCRIPTOR *pMemDesc, NvP64 pAddress);
 void *memdescGetMemData(MEMORY_DESCRIPTOR *pMemDesc);
 void memdescSetMemData(MEMORY_DESCRIPTOR *pMemDesc, void *pMemData, MEM_DATA_RELEASE_CALL_BACK *pMemDataReleaseCallback);
 NvBool memdescGetVolatility(MEMORY_DESCRIPTOR *pMemDesc);
@@ -1218,6 +1187,9 @@ NV_STATUS memdescFillMemdescForPhysAttr(MEMORY_DESCRIPTOR *pMemDesc, ADDRESS_TRA
                                         NvU32 *pGpuCacheAttr, NvU32 *pGpuP2PCacheAttr, NvU64 *contigSegmentSize);
 NvBool memdescIsEgm(MEMORY_DESCRIPTOR *pMemDesc);
 NvU64 memdescGetAdjustedPageSize(MEMORY_DESCRIPTOR *pMemDesc);
+
+#define IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc) \
+    (SYS_GET_INSTANCE()->bEnableDynamicGranularityPageArrays && !memdescGetContiguity(pMemDesc, AT_CPU))
 
 static inline NvBool
 memdescIsCarveoutMemory(MEMORY_DESCRIPTOR *pMemDesc)
@@ -1483,25 +1455,6 @@ void memdescOverrideInstLocList(NvU32 loc, const char *name, const NV_ADDRESS_SP
 */
 void memdescOverridePhysicalAddressWidthWindowsWAR(OBJGPU *pGpu, MEMORY_DESCRIPTOR *pMemDesc, NvU32 addressWidth);
 
-/*!
-* @brief Send memory descriptor from CPU-RM to GSP
-*
-* This function will create a MemoryList object with the MEMORY_DESCRIPTOR information on CPU-RM
-* It will then use memRegisterWithGsp API to create a corresponding MemoryList object on GSP-RM
-* with the same Handle as that on CPU-RM
-*
-* This MemoryList object has the same MEMORY_DESCRIPTOR info as the input pMemDesc
-* The CPU-RM handle can be sent to GSP-RM and then used on GSP end to retrieve the MemoryList object
-* and then the corresponding MEMORY_DESCRIPTOR
-*
-* @param[in]  pGpu          OBJGPU pointer
-* @param[in]  pMemDesc      MemDesc pointer
-* @param[out] pHandle       Pointer to handle of MemoryList object
-*
-* @returns NV_STATUS
-*/
-NV_STATUS memdescSendMemDescToGSP(OBJGPU *pGpu, MEMORY_DESCRIPTOR *pMemDesc, NvHandle *pHandle);
-
 // cache maintenance functions
 void memdescFlushCpuCaches(OBJGPU *pGpu, MEMORY_DESCRIPTOR *pMemDesc);
 
@@ -1530,6 +1483,11 @@ void memdescSetName(OBJGPU*, MEMORY_DESCRIPTOR *pMemDesc, const char *name, cons
 static NV_INLINE NV_STATUS
 memdescSetAllocSizeFields(MEMORY_DESCRIPTOR *pMemDesc, NvU64 actualSize, NvU32 granularity)
 {
+    if (granularity != RM_PAGE_SIZE && memdescGetContiguity(pMemDesc, AT_CPU)) 
+    {
+        granularity = RM_PAGE_SIZE;
+    }
+
     NvU64 pageCount = actualSize >> GET_PAGE_SHIFT(granularity);
 
     if (!(pMemDesc->_flags & MEMDESC_FLAGS_PHYSICALLY_CONTIGUOUS) &&
@@ -1598,6 +1556,28 @@ memdescSetCpuCacheSnoop(MEMORY_DESCRIPTOR *pMemDesc, MEMDESC_CACHE_SNOOP cpuCach
 {
     pMemDesc->cpuCacheSnoop = cpuCacheSnoop;
 }
+
+/*!
+ *  @brief Calculate the actual size of the memory descriptor
+ *
+ *  @param[in]  pMemDesc         Memory descriptor pointer
+ *  @param[in]  requestedSize    Requested size of the memory descriptor (pMemDesc->Size)
+ *  @param[out] allocSizeOutput  Pointer to the actual size of the memory descriptor
+ *
+ *  @returns NV_STATUS
+ */
+NV_STATUS memdescCalculateActualSize(MEMORY_DESCRIPTOR *pMemDesc, NvU64 requestedSize, NvU64 *allocSizeOutput);
+
+/*!
+ *  @brief Initialize a memory iterator for the memory descriptor
+ *
+ *  @param[in] pMemDesc           Memory descriptor pointer
+ *  @param[in] addressTranslation Address translation to use
+ *  @param[in] pMemRange          Memory range within the memdesc to iterate over
+ *
+ *  @returns The initialized memory iterator
+ */
+MemoryIterator memdescIteratorInit(MEMORY_DESCRIPTOR *pMemDesc, ADDRESS_TRANSLATION addressTranslation, MemoryRange range);
 
 #endif // _MEMDESC_H_
 

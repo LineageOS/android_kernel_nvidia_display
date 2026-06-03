@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -35,9 +35,9 @@
 #include "rmapi/rs_utils.h"
 
 NV_STATUS
-dispobjCtrlCmdGetRgConnectedLockpinStateless_IMPL
+nvdispapiCtrlCmdGetRgConnectedLockpinStateless_IMPL
 (
-    DispObject *pDispObject,
+    NvDispApi *pNvDispApi,
     NV5070_CTRL_GET_RG_CONNECTED_LOCKPIN_STATELESS_PARAMS *pParams
 )
 {
@@ -105,6 +105,6 @@ nvdispapiCtrlCmdChannelCancelFlip_IMPL
     }
 
     kdispSetChannelTrashAndAbortAccel_HAL(pGpu, pKernelDisplay, internalChnClass, pParams->channelInstance, NV_FALSE);
-   
+
     return status;
 }

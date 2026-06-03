@@ -81,9 +81,6 @@ module_param_named(disable_vrr_memclk_switch, disable_vrr_memclk_switch, bool, 0
 static bool hdmi_deepcolor = true;
 module_param_named(hdmi_deepcolor, hdmi_deepcolor, bool, 0400);
 
-static bool vblank_sem_control = true;
-module_param_named(vblank_sem_control, vblank_sem_control, bool, 0400);
-
 static bool opportunistic_display_sync = true;
 module_param_named(opportunistic_display_sync, opportunistic_display_sync, bool, 0400);
 
@@ -113,6 +110,10 @@ module_param_named(conceal_vrr_caps, conceal_vrr_caps, bool, 0400);
 MODULE_PARM_DESC(fail_alloc_core_channel, "Control testing for hardware core channel allocation failure");
 static int fail_alloc_core_channel_method = -1;
 module_param_named(fail_alloc_core_channel, fail_alloc_core_channel_method, int, 0400);
+
+MODULE_PARM_DESC(debug, "Enable debug logging");
+static int debug = 0;
+module_param_named(debug, debug, int, 0600);
 
 #if NVKMS_CONFIG_FILE_SUPPORTED
 /* This parameter is used to find the dpy override conf file */
@@ -176,11 +177,6 @@ NvBool nvkms_hdmi_deepcolor(void)
     return hdmi_deepcolor;
 }
 
-NvBool nvkms_vblank_sem_control(void)
-{
-    return vblank_sem_control;
-}
-
 NvBool nvkms_opportunistic_display_sync(void)
 {
     return opportunistic_display_sync;
@@ -197,6 +193,11 @@ enum NvKmsDebugForceColorSpace nvkms_debug_force_color_space(void)
 NvBool nvkms_enable_overlay_layers(void)
 {
     return enable_overlay_layers;
+}
+
+NvBool nvkms_debug_logging(void)
+{
+    return debug != 0;
 }
 
 NvBool nvkms_kernel_supports_syncpts(void)
@@ -1170,7 +1171,7 @@ done:
     return ret;
 }
 
-NvBool nvkms_open_gpu(NvU32 gpuId)
+NvBool nvkms_open_gpu(NvU32 gpuId, NvBool reset_aware)
 {
     nvidia_modeset_stack_ptr stack = NULL;
     NvBool ret;
@@ -1179,14 +1180,14 @@ NvBool nvkms_open_gpu(NvU32 gpuId)
         return NV_FALSE;
     }
 
-    ret = __rm_ops.open_gpu(gpuId, stack) == 0;
+    ret = __rm_ops.open_gpu(gpuId, stack, reset_aware) == 0;
 
     __rm_ops.free_stack(stack);
 
     return ret;
 }
 
-void nvkms_close_gpu(NvU32 gpuId)
+void nvkms_close_gpu(NvU32 gpuId, NvBool reset_aware)
 {
     nvidia_modeset_stack_ptr stack = NULL;
 
@@ -1194,7 +1195,7 @@ void nvkms_close_gpu(NvU32 gpuId)
         return;
     }
 
-    __rm_ops.close_gpu(gpuId, stack);
+    __rm_ops.close_gpu(gpuId, stack, reset_aware);
 
     __rm_ops.free_stack(stack);
 }
@@ -2228,3 +2229,4 @@ module_exit(nvkms_exit);
 
 MODULE_INFO(supported, "external");
 MODULE_VERSION(NV_VERSION_STRING);
+MODULE_DESCRIPTION("NVIDIA modeset kernel module");

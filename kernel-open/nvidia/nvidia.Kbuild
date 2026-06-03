@@ -54,6 +54,7 @@ nvidia-y += $(NVIDIA_BINARY_OBJECT_O)
 
 NVIDIA_CFLAGS += -I$(src)/nvidia
 NVIDIA_CFLAGS += -DNVIDIA_UNDEF_LEGACY_BIT_MACROS
+NVIDIA_CFLAGS += -DLIBSPDM_CONFIG=\"nvspdm_rmconfig.h\"
 
 ifeq ($(NV_BUILD_TYPE),release)
  NVIDIA_CFLAGS += -UDEBUG -U_DEBUG -DNDEBUG
@@ -110,20 +111,14 @@ $(obj)/$(NVIDIA_INTERFACE): $(addprefix $(obj)/,$(NVIDIA_OBJECTS))
 NV_OBJECTS_DEPEND_ON_CONFTEST += $(NVIDIA_OBJECTS)
 
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += set_pages_uc
-NV_CONFTEST_FUNCTION_COMPILE_TESTS += list_is_first
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += set_memory_uc
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += set_memory_array_uc
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += set_pages_array_uc
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += ioremap_cache
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += ioremap_wc
-NV_CONFTEST_FUNCTION_COMPILE_TESTS += ioremap_driver_hardened
-NV_CONFTEST_FUNCTION_COMPILE_TESTS += ioremap_driver_hardened_wc
-NV_CONFTEST_FUNCTION_COMPILE_TESTS += ioremap_cache_shared
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += pde_data
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += xen_ioemu_inject_msi
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += phys_to_dma
-NV_CONFTEST_FUNCTION_COMPILE_TESTS += dma_attr_macros
-NV_CONFTEST_FUNCTION_COMPILE_TESTS += dma_map_page_attrs
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += pci_rebar_get_possible_sizes
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += get_backlight_device_by_name
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += dma_direct_map_resource
@@ -147,6 +142,7 @@ NV_CONFTEST_FUNCTION_COMPILE_TESTS += icc_get
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += devm_of_icc_get
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += icc_put
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += icc_set_bw
+NV_CONFTEST_FUNCTION_COMPILE_TESTS += dma_map_ops_has_map_phys
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += dma_buf_ops_has_map
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += dma_buf_ops_has_map_atomic
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += dma_buf_attachment_has_peer2peer
@@ -165,6 +161,9 @@ NV_CONFTEST_FUNCTION_COMPILE_TESTS += ioasid_get
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += mm_pasid_drop
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += iommu_sva_bind_device_has_drvdata_arg
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += shrinker_alloc
+NV_CONFTEST_FUNCTION_COMPILE_TESTS += vm_flags_set
+NV_CONFTEST_FUNCTION_COMPILE_TESTS += vma_flags_set_word
+NV_CONFTEST_FUNCTION_COMPILE_TESTS += get_dev_pagemap_has_pgmap_arg
 
 NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_gpl_sme_active
 NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_swiotlb_map_sg_attrs
@@ -198,9 +197,12 @@ NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present___platform_driver_r
 NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_gpl_mutex_destroy
 NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_hrtimer_setup
 NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_timer_delete_sync
+NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_gpl_iommu_dev_enable_feature
+NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_gpl_iommu_dev_disable_feature
+NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_gpl___vma_start_write
+NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_lockdep_register_key
 
 NV_CONFTEST_TYPE_COMPILE_TESTS += vmf_insert_pfn_prot
-NV_CONFTEST_TYPE_COMPILE_TESTS += vm_ops_fault_removed_vma_arg
 NV_CONFTEST_TYPE_COMPILE_TESTS += sysfs_slab_unlink
 NV_CONFTEST_TYPE_COMPILE_TESTS += proc_ops
 NV_CONFTEST_TYPE_COMPILE_TESTS += vmalloc_has_pgprot_t_arg
@@ -210,7 +212,6 @@ NV_CONFTEST_TYPE_COMPILE_TESTS += remove_memory_has_nid_arg
 NV_CONFTEST_TYPE_COMPILE_TESTS += add_memory_driver_managed_has_mhp_flags_arg
 NV_CONFTEST_TYPE_COMPILE_TESTS += num_registered_fb
 NV_CONFTEST_TYPE_COMPILE_TESTS += pci_driver_has_driver_managed_dma
-NV_CONFTEST_TYPE_COMPILE_TESTS += vm_area_struct_has_const_vm_flags
 NV_CONFTEST_TYPE_COMPILE_TESTS += memory_failure_queue_has_trapno_arg
 NV_CONFTEST_TYPE_COMPILE_TESTS += foll_longterm_present
 NV_CONFTEST_TYPE_COMPILE_TESTS += bus_type_has_iommu_ops
@@ -224,6 +225,9 @@ NV_CONFTEST_TYPE_COMPILE_TESTS += devfreq_has_suspend_freq
 NV_CONFTEST_TYPE_COMPILE_TESTS += has_enum_pidtype_tgid
 NV_CONFTEST_TYPE_COMPILE_TESTS += bpmp_mrq_has_strap_set
 NV_CONFTEST_TYPE_COMPILE_TESTS += register_shrinker_has_format_arg
+NV_CONFTEST_TYPE_COMPILE_TESTS += nr_kernel_misc_reclaimable
+NV_CONFTEST_TYPE_COMPILE_TESTS += pci_resize_resource_has_exclude_bars_arg
+NV_CONFTEST_TYPE_COMPILE_TESTS += is_vma_write_locked_has_mm_lock_seq_arg
 
 NV_CONFTEST_GENERIC_COMPILE_TESTS += dom0_kernel_present
 NV_CONFTEST_GENERIC_COMPILE_TESTS += nvidia_vgpu_kvm_build
@@ -237,7 +241,6 @@ NV_CONFTEST_GENERIC_COMPILE_TESTS += pm_runtime_available
 NV_CONFTEST_GENERIC_COMPILE_TESTS += pm_domain_available
 NV_CONFTEST_GENERIC_COMPILE_TESTS += vm_fault_t
 NV_CONFTEST_GENERIC_COMPILE_TESTS += pci_class_multimedia_hd_audio
-NV_CONFTEST_GENERIC_COMPILE_TESTS += drm_available
 NV_CONFTEST_GENERIC_COMPILE_TESTS += vfio_pci_core_available
 NV_CONFTEST_GENERIC_COMPILE_TESTS += cmd_uphy_display_port_init
 NV_CONFTEST_GENERIC_COMPILE_TESTS += cmd_uphy_display_port_off

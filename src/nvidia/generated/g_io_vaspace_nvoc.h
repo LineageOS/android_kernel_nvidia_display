@@ -190,13 +190,9 @@ struct NVOC_METADATA__OBJIOVASPACE {
     const struct NVOC_VTABLE__OBJIOVASPACE vtable;
 };
 
-#ifndef __NVOC_CLASS_OBJIOVASPACE_TYPEDEF__
-#define __NVOC_CLASS_OBJIOVASPACE_TYPEDEF__
-typedef struct OBJIOVASPACE OBJIOVASPACE;
-#endif /* __NVOC_CLASS_OBJIOVASPACE_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_OBJIOVASPACE
-#define __nvoc_class_id_OBJIOVASPACE 0x28ed9c
+#define __nvoc_class_id_OBJIOVASPACE 0x28ed9cu
+typedef struct OBJIOVASPACE OBJIOVASPACE;
 #endif /* __nvoc_class_id_OBJIOVASPACE */
 
 // Casting support
@@ -215,11 +211,44 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJIOVASPACE;
 NV_STATUS __nvoc_objCreateDynamic_OBJIOVASPACE(OBJIOVASPACE**, Dynamic*, NvU32, va_list);
 
 NV_STATUS __nvoc_objCreate_OBJIOVASPACE(OBJIOVASPACE**, Dynamic*, NvU32);
-#define __objCreate_OBJIOVASPACE(ppNewObj, pParent, createFlags) \
-    __nvoc_objCreate_OBJIOVASPACE((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
+#define __objCreate_OBJIOVASPACE(__nvoc_ppNewObj, __nvoc_pParent, __nvoc_createFlags) \
+    __nvoc_objCreate_OBJIOVASPACE((__nvoc_ppNewObj), staticCast((__nvoc_pParent), Dynamic), (__nvoc_createFlags))
 
 
-// Wrapper macros
+// Wrapper macros for implementation functions
+void iovaspaceDestruct_IMPL(struct OBJIOVASPACE *pIOVAS);
+#define __nvoc_iovaspaceDestruct(pIOVAS) iovaspaceDestruct_IMPL(pIOVAS)
+
+NV_STATUS iovaspaceAcquireMapping_IMPL(struct OBJIOVASPACE *pIOVAS, PMEMORY_DESCRIPTOR pIovaMapping);
+#ifdef __nvoc_io_vaspace_h_disabled
+static inline NV_STATUS iovaspaceAcquireMapping(struct OBJIOVASPACE *pIOVAS, PMEMORY_DESCRIPTOR pIovaMapping) {
+    NV_ASSERT_FAILED_PRECOMP("OBJIOVASPACE was disabled!");
+    return NV_ERR_NOT_SUPPORTED;
+}
+#else // __nvoc_io_vaspace_h_disabled
+#define iovaspaceAcquireMapping(pIOVAS, pIovaMapping) iovaspaceAcquireMapping_IMPL(pIOVAS, pIovaMapping)
+#endif // __nvoc_io_vaspace_h_disabled
+
+void iovaspaceReleaseMapping_IMPL(struct OBJIOVASPACE *pIOVAS, PIOVAMAPPING pIovaMapping);
+#ifdef __nvoc_io_vaspace_h_disabled
+static inline void iovaspaceReleaseMapping(struct OBJIOVASPACE *pIOVAS, PIOVAMAPPING pIovaMapping) {
+    NV_ASSERT_FAILED_PRECOMP("OBJIOVASPACE was disabled!");
+}
+#else // __nvoc_io_vaspace_h_disabled
+#define iovaspaceReleaseMapping(pIOVAS, pIovaMapping) iovaspaceReleaseMapping_IMPL(pIOVAS, pIovaMapping)
+#endif // __nvoc_io_vaspace_h_disabled
+
+void iovaspaceDestroyMapping_IMPL(struct OBJIOVASPACE *pIOVAS, PIOVAMAPPING pIovaMapping);
+#ifdef __nvoc_io_vaspace_h_disabled
+static inline void iovaspaceDestroyMapping(struct OBJIOVASPACE *pIOVAS, PIOVAMAPPING pIovaMapping) {
+    NV_ASSERT_FAILED_PRECOMP("OBJIOVASPACE was disabled!");
+}
+#else // __nvoc_io_vaspace_h_disabled
+#define iovaspaceDestroyMapping(pIOVAS, pIovaMapping) iovaspaceDestroyMapping_IMPL(pIOVAS, pIovaMapping)
+#endif // __nvoc_io_vaspace_h_disabled
+
+
+// Wrapper macros for halified functions
 #define iovaspaceConstruct__FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceConstruct___
 #define iovaspaceConstruct_(pVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags) iovaspaceConstruct__DISPATCH(pVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags)
 #define iovaspaceAlloc_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceAlloc__
@@ -276,6 +305,7 @@ static inline NvU32 iovaspaceGetFlags_DISPATCH(struct OBJIOVASPACE *pVAS) {
     return pVAS->__nvoc_metadata_ptr->vtable.__iovaspaceGetFlags__(pVAS);
 }
 
+// Virtual method declarations and/or inline definitions
 NV_STATUS iovaspaceConstruct__IMPL(struct OBJIOVASPACE *pVAS, NvU32 classId, NvU32 vaspaceId, NvU64 vaStart, NvU64 vaLimit, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 flags);
 
 NV_STATUS iovaspaceAlloc_IMPL(struct OBJIOVASPACE *pVAS, NvU64 size, NvU64 align, NvU64 rangeLo, NvU64 rangeHi, NvU64 pageSizeLockMask, VAS_ALLOC_FLAGS flags, NvU64 *pAddr);
@@ -292,40 +322,11 @@ NvU64 iovaspaceGetVaLimit_IMPL(struct OBJIOVASPACE *pVAS);
 
 NV_STATUS iovaspaceGetVasInfo_IMPL(struct OBJIOVASPACE *pVAS, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *pParams);
 
-void iovaspaceDestruct_IMPL(struct OBJIOVASPACE *pIOVAS);
-
-#define __nvoc_iovaspaceDestruct(pIOVAS) iovaspaceDestruct_IMPL(pIOVAS)
-NV_STATUS iovaspaceAcquireMapping_IMPL(struct OBJIOVASPACE *pIOVAS, PMEMORY_DESCRIPTOR pIovaMapping);
-
-#ifdef __nvoc_io_vaspace_h_disabled
-static inline NV_STATUS iovaspaceAcquireMapping(struct OBJIOVASPACE *pIOVAS, PMEMORY_DESCRIPTOR pIovaMapping) {
-    NV_ASSERT_FAILED_PRECOMP("OBJIOVASPACE was disabled!");
-    return NV_ERR_NOT_SUPPORTED;
-}
-#else //__nvoc_io_vaspace_h_disabled
-#define iovaspaceAcquireMapping(pIOVAS, pIovaMapping) iovaspaceAcquireMapping_IMPL(pIOVAS, pIovaMapping)
-#endif //__nvoc_io_vaspace_h_disabled
-
-void iovaspaceReleaseMapping_IMPL(struct OBJIOVASPACE *pIOVAS, PIOVAMAPPING pIovaMapping);
-
-#ifdef __nvoc_io_vaspace_h_disabled
-static inline void iovaspaceReleaseMapping(struct OBJIOVASPACE *pIOVAS, PIOVAMAPPING pIovaMapping) {
-    NV_ASSERT_FAILED_PRECOMP("OBJIOVASPACE was disabled!");
-}
-#else //__nvoc_io_vaspace_h_disabled
-#define iovaspaceReleaseMapping(pIOVAS, pIovaMapping) iovaspaceReleaseMapping_IMPL(pIOVAS, pIovaMapping)
-#endif //__nvoc_io_vaspace_h_disabled
-
-void iovaspaceDestroyMapping_IMPL(struct OBJIOVASPACE *pIOVAS, PIOVAMAPPING pIovaMapping);
-
-#ifdef __nvoc_io_vaspace_h_disabled
-static inline void iovaspaceDestroyMapping(struct OBJIOVASPACE *pIOVAS, PIOVAMAPPING pIovaMapping) {
-    NV_ASSERT_FAILED_PRECOMP("OBJIOVASPACE was disabled!");
-}
-#else //__nvoc_io_vaspace_h_disabled
-#define iovaspaceDestroyMapping(pIOVAS, pIovaMapping) iovaspaceDestroyMapping_IMPL(pIOVAS, pIovaMapping)
-#endif //__nvoc_io_vaspace_h_disabled
-
+// Exported method declarations and/or inline definitions
+// HAL method declarations without bodies
+// Inline HAL method definitions
+// Static dispatch method declarations
+// Static inline method definitions
 #undef PRIVATE_FIELD
 
 

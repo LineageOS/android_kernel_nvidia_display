@@ -86,8 +86,8 @@ static void nv_setup_pat_entries(void *info)
         return;
 #endif
 
-    NV_SAVE_FLAGS(eflags);
-    NV_CLI();
+    local_save_flags(eflags);
+    local_irq_disable();
     nv_disable_caches(&cr4);
 
     NV_READ_PAT_ENTRIES(pat1, pat2);
@@ -98,7 +98,7 @@ static void nv_setup_pat_entries(void *info)
     NV_WRITE_PAT_ENTRIES(pat1, pat2);
 
     nv_enable_caches(cr4);
-    NV_RESTORE_FLAGS(eflags);
+    local_irq_restore(eflags);
 }
 
 static void nv_restore_pat_entries(void *info)
@@ -112,14 +112,14 @@ static void nv_restore_pat_entries(void *info)
         return;
 #endif
 
-    NV_SAVE_FLAGS(eflags);
-    NV_CLI();
+    local_save_flags(eflags);
+    local_irq_disable();
     nv_disable_caches(&cr4);
 
     NV_WRITE_PAT_ENTRIES(orig_pat1, orig_pat2);
 
     nv_enable_caches(cr4);
-    NV_RESTORE_FLAGS(eflags);
+    local_irq_restore(eflags);
 }
 
 static int

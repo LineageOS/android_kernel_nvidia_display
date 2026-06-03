@@ -139,6 +139,69 @@ static NV_STATUS _memdescSetGuestAllocatedFlag
     return NV_OK;
 }
 
+
+static NV_STATUS
+_memdescCalculateAllocSize(
+    OBJGPU *pGpu,
+    NvU64 requestedSize,
+    NvU64 Alignment,
+    NvBool PhysicallyContiguous,
+    NV_ADDRESS_SPACE AddressSpace,
+    NvU64 Flags,
+    NvU64 *allocSizeOutput
+)
+{
+    NvU64 allocSize = requestedSize;
+
+    if (allocSize == 0)
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+
+    if (((AddressSpace == ADDR_SYSMEM) || (AddressSpace == ADDR_UNKNOWN)) &&
+        !(Flags & MEMDESC_FLAGS_OWNED_BY_CTX_BUF_POOL))
+    {
+        NvU64 pageSize = osGetPageSize();
+
+        allocSize = RM_ALIGN_UP(allocSize, pageSize);
+        if (allocSize < requestedSize)
+        {
+            return NV_ERR_INVALID_ARGUMENT;
+        }
+    }
+
+    if (RMCFG_FEATURE_PLATFORM_MODS ||
+        (pGpu != NULL && (IsT194(pGpu) || IsT234(pGpu))))
+    {
+        //
+        // Support for aligned contiguous SYSMEM allocations.
+        //
+        if ((AddressSpace == ADDR_SYSMEM || AddressSpace == ADDR_UNKNOWN) &&
+            PhysicallyContiguous && (Alignment > RM_PAGE_SIZE))
+        {
+            if (!portSafeAddU64(allocSize, (Alignment - RM_PAGE_SIZE), &allocSize))
+            {
+                return NV_ERR_INVALID_ARGUMENT;
+            }
+        }
+    }
+    *allocSizeOutput = allocSize;
+    return NV_OK;
+}
+
+NV_STATUS 
+memdescCalculateActualSize(MEMORY_DESCRIPTOR *pMemDesc, NvU64 requestedSize, NvU64 *allocSizeOutput) 
+{
+    return _memdescCalculateAllocSize(
+        pMemDesc->pGpu, 
+        requestedSize, 
+        pMemDesc->Alignment, 
+        !!(pMemDesc->_flags & MEMDESC_FLAGS_PHYSICALLY_CONTIGUOUS), 
+        pMemDesc->_addressSpace, 
+        pMemDesc->_flags, 
+        allocSizeOutput);
+}
+
 /*!
  *  @brief Allocate and initialize a new empty memory descriptor
  *
@@ -182,15 +245,6 @@ memdescCreate
     NvU32              gpuCacheAttrib = NV_MEMORY_UNCACHED;
     NV_STATUS          status         = NV_OK;
     NvU64              pageArraySize;
-    MemoryManager     *pMemoryManager = NULL;
-
-
-    allocSize = Size;
-
-    if (allocSize == 0)
-    {
-        return NV_ERR_INVALID_ARGUMENT;
-    }
 
     //
     // this memdesc may have gotten forced to sysmem if no carveout,
@@ -207,29 +261,7 @@ memdescCreate
 
     if (pGpu != NULL)
     {
-        pMemoryManager = GPU_GET_MEMORY_MANAGER(pGpu);
-    }
-
-    if (((AddressSpace == ADDR_SYSMEM) || (AddressSpace == ADDR_UNKNOWN)) &&
-        !(Flags & MEMDESC_FLAGS_OWNED_BY_CTX_BUF_POOL))
-    {
-        NvU64 pageSize = osGetPageSize();
-
-        if (pMemoryManager && pMemoryManager->sysmemPageSize)
-        {
-            pageSize = pMemoryManager->sysmemPageSize;
-        }
-
-        allocSize = RM_ALIGN_UP(allocSize, pageSize);
-        if (allocSize < Size)
-        {
-            return NV_ERR_INVALID_ARGUMENT;
-        }
-    }
-
-
-    if (pGpu != NULL)
-    {
+        MemoryManager *pMemoryManager = GPU_GET_MEMORY_MANAGER(pGpu);
         if (RMCFG_FEATURE_PLATFORM_MODS || IsT194(pGpu) || IsT234(pGpu))
         {
             if ( (AddressSpace == ADDR_FBMEM) &&
@@ -244,19 +276,13 @@ memdescCreate
                     CpuCacheAttrib = pGpu->instCacheOverride;
                 }
             }
-
-            //
-            // Support for aligned contiguous SYSMEM allocations.
-            //
-            if ((AddressSpace == ADDR_SYSMEM || AddressSpace == ADDR_UNKNOWN) &&
-                PhysicallyContiguous && (Alignment > RM_PAGE_SIZE))
-            {
-                if (!portSafeAddU64(allocSize, (Alignment - RM_PAGE_SIZE), &allocSize))
-                {
-                    return NV_ERR_INVALID_ARGUMENT;
-                }
-            }
         }
+    }
+
+    status = _memdescCalculateAllocSize(pGpu, Size, Alignment, PhysicallyContiguous, AddressSpace, Flags, &allocSize);
+    if (status != NV_OK)
+    {
+        return status;
     }
 
     //
@@ -320,7 +346,6 @@ memdescCreate
     // Fill in initial non-zero parameters
     pMemDesc->pGpu                 = pGpu;
     pMemDesc->Size                 = Size;
-    pMemDesc->PageCount            = PageCount;
     pMemDesc->ActualSize           = allocSize;
     pMemDesc->pageArraySize        = pageArraySize;
     pMemDesc->_addressSpace        = AddressSpace;
@@ -753,7 +778,6 @@ _memdescAllocInternal
 
     switch (pMemDesc->_addressSpace)
     {
-        case ADDR_EGM:
         case ADDR_SYSMEM:
             // System memory can be obtained from osAllocPages
             status = osAllocPages(pMemDesc);
@@ -864,21 +888,16 @@ memdescAlloc
 {
     OBJGPU             *pGpu        = pMemDesc->pGpu;
     NV_STATUS           status      = NV_OK;
-    NvBool              bcState     = NV_FALSE;
-    OBJSYS             *pSys        = SYS_GET_INSTANCE();
-    NvBool              reAcquire;
-    NvU32               gpuMask     = 0;
 
     NV_ASSERT_OR_RETURN(!pMemDesc->Allocated, NV_ERR_INVALID_OBJECT_BUFFER);
 
     switch (pMemDesc->_addressSpace)
     {
         case ADDR_SYSMEM:
-        case ADDR_EGM:
             // Can only alloc sysmem on 0FB GSP
             if (RMCFG_FEATURE_PLATFORM_GSP &&
                 !memdescGetFlag(pMemDesc, MEMDESC_FLAGS_GUEST_ALLOCATED) &&
-                !pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB))
+                !pGpu->pGpuArch->bGpuArchIsZeroFb)
             {
                 //
                 // TO DO: Make this an error once existing allocations are cleaned up.
@@ -999,89 +1018,12 @@ memdescAlloc
     // Unicast memdescAlloc call but with flag set to allocate per subdevice.
     NV_ASSERT(!((pMemDesc->_flags & MEMDESC_FLAGS_ALLOC_PER_SUBDEVICE) && !gpumgrGetBcEnabledStatus(pGpu)));
 
-    reAcquire = NV_FALSE;
-    bcState = NV_FALSE;
-
-    if ((pMemDesc->_flags & MEMDESC_FLAGS_LOCKLESS_SYSMEM_ALLOC) && (pMemDesc->_addressSpace != ADDR_FBMEM))
-    {
-        bcState = gpumgrGetBcEnabledStatus(pGpu);
-        if (RMCFG_FEATURE_RM_BASIC_LOCK_MODEL)
-        {
-            //
-            // There is no equivalent routine for osCondReleaseRmSema in
-            // the new basic lock model.
-
-            //
-            // However, we can't drop the RM system semaphore in this
-            // path because on non-windows platforms (i.e. MODS) it
-            // has undesirable consequences.  So for now we must
-            // bracket this section with a reference to the feature
-            // flag until we can rework this interface.
-            //
-            //
-            // Check to make sure we own the lock and that we are
-            // not at elevated IRQL; this models the behavior
-            // of osCondReleaseRmSema.
-            //
-            if (!osIsRaisedIRQL() &&
-                (rmGpuGroupLockIsOwner(pGpu->gpuInstance, GPU_LOCK_GRP_DEVICE, &gpuMask) ||
-                 rmGpuGroupLockIsOwner(pGpu->gpuInstance, GPU_LOCK_GRP_SUBDEVICE, &gpuMask)))
-            {
-                //
-                // Release all owned gpu locks rather than just the
-                // device-related locks because the caller may be holding more
-                // than the required device locks. All currently owned
-                // locks will be re-acquired before returning.
-                //
-                // This prevents potential GPU locking violations (e.g., if the
-                // caller is holding all the gpu locks but only releases the
-                // first of two device locks, then attempting to re-acquire
-                // the first device lock will be a locking violation with
-                // respect to the second device lock.)
-                //
-                gpuMask = rmGpuLocksGetOwnedMask();
-                rmGpuGroupLockRelease(gpuMask, GPUS_LOCK_FLAGS_NONE);
-                reAcquire = NV_TRUE;
-            }
-        }
-        else
-        {
-            reAcquire = osCondReleaseRmSema(pSys->pSema);
-        }
-    }
-
     // Actually allocate the memory
-    status = _memdescAllocInternal(pMemDesc);
+    NV_CHECK_OK(status, LEVEL_ERROR, _memdescAllocInternal(pMemDesc));
+
     if (status != NV_OK)
     {
-        if (status == NV_ERR_NO_MEMORY && pGpu->bAPageSizeAllocRetryEnabled && pMemDesc->_pageSize != RM_PAGE_SIZE)
-        {
-            NV_PRINTF(LEVEL_INFO, "Failed to allocate memory due to insufficient memory with page size 0x%llx, retrying with page size 0x%x\n", pMemDesc->_pageSize, RM_PAGE_SIZE);
-        }
-        else
-        {
-            NV_PRINTF(LEVEL_ERROR, "Failed to allocate memory with page size 0x%llx\n status: %x", pMemDesc->_pageSize, status);
-        }
         pMemDesc->pHeap = NULL;
-    }
-
-    if (reAcquire)
-    {
-        if (osAcquireRmSema(pSys->pSema) != NV_OK)
-        {
-            DBG_BREAKPOINT();
-
-        }
-
-        if (rmGpuGroupLockAcquire(pGpu->gpuInstance, GPU_LOCK_GRP_MASK,
-                                  GPUS_LOCK_FLAGS_NONE, RM_LOCK_MODULES_MEM,
-                                  &gpuMask) != NV_OK)
-        {
-            DBG_BREAKPOINT();
-        }
-        // Releasing the semaphore allows another thread to enter RM and
-        // modify broadcast state. We need to set it back (see bug 368643)
-        gpumgrSetBcEnabledStatus(pGpu, bcState);
     }
 
     return status;
@@ -1195,7 +1137,6 @@ _memdescFreeInternal
     switch (pMemDesc->_addressSpace)
     {
         case ADDR_SYSMEM:
-        case ADDR_EGM:
 
             oldSize             = pMemDesc->Size;
             pMemDesc->Size      = pMemDesc->ActualSize;
@@ -1249,8 +1190,7 @@ memdescFree
         }
 
         if (pMemDesc->_addressSpace != ADDR_FBMEM &&
-            pMemDesc->_addressSpace != ADDR_SYSMEM &&
-            pMemDesc->_addressSpace != ADDR_EGM)
+            pMemDesc->_addressSpace != ADDR_SYSMEM)
         {
             return;
         }
@@ -1298,7 +1238,6 @@ memdescFree
         }
 
         if (pMemDesc->_addressSpace != ADDR_FBMEM &&
-            pMemDesc->_addressSpace != ADDR_EGM &&
             pMemDesc->_addressSpace != ADDR_SYSMEM)
         {
             return;
@@ -1449,7 +1388,6 @@ memdescMap
     switch (pMemDesc->_addressSpace)
     {
         case ADDR_SYSMEM:
-        case ADDR_EGM:
         {
             status = osMapSystemMemory(pMemDesc, Offset, Size,
                                        Kernel, Protect, pAddress, pPriv);
@@ -1510,7 +1448,6 @@ memdescUnmap
     switch (pMemDesc->_addressSpace)
     {
         case ADDR_SYSMEM:
-        case ADDR_EGM:
         {
             osUnmapSystemMemory(pMemDesc, Kernel, Address, Priv);
             break;
@@ -1713,15 +1650,12 @@ memdescDescribe
     }
 
     pMemDesc->Size                 = Size;
-    pMemDesc->ActualSize           = NV_ROUNDUP(Size, pMemDesc->pageArrayGranularity);
     pMemDesc->_flags              |= MEMDESC_FLAGS_PHYSICALLY_CONTIGUOUS;
     pMemDesc->_addressSpace        = AddressSpace;
-    pMemDesc->_pteArray[0]         = Base & ~RM_PAGE_MASK;
-    pMemDesc->_subDeviceAllocCount = 1;
-    pMemDesc->PteAdjust            = NvU64_LO32(Base) & RM_PAGE_MASK;
-    pMemDesc->PageCount            = ((Size + pMemDesc->PteAdjust + RM_PAGE_SIZE - 1) >> RM_PAGE_SHIFT);
-    pMemDesc->_pParentDescriptor   = NULL;
-    pMemDesc->childDescriptorCnt   = 0;
+    pMemDesc->PteAdjust            = Base & RM_PAGE_MASK;
+    pMemDesc->_pteArray[0]         = Base - pMemDesc->PteAdjust;
+    pMemDesc->ActualSize           = NV_ALIGN_UP64(pMemDesc->PteAdjust + Size, RM_PAGE_SIZE);
+    pMemDesc->PageCount            = pMemDesc->ActualSize >> RM_PAGE_SHIFT;
 }
 
 /*!
@@ -1803,7 +1737,6 @@ memdescFillPages
     NvU64                pageSize
 )
 {
-    OBJGPU *pGpu = gpumgrGetSomeGpu();
     NvU32 i, j, k;
     NvU32 numChunks4k = pageSize / RM_PAGE_SIZE;
     NvU32 offset4k = numChunks4k * pageIndex;
@@ -1817,7 +1750,7 @@ memdescFillPages
     NV_ASSERT_OR_RETURN_VOID(pageSize > 0);
 
 
-    if (GPU_GET_MEMORY_MANAGER(pGpu)->bEnableDynamicGranularityPageArrays)
+    if (SYS_GET_INSTANCE()->bEnableDynamicGranularityPageArrays)
     {
         _memdescFillPagesAtNativeGranularity(pMemDesc, pageIndex, pPages, pageCount, pageSize);
         return;
@@ -1945,13 +1878,15 @@ memdescCreateSubMem
     NV_STATUS status;
     MEMORY_DESCRIPTOR *pMemDescNew;
     NvU32 subDevInst;
-    NvU64 tmpSize = Size;
+    NvU64 OffsetAdjust;
+    NvU64 tmpEnd;
     MEMORY_DESCRIPTOR *pLast;
     MEMORY_DESCRIPTOR *pNew;
     OBJGPU *pGpuChild;
-    const NvU64 pageArrayGranularity = pMemDesc->pageArrayGranularity;
-    const NvU64 pageArrayGranularityMask = pMemDesc->pageArrayGranularity - 1;
-    const NvU32 pageArrayGranularityShift = BIT_IDX_64(pMemDesc->pageArrayGranularity);
+
+    NV_ASSERT_OR_RETURN(Offset < pMemDesc->Size, NV_ERR_INVALID_ARGUMENT);
+    NV_ASSERT_OR_RETURN(Size != 0, NV_ERR_INVALID_ARGUMENT);
+    NV_ASSERT_OR_RETURN(portSafeAddU64(Offset, Size, &tmpEnd) && tmpEnd <= pMemDesc->Size, NV_ERR_INVALID_ARGUMENT);
 
     // Default to the original memdesc's GPU if none is specified
     if (pGpu == NULL)
@@ -1959,43 +1894,8 @@ memdescCreateSubMem
         pGpu = pMemDesc->pGpu;
     }
 
-    // Allocation size should be adjusted for the memory descriptor _pageSize.
-    // Also note that the first 4k page may not be at _pageSize boundary so at
-    // the time of the mapping, we maybe overmapping at the beginning or end of
-    // the descriptor. To fix it in the right way, memory descriptor needs to
-    // be further cleaned. Do not round to page size if client specifies so.
-    if (!(pMemDesc->_flags & MEMDESC_FLAGS_PAGE_SIZE_ALIGN_IGNORE) &&
-          pMemDesc->_pageSize != 0)
-    {
-        PMEMORY_DESCRIPTOR pTempMemDesc = pMemDesc;
-        NvU64              pageOffset;
-
-        if (memdescHasSubDeviceMemDescs(pMemDesc))
-        {
-            NV_ASSERT(pGpu);
-            pTempMemDesc = memdescGetMemDescFromGpu(pMemDesc, pGpu);
-        }
-
-        pageOffset = memdescGetPhysAddr(pTempMemDesc, AT_CPU, Offset) &
-                     (pTempMemDesc->_pageSize - 1);
-
-        // Check for integer overflow
-        if (!portSafeAddU64(pageOffset, Size, &tmpSize))
-        {
-            return NV_ERR_INVALID_ARGUMENT;
-        }
-
-        tmpSize = RM_ALIGN_UP(pageOffset + Size, pTempMemDesc->_pageSize);
-
-        // Check for integer overflow
-        if (tmpSize < pageOffset + Size)
-        {
-            return NV_ERR_INVALID_ARGUMENT;
-        }
-    }
-
     // Allocate the new MEMORY_DESCRIPTOR
-    status = memdescCreate(&pMemDescNew, pGpu, tmpSize, 0,
+    status = memdescCreate(&pMemDescNew, pGpu, Size, 0,
                            !!(pMemDesc->_flags & MEMDESC_FLAGS_PHYSICALLY_CONTIGUOUS),
                            pMemDesc->_addressSpace,
                            pMemDesc->_cpuCacheAttrib,
@@ -2021,8 +1921,12 @@ memdescCreateSubMem
         pMemDescNew->_flags |= MEMDESC_FLAGS_ENCRYPTED;
     else
         pMemDescNew->_flags &= ~MEMDESC_FLAGS_ENCRYPTED;
+    if (pMemDesc->_flags & MEMDESC_FLAGS_ALLOC_AS_LOCALIZED)
+        pMemDescNew->_flags |= MEMDESC_FLAGS_ALLOC_AS_LOCALIZED;
+    else
+        pMemDescNew->_flags &= ~MEMDESC_FLAGS_ALLOC_AS_LOCALIZED;
     pMemDescNew->_pageSize   = pMemDesc->_pageSize;
-    pMemDescNew->pageArrayGranularity = pageArrayGranularity;
+    pMemDescNew->pageArrayGranularity = pMemDesc->pageArrayGranularity;
     pMemDescNew->_gpuCacheAttrib = pMemDesc->_gpuCacheAttrib;
     pMemDescNew->_gpuP2PCacheAttrib  = pMemDesc->_gpuP2PCacheAttrib;
     pMemDescNew->cpuCacheSnoop       = pMemDesc->cpuCacheSnoop;
@@ -2039,56 +1943,26 @@ memdescCreateSubMem
     // increase refCount of parent descriptor
     memdescAddRef(pMemDesc);
 
+    // We start this many bytes into the memory alloc
+    OffsetAdjust = pMemDesc->PteAdjust + Offset;
+
     // Fill in the PteArray and PteAdjust
-    if ((pMemDesc->_flags & MEMDESC_FLAGS_PHYSICALLY_CONTIGUOUS) ||
-        (pMemDesc->PageCount == 1))
+    if (pMemDesc->_flags & MEMDESC_FLAGS_PHYSICALLY_CONTIGUOUS)
     {
-        // Compute the base address, then fill it in
-        RmPhysAddr Base = pMemDesc->_pteArray[0] + pMemDesc->PteAdjust + Offset;
-        pMemDescNew->_pteArray[0] = Base & ~pageArrayGranularityMask;
-        pMemDescNew->PteAdjust   = NvU64_LO32(Base) & pageArrayGranularityMask;
+        memdescDescribe(pMemDescNew, pMemDescNew->_addressSpace, pMemDesc->_pteArray[0] + OffsetAdjust, Size);
     }
     else
     {
-        // More complicated...
-        RmPhysAddr Adjust;
-        NvU32 PageIndex;
-        const NvU32 pageMask = GET_PAGE_MASK(pMemDescNew->pageArrayGranularity);
-        //
-        // The last bitwise AND with the pageMask makes sure the value is cleaned
-        // and we don't end up with numBytesToPageAlignedSize == pageArrayGranularity.
-        //
-        NvU32 numBytesToPageAlignedSize = (pMemDescNew->pageArrayGranularity -
-            (Size & pageMask)) & pageMask;
-        NvBool bNeedExtraPage;
-        NvU64 alignedSize;
+        NvU64 pageArrayGranularity = pMemDesc->pageArrayGranularity;
+        NvU64 pageArrayGranularityMask = pageArrayGranularity - 1;
+        NvU32 pageArrayGranularityShift = BIT_IDX_64(pageArrayGranularity);
+        NvU64 PageIndex = OffsetAdjust >> pageArrayGranularityShift;
+        NvU64 PageCount;
 
-        // We start this many bytes into the memory alloc
-        Adjust = pMemDesc->PteAdjust + Offset;
+        pMemDescNew->PteAdjust = OffsetAdjust & pageArrayGranularityMask;
 
-        // Break it down into pages (PageIndex) and bytes (PteAdjust)
-        PageIndex = (NvU32)(Adjust >> pageArrayGranularityShift);
-        pMemDescNew->PteAdjust = NvU64_LO32(Adjust) & pageArrayGranularityMask;
-
-        //
-        // Calculate how many bytes are left to being page aligned.
-        // If the offset within the tracking page is:
-        // 1) Smaller than the number of bytes left -
-        //    PageCount equals the aligned Size.
-        // 2) Larger than the number of bytes left -
-        //    The submem description will always span an extra page.
-        //
-        bNeedExtraPage = (pMemDescNew->PteAdjust > numBytesToPageAlignedSize);
-
-        alignedSize = NV_ALIGN_UP64(Size, pMemDescNew->pageArrayGranularity);
-        pMemDescNew->PageCount = (alignedSize >> GET_PAGE_SHIFT(pMemDesc->pageArrayGranularity)) + (bNeedExtraPage ? 1 :0);
-        pMemDescNew->ActualSize = pMemDescNew->PageCount * pMemDescNew->pageArrayGranularity;
-
-        // Fill in the PTEs; remember to copy the extra PTE, in case we need it
-        if (pMemDesc->PageCount)
-        {
-            memdescFillPages(pMemDescNew, 0, &pMemDesc->_pteArray[PageIndex], pMemDescNew->PageCount, pMemDescNew->pageArrayGranularity);
-        }
+        PageCount = NV_ALIGN_UP64(pMemDescNew->PteAdjust + Size, pageArrayGranularity) >> pageArrayGranularityShift;
+        memdescFillPages(pMemDescNew, 0, &pMemDesc->_pteArray[PageIndex], PageCount, pageArrayGranularity);
     }
 
     if (memdescIsEgm(pMemDesc))
@@ -2938,6 +2812,8 @@ memdescSetHeapOffset
     RmPhysAddr fbOffset
 )
 {
+    NvU64 tmpSize;
+
     NV_ASSERT(pMemDesc->_addressSpace == ADDR_FBMEM);
     NV_ASSERT(pMemDesc->Allocated == NV_FALSE);
 
@@ -2945,8 +2821,10 @@ memdescSetHeapOffset
     pMemDesc->_flags      |= MEMDESC_FLAGS_FIXED_ADDRESS_ALLOCATE;
     pMemDesc->_pteArray[0] = fbOffset;
     NV_ASSERT_OR_RETURN_VOID(
+        memdescCalculateActualSize(pMemDesc, pMemDesc->Size, &tmpSize) == NV_OK);
+    NV_ASSERT_OR_RETURN_VOID(
         memdescSetAllocSizeFields(pMemDesc,
-                NV_ALIGN_UP64(pMemDesc->ActualSize, pMemDesc->pageArrayGranularity),
+                NV_ALIGN_UP64(tmpSize, pMemDesc->pageArrayGranularity),
                 pMemDesc->pageArrayGranularity) == NV_OK);
 }
 
@@ -3061,15 +2939,14 @@ void memdescPrintMemdesc
     const char        *pPrefixMessage
 )
 {
-#if 0
-    NvU32 i;
+#if NV_PRINTF_ENABLED
 
-    if ((DBG_RMMSG_CHECK(LEVEL_NOTICE) == 0) || (pPrefixMessage == NULL) || (pMemDesc == NULL))
+    if ((DBG_RMMSG_CHECK(LEVEL_INFO) == 0) || (pPrefixMessage == NULL) || (pMemDesc == NULL))
     {
         return;
     }
 
-    NV_PRINTF(LEVEL_NOTICE,
+    NV_PRINTF(LEVEL_INFO,
                 "%s Aperture %s starting at 0x%llx and of size 0x%llx\n",
                 pPrefixMessage,
                 memdescGetApertureString(pMemDesc->_addressSpace),
@@ -3080,12 +2957,11 @@ void memdescPrintMemdesc
         (pMemDesc->PageCount > 1) &&
         (!(pMemDesc->_flags & MEMDESC_FLAGS_PHYSICALLY_CONTIGUOUS)))
     {
-        for (i = 0; i < pMemDesc->PageCount; i++)
-        {
-            NV_PRINTF(LEVEL_NOTICE,
-                        "     contains page starting @0x%llx\n",
-                        pMemDesc->_pteArray[i]);
-        }
+        NV_PRINTF(LEVEL_INFO,"     contains total of %llu pages\n", pMemDesc->PageCount);
+        NV_PRINTF(LEVEL_INFO,"     contains first page starting @0x%llx\n",
+                    pMemDesc->_pteArray[0]);
+        NV_PRINTF(LEVEL_INFO,"     contains last page starting @0x%llx\n",
+                    pMemDesc->_pteArray[pMemDesc->PageCount-1]);
     }
 
     // TODO: merge with SMMU path above (see bug 1625121).
@@ -3096,7 +2972,7 @@ void memdescPrintMemdesc
             PIOVAMAPPING pIovaMap = pMemDesc->_pIommuMappings;
             while (pIovaMap != NULL)
             {
-                NV_PRINTF(LEVEL_NOTICE,
+                NV_PRINTF(LEVEL_INFO,
                     "Has additional IOMMU mapping for IOVA space 0x%x starting @ 0x%llx\n",
                     pIovaMap->iovaspaceId,
                     pIovaMap->iovaArray[0]);
@@ -3105,7 +2981,7 @@ void memdescPrintMemdesc
         }
         else
         {
-            NV_PRINTF(LEVEL_NOTICE,
+            NV_PRINTF(LEVEL_INFO,
                 "Has additional IOMMU mapping starting @ 0x%llx\n",
                 memdescGetPhysAddr(pMemDesc, AT_PA, 0));
         }
@@ -3430,44 +3306,6 @@ void memdescSetFlag
 }
 
 /*!
- *  @brief Return memory descriptor address pointer
- *
- *  The address value is returned by osAllocPages
- *
- *  @param[in]  pMemDesc    Memory descriptor pointer
- *
- *  @returns Memory descriptor address pointer
- */
-NvP64 memdescGetAddress
-(
-    MEMORY_DESCRIPTOR *pMemDesc
-)
-{
-    NV_ASSERT(!memdescHasSubDeviceMemDescs(pMemDesc));
-    return pMemDesc->_address;
-}
-
-/*!
- *  @brief Set memory descriptor address pointer
- *
- *  The address value is returned by osAllocPages
- *
- *  @param[in]  pMemDesc    Memory descriptor pointer
- *  @param[in]  pAddress    Pointer to address information
- *
- *  @returns nothing
- */
-void memdescSetAddress
-(
-    MEMORY_DESCRIPTOR *pMemDesc,
-    NvP64 pAddress
-)
-{
-    NV_ASSERT(!memdescHasSubDeviceMemDescs(pMemDesc));
-    pMemDesc->_address = pAddress;
-}
-
-/*!
  *  @brief Get memory descriptor os-specific memory data pointer
  *
  *  The pMemData value is returned by osAllocPages
@@ -3621,7 +3459,6 @@ NvU64 memdescGetPageSize
     ADDRESS_TRANSLATION addressTranslation
 )
 {
-    NV_ASSERT(!memdescHasSubDeviceMemDescs(pMemDesc));
     return pMemDesc->_pageSize;
 }
 
@@ -4045,108 +3882,17 @@ memdescSetName(OBJGPU *pGpu, MEMORY_DESCRIPTOR *pMemDesc, const char *name, cons
 }
 
 NV_STATUS
-memdescSendMemDescToGSP(OBJGPU *pGpu, MEMORY_DESCRIPTOR *pMemDesc, NvHandle *pHandle)
-{
-    NV_STATUS                         status          = NV_OK;
-    RsClient                         *pClient;
-    MemoryManager                    *pMemoryManager  = GPU_GET_MEMORY_MANAGER(pGpu);
-    NvU32                             flags           = 0;
-    NvU32                             index           = 0;
-    NvU32                             hClass;
-    NvU64                            *pageNumberList  = NULL;
-    RM_API                           *pRmApi          = rmapiGetInterface(RMAPI_GPU_LOCK_INTERNAL);
-    NV_MEMORY_LIST_ALLOCATION_PARAMS  listAllocParams = {0};
-
-    // Nothing to do without GSP
-    if (!IS_GSP_CLIENT(pGpu))
-    {
-        return NV_OK;
-    }
-
-    switch (memdescGetAddressSpace(pMemDesc))
-    {
-
-        case ADDR_FBMEM:
-            hClass = NV01_MEMORY_LIST_FBMEM;
-            break;
-
-        case ADDR_SYSMEM:
-            hClass = NV01_MEMORY_LIST_SYSTEM;
-            break;
-
-        default:
-            return NV_ERR_NOT_SUPPORTED;
-    }
-
-    // Initialize parameters with pMemDesc information
-    listAllocParams.pteAdjust = pMemDesc->PteAdjust;
-    listAllocParams.format    = memdescGetPteKind(pMemDesc);
-    listAllocParams.size      = pMemDesc->Size;
-    listAllocParams.hClient   = NV01_NULL_OBJECT;
-    listAllocParams.hParent   = NV01_NULL_OBJECT;
-    listAllocParams.hObject   = NV01_NULL_OBJECT;
-    listAllocParams.limit     = pMemDesc->Size - 1;
-    listAllocParams.flagsOs02 = (DRF_DEF(OS02,_FLAGS,_MAPPING,_NO_MAP) |
-                                (flags & DRF_SHIFTMASK(NVOS02_FLAGS_COHERENCY)));
-
-    // Handle pageCount based on pMemDesc contiguity
-    if (!memdescGetContiguity(pMemDesc, AT_GPU))
-    {
-        listAllocParams.flagsOs02 |=  DRF_DEF(OS02,_FLAGS,_PHYSICALITY,_NONCONTIGUOUS);
-        listAllocParams.pageCount = pMemDesc->PageCount;
-    }
-    else
-    {
-        listAllocParams.pageCount = 1;
-    }
-
-
-    // Initialize pageNumberList
-    pageNumberList = portMemAllocNonPaged(sizeof(NvU64) * listAllocParams.pageCount);
-    for (index = 0; index < listAllocParams.pageCount; index++)
-        pageNumberList[index] = memdescGetPte(pMemDesc, AT_GPU, index) >> RM_PAGE_SHIFT;
-    listAllocParams.pageNumberList = pageNumberList;
-
-    // Create MemoryList object
-    NV_ASSERT_OK_OR_GOTO(status,
-                         pRmApi->Alloc(pRmApi,
-                                       pMemoryManager->hClient,
-                                       pMemoryManager->hSubdevice,
-                                       pHandle,
-                                       hClass,
-                                       &listAllocParams,
-                                       sizeof(listAllocParams)),
-                         end);
-
-    NV_ASSERT_OK_OR_GOTO(status,
-        serverGetClientUnderLock(&g_resServ, pMemoryManager->hClient, &pClient),
-        end);
-
-    // Register MemoryList object to GSP
-    NV_ASSERT_OK_OR_GOTO(status,
-                         memRegisterWithGsp(pGpu,
-                                            pClient,
-                                            pMemoryManager->hSubdevice,
-                                            *pHandle),
-                         end);
-
-end:
-    if ((status != NV_OK) && (*pHandle != NV01_NULL_OBJECT))
-        pRmApi->Free(pRmApi, pMemoryManager->hClient, *pHandle);
-
-    if (pageNumberList != NULL)
-        portMemFree(pageNumberList);
-
-    return status;
-}
-
-NV_STATUS
 memdescSetPageArrayGranularity
 (
     MEMORY_DESCRIPTOR *pMemDesc,
     NvU64 pageArrayGranularity
 )
 {
+    if (pageArrayGranularity != RM_PAGE_SIZE && memdescGetContiguity(pMemDesc, AT_CPU))
+    {
+        pageArrayGranularity = RM_PAGE_SIZE;
+    }
+
     // Make sure pageArrayGranularity is a power of 2 value.
     NV_ASSERT_OR_RETURN((pageArrayGranularity & (pageArrayGranularity - 1)) == 0, NV_ERR_INVALID_ARGUMENT);
 
@@ -4188,8 +3934,6 @@ memdescFillMemdescForPhysAttr
     if (memdescGetAddressSpace(pMemDesc) == ADDR_FBMEM )
         *pMemAperture = NV0041_CTRL_CMD_GET_SURFACE_PHYS_ATTR_APERTURE_VIDMEM;
     else if (memdescGetAddressSpace(pMemDesc) == ADDR_SYSMEM)
-        *pMemAperture = NV0041_CTRL_CMD_GET_SURFACE_PHYS_ATTR_APERTURE_SYSMEM;
-    else if (memdescGetAddressSpace(pMemDesc) == ADDR_EGM)
         *pMemAperture = NV0041_CTRL_CMD_GET_SURFACE_PHYS_ATTR_APERTURE_SYSMEM;
     else if (memdescGetAddressSpace(pMemDesc) == ADDR_VIRTUAL )
     {
@@ -4275,8 +4019,7 @@ memdescIsEgm
         return NV_FALSE;
     }
 
-    if ((addrSpace == ADDR_EGM) ||
-        (memmgrIsLocalEgmEnabled(pMemoryManager) &&
+    if ((memmgrIsLocalEgmEnabled(pMemoryManager) &&
          (addrSpace == ADDR_SYSMEM) &&
          (pMemoryManager->localEgmNodeId != NV0000_CTRL_NO_NUMA_NODE) &&
          (memdescGetNumaNode(pMemDesc) == pMemoryManager->localEgmNodeId)))
@@ -4312,4 +4055,32 @@ NvU64 memdescGetAdjustedPageSize(
     }
 
     return pageSize;
+}
+
+MemoryIterator
+memdescIteratorInit
+(
+    MEMORY_DESCRIPTOR *pMemDesc,
+    ADDRESS_TRANSLATION addressTranslation,
+    MemoryRange range
+)
+{
+    NvU64 *pPteArray = (NvU64 *) memdescGetPteArray(pMemDesc, addressTranslation);
+    NvU64 numEntries = memdescGetPteArraySize(pMemDesc, addressTranslation);
+    NvU64 entrySize = numEntries == 1 ? pMemDesc->ActualSize : pMemDesc->pageArrayGranularity;
+
+    range.start += pMemDesc->PteAdjust;
+
+    // If the range is outside the memdesc, return an empty iterator
+    if (mrangeLimit(range) > pMemDesc->ActualSize)
+    {
+        return memoryIteratorInvalid;
+    }
+
+    //
+    // The end alignment is the offset from the end of the pte array,
+    // so we need to subtract from actual size.
+    //
+    return memoryArrayIteratorInit(pPteArray, numEntries, entrySize,
+        range.start, pMemDesc->ActualSize - mrangeLimit(range));
 }

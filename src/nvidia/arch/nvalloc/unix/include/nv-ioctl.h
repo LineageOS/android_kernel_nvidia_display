@@ -26,7 +26,9 @@
 #define NV_IOCTL_H
 
 #include <nv-ioctl-numbers.h>
+#include <nv-ioctl-numa.h>
 #include <nvtypes.h>
+
 
 typedef struct {
     NvU32    domain;        /* PCI domain number   */
@@ -113,7 +115,7 @@ typedef struct nv_ioctl_query_device_intr
 {
     NvU32 intrStatus NV_ALIGN_BYTES(4);
     NvU32 status;
-} nv_ioctl_query_device_intr;
+} nv_ioctl_query_device_intr_t;
 
 /* system parameters that the kernel driver may use for configuration */
 typedef struct nv_ioctl_sys_params

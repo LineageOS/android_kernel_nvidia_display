@@ -24,7 +24,6 @@
 #define __NV_HASH_H__
 
 #include "conftest.h"
-#include "nv-list-helpers.h"
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/hash.h>

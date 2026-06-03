@@ -26,7 +26,7 @@
 #include "os-interface.h"
 #include "nv-linux.h"
 
-#if defined(NV_LINUX_NVHOST_H_PRESENT)
+#if defined(NV_LINUX_NVHOST_H_PRESENT) && defined(NV_LINUX_HOST1X_NEXT_H_PRESENT)
 #include <linux/host1x-next.h>
 #include <linux/nvhost.h>
 #if defined(NV_LINUX_NVHOST_T194_H_PRESENT)

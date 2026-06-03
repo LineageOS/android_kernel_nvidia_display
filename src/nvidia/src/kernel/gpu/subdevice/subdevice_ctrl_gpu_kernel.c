@@ -108,6 +108,19 @@ subdeviceCtrlCmdGpuGetCachedInfo_IMPL
     return getGpuInfos(pSubdevice, pGpuInfoParams, NV_FALSE);
 }
 
+
+NV_STATUS
+subdeviceCtrlCmdGpuForceGspUnload_IMPL
+(
+    Subdevice *pSubdevice,
+    NV2080_CTRL_GPU_FORCE_GSP_UNLOAD_PARAMS *pGpuInfoParams
+)
+{
+    NV_STATUS  rmStatus = NV_OK;
+
+    return rmStatus;;
+}
+
 /*!
  * @brief This command can be used for Optimus enabled system.
  *
@@ -406,45 +419,6 @@ subdeviceCtrlCmdGpuGetEnginePartnerList_IMPL
     }
 
     return status;
-}
-
-//
-// subdeviceCtrlCmdGpuQueryMode_IMPL
-//
-// Lock Requirements:
-//      Assert that API and GPUs lock held on entry
-//
-NV_STATUS
-subdeviceCtrlCmdGpuQueryMode_IMPL
-(
-    Subdevice *pSubdevice,
-    NV2080_CTRL_GPU_QUERY_MODE_PARAMS *pQueryMode
-)
-{
-    OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
-
-    NV_ASSERT_OR_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
-
-    switch (gpuGetMode(pGpu))
-    {
-        case NV_GPU_MODE_GRAPHICS_MODE:
-        {
-            pQueryMode->mode = NV2080_CTRL_GPU_QUERY_MODE_GRAPHICS_MODE;
-            break;
-        }
-        case NV_GPU_MODE_COMPUTE_MODE:
-        {
-            pQueryMode->mode = NV2080_CTRL_GPU_QUERY_MODE_COMPUTE_MODE;
-            break;
-        }
-        default:
-        {
-            pQueryMode->mode = NV2080_CTRL_GPU_QUERY_MODE_UNKNOWN_MODE;
-            break;
-        }
-    }
-
-    return NV_OK;
 }
 
 //
@@ -996,9 +970,7 @@ subdeviceCtrlCmdGpuGetNameString_IMPL
 
     NV_ASSERT_OR_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
-    return gpuGetNameString(pGpu,
-                            pNameStringParams->gpuNameStringFlags,
-                            (void *)&pNameStringParams->gpuNameString);
+    return gpuGetNameString(pGpu, (void *)&pNameStringParams->gpuNameString);
 }
 
 //
@@ -1036,11 +1008,23 @@ subdeviceCtrlCmdGpuGetGidInfo_IMPL
 {
     NV_STATUS rmStatus = NV_OK;
     OBJGPU   *pGpu = GPU_RES_GET_GPU(pSubdevice);
-    NvU8     *pGidString;
+    NvU8     *pGidString = NULL;
     NvU32     flags = pGidInfoParams->flags;
     NvU32     gidStrlen;
 
-    rmStatus = gpuGetGidInfo(pGpu, &pGidString, &gidStrlen, flags);
+    if (FLD_TEST_DRF(2080_GPU_CMD, _GPU_GET_GID_FLAGS, _MODE, _GPU, flags))
+    {
+        rmStatus = gpuGetGidInfo(pGpu, &pGidString, &gidStrlen, flags);
+    }
+    else if (FLD_TEST_DRF(2080_GPU_CMD, _GPU_GET_GID_FLAGS, _MODE, _UGPU, flags))
+    {
+        rmStatus = gpuGetUgidInfo(pGpu, &pGidString, &gidStrlen, flags, pGidInfoParams->index);
+    }
+    else
+    {
+        rmStatus = NV_ERR_INVALID_PARAMETER;
+    }
+
     if (rmStatus == NV_OK)
     {
         if (sizeof(pGidInfoParams->data) >= gidStrlen)
@@ -1142,7 +1126,8 @@ subdeviceCtrlCmdGpuRpcGspTest_IMPL
         RmCtrlParams *pRmCtrlParams = pCallContext->pControlParams;
         pParams->startTimestamp = osGetTimestamp();
         if ((pParams->test == NV2080_CTRL_GPU_RPC_GSP_TEST_SERIALIZED_INTEGRITY) ||
-            (pParams->test == NV2080_CTRL_GPU_RPC_GSP_TEST_SERIALIZED_NOP))
+            (pParams->test == NV2080_CTRL_GPU_RPC_GSP_TEST_SERIALIZED_NOP) ||
+            (pParams->test == NV2080_CTRL_GPU_RPC_GSP_TEST_TIMEOUT))
         {
             NV_RM_RPC_CONTROL(pGpu,
                         pRmCtrlParams->hClient,
@@ -1182,6 +1167,10 @@ subdeviceCtrlCmdGpuRpcGspTest_IMPL
             data[i] = i * 3;
         }
         return status;
+    }
+    else if (pParams->test == NV2080_CTRL_GPU_RPC_GSP_TEST_TIMEOUT)
+    {
+        osDelay(10000);
     }
 
     return NV_OK;
@@ -1615,3 +1604,90 @@ subdeviceCtrlCmdThermalSystemExecuteV2_IMPL(Subdevice *pSubdevice,
 
 }
 
+#define GDMA_FUZZ_BUFFER_SIZE (1024 * 1024)
+#define GDMA_ADDR_ALIGN       4
+
+/*!
+ * @brief  This command asks GSP-RM to perform GDMA transfer tests.
+ */
+NV_STATUS
+subdeviceCtrlCmdGspGdmaFuzzTest_IMPL
+(
+    Subdevice *pSubdevice,
+    NV2080_CTRL_CMD_GSP_GDMA_FUZZ_TEST_PARAMS *pGspGdmaFuzzTestParams
+)
+{
+    NV_STATUS status;
+    OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
+    RsClient *pRsClient = RES_GET_CLIENT(pSubdevice);
+    MEMORY_DESCRIPTOR *pMemDesc = NULL;
+
+    if (!IS_GSP_CLIENT(pGpu))
+    {
+        return NV_ERR_NOT_SUPPORTED;
+    }
+
+    NV_CHECK_OK_OR_GOTO(
+        status,
+        LEVEL_ERROR,
+        memdescCreate(&pMemDesc, pGpu,
+                      GDMA_FUZZ_BUFFER_SIZE, RM_PAGE_SIZE,
+                      NV_MEMORY_CONTIGUOUS, ADDR_SYSMEM, NV_MEMORY_UNCACHED,
+                      MEMDESC_FLAGS_NONE),
+        cleanup);
+
+    memdescTagAlloc(status, NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_13, pMemDesc);
+    if (status != NV_OK)
+    {
+        NV_PRINTF(LEVEL_ERROR, "Failed to alloc test buffer, status: 0x%x\n", status);
+        goto cleanup;
+    }
+
+    pGspGdmaFuzzTestParams->pSysmemPA = memdescGetPhysAddr(pMemDesc, AT_GPU, 0);
+
+    NV_RM_RPC_CONTROL(pGpu, pRsClient->hClient, RES_GET_HANDLE(pSubdevice),
+                      NV2080_CTRL_CMD_GSP_GDMA_FUZZ_TEST,
+                      pGspGdmaFuzzTestParams, sizeof(*pGspGdmaFuzzTestParams),
+                      status);
+
+cleanup:
+    memdescFree(pMemDesc);
+    memdescDestroy(pMemDesc);
+
+    return status;
+}
+
+NV_STATUS
+subdeviceCtrlCmdGpuErrorInjectionControl_IMPL(Subdevice *pSubdevice,
+                                              NV2080_CTRL_GPU_ERROR_INJECTION_CONTROL_PARAMS *pParams)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+/*!
+ * @brief  This command checks if there is a memory subsystem HW error.
+ */
+NV_STATUS
+subdeviceCtrlCmdGpuCheckMemSubsysError_IMPL(Subdevice *pSubdevice,
+                                            NV2080_CTRL_GPU_CHECK_MEM_SUBSYS_ERROR_PARAMS *pParams)
+{
+    NV_STATUS status = NV_OK;
+
+    return status;
+}
+
+/*!
+ * @brief  This command returns the RM default timeout in ms.
+ */
+NV_STATUS
+subdeviceCtrlCmdGpuGetDefaultTimeout_IMPL(Subdevice *pSubdevice,
+                                          NV2080_CTRL_GPU_GET_DEFAULT_TIMEOUT_PARAMS *pParams)
+{
+    OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
+
+    NV_ASSERT_OR_RETURN(pGpu->timeoutData.defaultus != 0, NV_ERR_GENERIC);
+
+    pParams->defaultTimeout = pGpu->timeoutData.defaultus / 1000;
+
+    return NV_OK;
+}

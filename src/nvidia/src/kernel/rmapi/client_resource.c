@@ -1357,7 +1357,6 @@ cliresCtrlCmdClientGetAddrSpaceType_IMPL
     switch (memType)
     {
         case ADDR_SYSMEM:
-        case ADDR_EGM:
             pParams->addrSpaceType = NV0000_CTRL_CMD_CLIENT_GET_ADDR_SPACE_TYPE_SYSMEM;
             break;
         case ADDR_FBMEM:
@@ -1650,63 +1649,6 @@ cliresCtrlCmdGpuGetNvlinkBwMode_IMPL
     pParams->mode = gpumgrGetGpuNvlinkBwMode();
     pParams->bwModeScope = gpumgrGetGpuNvlinkBwModeScope();
     return NV_OK;
-}
-
-NV_STATUS
-cliresCtrlCmdLegacyConfig_IMPL
-(
-    RmClientResource *pRmCliRes,
-    NV0000_CTRL_GPU_LEGACY_CONFIG_PARAMS *pParams
-)
-{
-    NvHandle      hClient            = RES_GET_CLIENT_HANDLE(pRmCliRes);
-    RsClient     *pClient            = RES_GET_CLIENT(pRmCliRes);
-    RmClient     *pRmClient          = dynamicCast(pClient, RmClient);
-    NvHandle      hDeviceOrSubdevice = pParams->hContext;
-    NvHandle      hDevice;
-    OBJGPU       *pGpu;
-    GpuResource  *pGpuResource;
-    NV_STATUS     rmStatus           = NV_OK;
-    CALL_CONTEXT *pCallContext       = resservGetTlsCallContext();
-
-    NV_ASSERT_OR_RETURN(RMCFG_FEATURE_KERNEL_RM, NV_ERR_NOT_SUPPORTED);
-    NV_ASSERT_OR_RETURN(pCallContext != NULL, NV_ERR_INVALID_STATE);
-    NV_ASSERT_OR_RETURN(pRmClient != NULL, NV_ERR_INVALID_CLIENT);
-
-    //
-    // Clients pass in device or subdevice as context for NvRmConfigXyz.
-    //
-    rmStatus = gpuresGetByDeviceOrSubdeviceHandle(pClient,
-                                                  hDeviceOrSubdevice,
-                                                  &pGpuResource);
-    if (rmStatus != NV_OK)
-        return rmStatus;
-
-    hDevice = RES_GET_HANDLE(GPU_RES_GET_DEVICE(pGpuResource));
-    pGpu    = GPU_RES_GET_GPU(pGpuResource);
-
-    //
-    // GSP client builds should have these legacy APIs disabled,
-    // but a monolithic build running in offload mode can still reach here,
-    // so log those cases and bail early to keep the same behavior.
-    //
-    NV_ASSERT_OR_RETURN(!IS_GSP_CLIENT(pGpu), NV_ERR_NOT_SUPPORTED);
-
-    GPU_RES_SET_THREAD_BC_STATE(pGpuResource);
-
-    pParams->dataType = pParams->opType;
-
-    switch (pParams->opType)
-    {
-        default:
-            PORT_UNREFERENCED_VARIABLE(pGpu);
-            PORT_UNREFERENCED_VARIABLE(hDevice);
-            PORT_UNREFERENCED_VARIABLE(hClient);
-            rmStatus = NV_ERR_NOT_SUPPORTED;
-            break;
-    }
-
-    return rmStatus;
 }
 
 NV_STATUS

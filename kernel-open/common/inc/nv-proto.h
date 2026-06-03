@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -49,6 +49,7 @@ void        nv_revoke_gpu_mappings_locked(nv_state_t *);
 
 NvUPtr      nv_vm_map_pages             (struct page **, NvU32, NvBool, NvBool);
 void        nv_vm_unmap_pages           (NvUPtr, NvU32);
+NvU64       nv_get_reclaimable_memory_usage(void);
 
 NV_STATUS   nv_alloc_contig_pages       (nv_state_t *, nv_alloc_t *);
 void        nv_free_contig_pages        (nv_alloc_t *);
@@ -65,8 +66,8 @@ NV_STATUS   nv_uvm_resume_P2P           (const NvU8 *uuid);
 
 /* Move these to nv.h once implemented by other UNIX platforms */
 NvBool      nvidia_get_gpuid_list       (NvU32 *gpu_ids, NvU32 *gpu_count);
-int         nvidia_dev_get              (NvU32, nvidia_stack_t *);
-void        nvidia_dev_put              (NvU32, nvidia_stack_t *);
+int         nvidia_dev_get              (NvU32, nvidia_stack_t *, NvBool reset_aware);
+void        nvidia_dev_put              (NvU32, nvidia_stack_t *, NvBool reset_aware);
 int         nvidia_dev_get_uuid         (const NvU8 *, nvidia_stack_t *);
 void        nvidia_dev_put_uuid         (const NvU8 *, nvidia_stack_t *);
 int         nvidia_dev_block_gc6        (const NvU8 *, nvidia_stack_t *);
@@ -89,11 +90,15 @@ void          nv_shutdown_adapter(nvidia_stack_t *, nv_state_t *, nv_linux_state
 void          nv_dev_free_stacks(nv_linux_state_t *);
 NvBool        nv_lock_init_locks(nvidia_stack_t *, nv_state_t *);
 void          nv_lock_destroy_locks(nvidia_stack_t *, nv_state_t *);
-int           nv_linux_add_device_locked(nv_linux_state_t *);
+void          nv_linux_add_device_locked(nv_linux_state_t *);
+int           nv_linux_assign_minor_locked(nv_linux_state_t *);
+void          nv_linux_remove_minor_locked(nv_linux_state_t *);
 void          nv_linux_remove_device_locked(nv_linux_state_t *);
 NvBool        nv_acpi_power_resource_method_present(struct pci_dev *);
 
 int           nv_linux_init_open_q(nv_linux_state_t *);
 void          nv_linux_stop_open_q(nv_linux_state_t *);
 
+int           nv_start_device(nv_state_t *nv, nvidia_stack_t *sp);
+void          nv_stop_device(nv_state_t *nv, nvidia_stack_t *sp);
 #endif /* _NV_PROTO_H_ */

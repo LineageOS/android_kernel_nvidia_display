@@ -140,12 +140,6 @@ vaspaceFillAllocParams_IMPL
     pFlags->bSparse =
         !!(pAllocInfo->pageFormat->flags & NVOS32_ALLOC_FLAGS_SPARSE);
 
-    //
-    // The protected flag for kernel allocations is honoured only
-    // if this is a root client(kernel client).
-    //
-    pFlags->bPrivileged = pAllocInfo->bIsKernelAlloc;
-
     return NV_OK;
 }
 
@@ -161,7 +155,7 @@ vaspaceGetVaLimit_IMPL(OBJVASPACE *pVAS)
     return pVAS->vasLimit;
 }
 
-void
+NV_STATUS
 vaspaceInvalidateTlb_IMPL
 (
     OBJVASPACE          *pVAS,
@@ -170,6 +164,7 @@ vaspaceInvalidateTlb_IMPL
 )
 {
     NV_ASSERT(0);
+    return NV_ERR_NOT_SUPPORTED;
 }
 
 NV_STATUS

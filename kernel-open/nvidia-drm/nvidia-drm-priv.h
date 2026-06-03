@@ -30,6 +30,7 @@
 #if defined(NV_DRM_DRMP_H_PRESENT)
 #include <drm/drmP.h>
 #endif
+#include <drm/drm_print.h>
 
 #include <drm/drm_device.h>
 #include <drm/drm_gem.h>
@@ -94,7 +95,6 @@ struct nv_drm_device {
 
     struct NvKmsKapiDevice *pDevice;
 
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
     /*
      * Lock to protect drm-subsystem and fields of this structure
      * from concurrent access.
@@ -137,15 +137,14 @@ struct nv_drm_device {
      */
     wait_queue_head_t flip_event_wq;
 
-#endif
-
     NvU64 semsurf_stride;
     NvU64 semsurf_max_submitted_offset;
 
     NvBool hasVideoMemory;
 
+    NvBool contiguousPhysicalMappings;
+
     NvBool supportsSyncpts;
-    NvBool requiresVrrSemaphores;
     NvBool subOwnershipGranted;
     NvBool hasFramebufferConsole;
 

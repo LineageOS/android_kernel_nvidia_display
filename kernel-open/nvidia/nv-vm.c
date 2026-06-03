@@ -278,12 +278,6 @@ static unsigned int nv_compute_gfp_mask(
     if (at->order > 0)
         gfp_mask |= __GFP_COMP;
 
-    if (at->flags.no_reclaim)
-    {
-        gfp_mask &= ~(__GFP_RETRY_MAYFAIL | __GFP_RECLAIM);
-        gfp_mask |= __GFP_NORETRY;
-    }
-
     return gfp_mask;
 }
 
@@ -402,6 +396,7 @@ typedef struct nv_page_pool_t
     struct list_head dirty_list;
     nv_kthread_q_t scrubber_queue;
     nv_kthread_q_item_t scrubber_queue_item;
+    int node_id;
     unsigned int order;
     unsigned long pages_owned;
     void *lock;
@@ -412,7 +407,7 @@ typedef struct nv_page_pool_t
 #endif
 } nv_page_pool_t;
 
-nv_page_pool_t *sysmem_page_pools[NV_MAX_PAGE_ORDER + 1];
+nv_page_pool_t *sysmem_page_pools[MAX_NUMNODES][NV_MAX_PAGE_ORDER + 1];
 
 #ifdef NV_SHRINKER_ALLOC_PRESENT
 static nv_page_pool_t *nv_mem_pool_get_from_shrinker(struct shrinker *shrinker)
@@ -430,7 +425,7 @@ static void nv_mem_pool_shrinker_free(nv_page_pool_t *mem_pool)
 
 static struct shrinker *nv_mem_pool_shrinker_alloc(nv_page_pool_t *mem_pool)
 {
-    return shrinker_alloc(0, "nv-sysmem-alloc-order-%u", mem_pool->order);
+    return shrinker_alloc(SHRINKER_NUMA_AWARE, "nv-sysmem-alloc-node-%d-order-%u", mem_pool->node_id, mem_pool->order);
 }
 
 static void nv_mem_pool_shrinker_register(nv_page_pool_t *mem_pool, struct shrinker *shrinker)
@@ -460,13 +455,28 @@ static struct shrinker *nv_mem_pool_shrinker_alloc(nv_page_pool_t *mem_pool)
 
 static void nv_mem_pool_shrinker_register(nv_page_pool_t *mem_pool, struct shrinker *shrinker)
 {
-     register_shrinker(shrinker
+    shrinker->flags |= SHRINKER_NUMA_AWARE;
+    register_shrinker(shrinker
 #ifdef NV_REGISTER_SHRINKER_HAS_FMT_ARG
-        , "nv-sysmem-alloc-order-%u", mem_pool->order
+        , "nv-sysmem-alloc-node-%d-order-%u", mem_pool->node_id, mem_pool->order
 #endif // NV_REGISTER_SHRINKER_HAS_FMT_ARG
     );
 }
 #endif // NV_SHRINKER_ALLOC_PRESENT
+
+// Pages in the pool are reclaimable non-slab kernel memory.  Tracking them
+// with NR_KERNEL_MISC_RECLAIMABLE lets si_mem_available() include them in
+// MemAvailable (/proc/meminfo), giving the kernel an accurate picture of how
+// much memory can be recovered under pressure via the registered shrinker.
+static void nv_mem_pool_mod_misc_reclaimable(nv_page_pool_t *mem_pool, long delta_compound_pages)
+{
+#if defined(NV_NR_KERNEL_MISC_RECLAIMABLE_PRESENT)
+    if (delta_compound_pages != 0)
+        mod_node_page_state(NODE_DATA(mem_pool->node_id),
+                            NR_KERNEL_MISC_RECLAIMABLE,
+                            delta_compound_pages << mem_pool->order);
+#endif
+}
 
 static unsigned long
 nv_mem_pool_move_pages
@@ -515,18 +525,28 @@ nv_mem_pool_shrinker_count
 {
     nv_page_pool_t *mem_pool = nv_mem_pool_get_from_shrinker(shrinker);
     unsigned long pages_owned;
-    NV_STATUS status;
 
-    status = os_acquire_mutex(mem_pool->lock);
-    WARN_ON(status != NV_OK);
-    // Page that is being scrubbed by worker is not counted
+    if (sc->nid != mem_pool->node_id)
+    {
+        pages_owned = 0;
+        goto done;
+    }
+
+    if (os_acquire_mutex(mem_pool->lock) != NV_OK)
+        return 0;
+    // Page that is being scrubbed by worker is also counted
     pages_owned = mem_pool->pages_owned;
     os_release_mutex(mem_pool->lock);
 
-    nv_printf(NV_DBG_MEMINFO, "NVRM: VM: %s: pool_order=%u: %lu pages in pool\n",
-              __FUNCTION__, mem_pool->order, pages_owned);
+    nv_printf(NV_DBG_MEMINFO, "NVRM: VM: %s: node=%d order=%u: %lu pages in pool\n",
+              __FUNCTION__, mem_pool->node_id, mem_pool->order, pages_owned);
 
+done:
+#ifdef SHRINK_EMPTY
+    return (pages_owned == 0) ? SHRINK_EMPTY : pages_owned;
+#else
     return pages_owned;
+#endif
 }
 
 static unsigned long
@@ -539,13 +559,15 @@ nv_mem_pool_shrinker_scan
     nv_page_pool_t *mem_pool = nv_mem_pool_get_from_shrinker(shrinker);
     unsigned long pages_remaining;
     unsigned long pages_freed;
-    NV_STATUS status;
-
     struct list_head reclaim_list;
+
+    if (sc->nid != mem_pool->node_id)
+        return SHRINK_STOP;
+
     INIT_LIST_HEAD(&reclaim_list);
 
-    status = os_acquire_mutex(mem_pool->lock);
-    WARN_ON(status != NV_OK);
+    if (os_acquire_mutex(mem_pool->lock) != NV_OK)
+        return SHRINK_STOP;
     pages_remaining = sc->nr_to_scan;
     pages_remaining = nv_mem_pool_move_pages(&reclaim_list, &mem_pool->dirty_list, pages_remaining);
     pages_remaining = nv_mem_pool_move_pages(&reclaim_list, &mem_pool->clean_list, pages_remaining);
@@ -553,18 +575,26 @@ nv_mem_pool_shrinker_scan
     mem_pool->pages_owned -= pages_freed;
     os_release_mutex(mem_pool->lock);
 
+    nv_mem_pool_mod_misc_reclaimable(mem_pool, -(long)pages_freed);
+
     nv_mem_pool_free_page_list(&reclaim_list, mem_pool->order);
 
-    nv_printf(NV_DBG_MEMINFO, "NVRM: VM: %s: pool_order=%u: %lu/%lu pages freed\n",
-              __FUNCTION__, mem_pool->order, pages_freed, sc->nr_to_scan);
+    nv_printf(NV_DBG_MEMINFO, "NVRM: VM: %s: node=%d order=%u: %lu/%lu pages freed\n",
+              __FUNCTION__, mem_pool->node_id, mem_pool->order, pages_freed, sc->nr_to_scan);
 
-    return (pages_remaining == sc->nr_to_scan) ? SHRINK_STOP : pages_freed;
+    return (pages_freed == 0) ? SHRINK_STOP : pages_freed;
 }
 
-static unsigned long
-nv_mem_pool_get_page_size(nv_page_pool_t *mem_pool)
+static void
+nv_mem_pool_clear_page(unsigned long virt_addr, unsigned int order)
 {
-    return ((unsigned long) PAGE_SIZE) << mem_pool->order;
+    unsigned int os_pages_in_page = 1 << order;
+    unsigned int i;
+
+    for (i = 0; i < os_pages_in_page; i++)
+    {
+        clear_page((void *)(virt_addr + i * PAGE_SIZE));
+    }
 }
 
 unsigned int
@@ -605,6 +635,8 @@ nv_mem_pool_alloc_pages
     pages_owned = mem_pool->pages_owned;
     os_release_mutex(mem_pool->lock);
 
+    nv_mem_pool_mod_misc_reclaimable(mem_pool, -(long)pages_allocated);
+
     while ((pool_entry = NV_MEM_POOL_LIST_HEAD(&alloc_clean_pages)))
     {
         nv_alloc_set_page(at, i, pool_entry->virt_addr);
@@ -615,7 +647,7 @@ nv_mem_pool_alloc_pages
 
     while ((pool_entry = NV_MEM_POOL_LIST_HEAD(&alloc_dirty_pages)))
     {
-        memset((void *)pool_entry->virt_addr, 0, nv_mem_pool_get_page_size(mem_pool));
+        nv_mem_pool_clear_page(pool_entry->virt_addr, mem_pool->order);
 
         nv_alloc_set_page(at, i, pool_entry->virt_addr);
         list_del(&pool_entry->list_node);
@@ -629,8 +661,9 @@ nv_mem_pool_alloc_pages
     }
 
     nv_printf(NV_DBG_MEMINFO,
-              "NVRM: VM: %s: pool_order=%u: %lu/%lu pages allocated (%lu already cleared, %lu left in pool)\n",
-              __FUNCTION__, mem_pool->order, pages_allocated, max_num_pages, pages_allocated_clean, pages_owned);
+              "NVRM: VM: %s: node=%d order=%u: %lu/%lu pages allocated (%lu already cleared, %lu left in pool)\n",
+              __FUNCTION__, mem_pool->node_id, mem_pool->order, pages_allocated, max_num_pages, pages_allocated_clean,
+              pages_owned);
 
     return pages_allocated;
 }
@@ -668,7 +701,7 @@ nv_mem_pool_worker(void *arg)
         list_del(&pool_entry->list_node);
         os_release_mutex(mem_pool->lock);
 
-        memset((void *)pool_entry->virt_addr, 0, nv_mem_pool_get_page_size(mem_pool));
+        nv_mem_pool_clear_page(pool_entry->virt_addr, mem_pool->order);
     }
 }
 
@@ -676,9 +709,12 @@ void
 nv_mem_pool_destroy(nv_page_pool_t *mem_pool)
 {
     NV_STATUS status;
+    unsigned long saved_pages_owned;
 
     status = os_acquire_mutex(mem_pool->lock);
     WARN_ON(status != NV_OK);
+    // Snapshot before freeing: counts dirty + in-flight + clean pages.
+    saved_pages_owned = mem_pool->pages_owned;
     nv_mem_pool_free_page_list(&mem_pool->dirty_list, mem_pool->order);
     os_release_mutex(mem_pool->lock);
 
@@ -691,6 +727,8 @@ nv_mem_pool_destroy(nv_page_pool_t *mem_pool)
     nv_mem_pool_free_page_list(&mem_pool->clean_list, mem_pool->order);
     os_release_mutex(mem_pool->lock);
 
+    nv_mem_pool_mod_misc_reclaimable(mem_pool, -(long)saved_pages_owned);
+
     nv_mem_pool_shrinker_free(mem_pool);
 
     os_free_mutex(mem_pool->lock);
@@ -698,7 +736,7 @@ nv_mem_pool_destroy(nv_page_pool_t *mem_pool)
     NV_KFREE(mem_pool, sizeof(*mem_pool));
 }
 
-nv_page_pool_t* nv_mem_pool_init(unsigned int order)
+nv_page_pool_t* nv_mem_pool_init(int node_id, unsigned int order)
 {
     struct shrinker *shrinker;
     nv_page_pool_t *mem_pool;
@@ -710,6 +748,7 @@ nv_page_pool_t* nv_mem_pool_init(unsigned int order)
         return NULL;
     }
 
+    mem_pool->node_id = node_id;
     mem_pool->order = order;
 
     INIT_LIST_HEAD(&mem_pool->clean_list);
@@ -721,7 +760,7 @@ nv_page_pool_t* nv_mem_pool_init(unsigned int order)
         goto failed;
     }
 
-    if (nv_kthread_q_init(&mem_pool->scrubber_queue, "nv_mem_pool_scrubber_queue"))
+    if (nv_kthread_q_init_on_node(&mem_pool->scrubber_queue, "nv_mem_pool_scrubber_queue", node_id))
     {
         nv_printf(NV_DBG_SETUP, "NVRM: %s: failed allocating worker thread\n", __FUNCTION__);
         goto failed;
@@ -785,6 +824,13 @@ nv_mem_pool_free_pages
             break;
         }
 
+        if (page_to_nid(NV_GET_PAGE_STRUCT(page_ptr->phys_addr)) != mem_pool->node_id)
+        {
+            // Only accept pages from the right node
+            NV_FREE_PAGES(page_ptr->virt_addr, mem_pool->order);
+            continue;
+        }
+
         NV_KZALLOC(pool_entry, sizeof(*pool_entry));
         if (pool_entry == NULL)
         {
@@ -809,8 +855,12 @@ nv_mem_pool_free_pages
     pages_owned = mem_pool->pages_owned;
     os_release_mutex(mem_pool->lock);
 
-    nv_printf(NV_DBG_MEMINFO, "NVRM: VM: %s: pool_order=%u: %lu/%lu pages added to pool (%lu now in pool)\n",
-              __FUNCTION__, mem_pool->order, num_added_pages, num_pages, pages_owned);
+    nv_mem_pool_mod_misc_reclaimable(mem_pool, (long)num_added_pages);
+
+    nv_printf(NV_DBG_MEMINFO, "NVRM: VM: %s: at = %lx, at->order = %u, at->num_pages = %u, \
+                pool_order = %u: %lu/%lu pages added to pool (%lu now in pool)\n", \
+              __FUNCTION__, (long int) at, at->order, at->num_pages, mem_pool->order, \
+              num_added_pages, num_pages, pages_owned);
 
     if (queue_worker)
     {
@@ -822,20 +872,24 @@ nv_mem_pool_free_pages
 
 NV_STATUS nv_init_page_pools(void)
 {
+    int node_id;
     unsigned int order;
 
-    for (order = 0; order <= NV_MAX_PAGE_ORDER; order++)
+    for_each_node(node_id)
     {
-        unsigned long page_size = PAGE_SIZE << order;
-
-        if (!(NVreg_EnableSystemMemoryPools & (page_size >> NV_ENABLE_SYSTEM_MEMORY_POOLS_SHIFT)))
-            continue;
-
-        sysmem_page_pools[order] = nv_mem_pool_init(order);
-
-        if (sysmem_page_pools[order] == NULL)
+        for (order = 0; order <= NV_MAX_PAGE_ORDER; order++)
         {
-            return NV_ERR_NO_MEMORY;
+            unsigned long page_size = PAGE_SIZE << order;
+
+            if (!(NVreg_EnableSystemMemoryPools & (page_size >> NV_ENABLE_SYSTEM_MEMORY_POOLS_SHIFT)))
+                continue;
+
+            sysmem_page_pools[node_id][order] = nv_mem_pool_init(node_id, order);
+
+            if (sysmem_page_pools[node_id][order] == NULL)
+            {
+                return NV_ERR_NO_MEMORY;
+            }
         }
     }
 
@@ -844,22 +898,30 @@ NV_STATUS nv_init_page_pools(void)
 
 void nv_destroy_page_pools(void)
 {
+    int node_id;
     unsigned int order;
 
-    for (order = 0; order <= NV_MAX_PAGE_ORDER; order++)
+    for_each_node(node_id)
     {
-        if (sysmem_page_pools[order])
-            nv_mem_pool_destroy(sysmem_page_pools[order]);
+        for (order = 0; order <= NV_MAX_PAGE_ORDER; order++)
+        {
+            if (sysmem_page_pools[node_id][order])
+                nv_mem_pool_destroy(sysmem_page_pools[node_id][order]);
+        }
     }
 }
 
-static nv_page_pool_t *nv_mem_pool_get(unsigned int order)
+static nv_page_pool_t *nv_mem_pool_get(int node_id, unsigned int order)
 {
-    // get_order() is not limited by NV_MAX_PAGE_ORDER
-    if (order >= sizeof(sysmem_page_pools) / sizeof(*sysmem_page_pools))
+
+    if (node_id >= ARRAY_SIZE(sysmem_page_pools))
         return NULL;
 
-    return sysmem_page_pools[order];
+    // get_order() is not limited by NV_MAX_PAGE_ORDER
+    if (order >= ARRAY_SIZE(sysmem_page_pools[node_id]))
+        return NULL;
+
+    return sysmem_page_pools[node_id][order];
 }
 
 void
@@ -868,10 +930,18 @@ nv_free_system_pages
     nv_alloc_t *at
 )
 {
-    nv_page_pool_t *page_pool = nv_mem_pool_get(at->order);
+    nv_page_pool_t *page_pool = NULL;
     unsigned int os_pages_in_page = 1 << at->order;
     unsigned int num_pages = NV_CEIL(at->num_pages, os_pages_in_page);
     unsigned int i;
+
+    if (at->page_table[0].virt_addr != 0)
+    {
+        // if low on memory, pages could be allocated from different nodes
+        int likely_node_id = page_to_nid(NV_GET_PAGE_STRUCT(at->page_table[0].phys_addr));
+
+        page_pool = nv_mem_pool_get(likely_node_id, at->order);
+    }
 
     if (at->cache_type != NV_MEMORY_CACHED)
     {
@@ -893,7 +963,7 @@ nv_free_system_pages
         nv_set_memory_encrypted(at->flags.unencrypted, page_ptr->virt_addr, 1 << at->order);
     }
 
-    if (page_pool == NULL || at->flags.node != 0 ||
+    if (!at->flags.pool || page_pool == NULL ||
         nv_mem_pool_free_pages(page_pool, at) != NV_OK)
     {
         // nv_mem_pool_free_pages() fails if !NV_MAY_SLEEP()
@@ -928,12 +998,21 @@ nv_alloc_system_pages
     unsigned int num_pool_allocated_pages = 0;
     unsigned int os_pages_in_page = 1 << at->order;
     unsigned int num_pages = NV_CEIL(at->num_pages, os_pages_in_page);
-    nv_page_pool_t *page_pool = nv_mem_pool_get(at->order);
+    // OS allocator tries CPU node first by default, mirror that
+    int preferred_node_id = at->flags.node ? at->node_id : numa_mem_id();
+    nv_page_pool_t *page_pool = nv_mem_pool_get(preferred_node_id, at->order);
+
+    // Remember if pool allocation was attempted and use it on free to avoid hoarding memory
+    // Avoid unwanted scrubbing, especially important for onlined FB
+    // Cross-node cache invalidation at remap can be dramatically slower if memory is not cached locally
+    at->flags.pool = !(gfp_mask & NV_GFP_DMA32) &&
+                     at->flags.zeroed &&
+                     (at->cache_type == NV_MEMORY_CACHED || num_online_nodes() <= 1);
 
     nv_printf(NV_DBG_MEMINFO,
             "NVRM: VM: %s: %u order0 pages, %u order\n", __FUNCTION__, at->num_pages, at->order);
 
-    if (page_pool != NULL && at->flags.node == 0 && !(gfp_mask & NV_GFP_DMA32))
+    if (page_pool != NULL && at->flags.pool)
     {
         num_pool_allocated_pages = nv_mem_pool_alloc_pages(page_pool, at);
     }
@@ -1044,24 +1123,59 @@ static NvUPtr nv_vmap(struct page **pages, NvU32 page_count,
     void *ptr;
     pgprot_t prot = PAGE_KERNEL;
 #if defined(NVCPU_X86_64)
-#if defined(PAGE_KERNEL_NOENC)
     if (unencrypted)
     {
         prot = cached ? nv_adjust_pgprot(PAGE_KERNEL_NOENC) :
                         nv_adjust_pgprot(NV_PAGE_KERNEL_NOCACHE_NOENC);
     }
     else
-#endif
     {
         prot = cached ? PAGE_KERNEL : PAGE_KERNEL_NOCACHE;
     }
 #elif defined(NVCPU_AARCH64)
-    prot = cached ? PAGE_KERNEL : NV_PGPROT_UNCACHED(PAGE_KERNEL);
+    if (unencrypted)
+    {
+        prot = cached ? nv_adjust_pgprot(PAGE_KERNEL) :
+                        nv_adjust_pgprot(NV_PGPROT_UNCACHED(PAGE_KERNEL));
+    }
+    else
+    {
+        prot = cached ? PAGE_KERNEL : NV_PGPROT_UNCACHED(PAGE_KERNEL);
+    }
 #endif
     ptr = vmap(pages, page_count, VM_MAP, prot);
     NV_MEMDBG_ADD(ptr, page_count * PAGE_SIZE);
 
     return (NvUPtr)ptr;
+}
+
+NvU64 nv_get_reclaimable_memory_usage(void)
+{
+    int node_id;
+    unsigned int order;
+    NvU64 reclaimable_memory_bytes = 0;
+
+    for_each_node(node_id)
+    {
+        for (order = 0; order <= NV_MAX_PAGE_ORDER; order++)
+        {
+            if (sysmem_page_pools[node_id][order])
+            {
+                nv_printf(NV_DBG_MEMINFO, "NVRM: VM: %s: node_id = %u, pool_order = %u: %lu pages in pool\n", \
+                    __FUNCTION__, node_id, sysmem_page_pools[node_id][order]->order, \
+                    sysmem_page_pools[node_id][order]->pages_owned);
+
+                reclaimable_memory_bytes += (sysmem_page_pools[node_id][order]->pages_owned \
+                                                << sysmem_page_pools[node_id][order]->order) \
+                                                * PAGE_SIZE;
+
+                nv_printf(NV_DBG_MEMINFO, "NVRM: VM: %s: reclaimable_memory_bytes = %d\n", \
+                                            __FUNCTION__, reclaimable_memory_bytes);
+            }
+        }
+    }
+
+    return reclaimable_memory_bytes;
 }
 
 static void nv_vunmap(NvUPtr vaddr, NvU32 page_count)

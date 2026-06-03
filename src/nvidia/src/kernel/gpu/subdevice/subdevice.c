@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -109,10 +109,14 @@ subdeviceConstruct_IMPL
         NV_RM_RPC_ALLOC_SUBDEVICE(pPrimaryGpu, pRsClient->hClient, pParentRef->hResource,
                               pResourceRef->hResource, NV20_SUBDEVICE_0,
                               subDeviceInst, status);
-        NV_ASSERT_OK_OR_RETURN(status);
+        if (status != NV_OK)
+        {
+            gpuUnregisterSubdevice(pGpu, pSubdevice);
+            return status;
+        }
     }
 
-    return status;
+    return NV_OK;
 }
 
 //
@@ -161,6 +165,26 @@ subdeviceDestruct_IMPL
     OBJGPU                 *pGpu            = GPU_RES_GET_GPU(pSubdevice);
     NV_STATUS               status          = NV_OK;
 
+    // unregister first so no new notifications can find this subdevice
+    gpuUnregisterSubdevice(pGpu, pSubdevice);
+
+    // wait for all in-flight notifications to complete
+    {
+        NvU32 spinCount = 0;
+        while (portAtomicOrU32(&pSubdevice->notificationRefCount, 0) != 0)
+        {
+            if (spinCount++ < 1000)
+                portUtilSpin();
+            else
+                osDelayUs(10);
+        }
+    }
+
+    if (pSubdevice == pGpu->pCachedSubdevice)
+    {
+        pGpu->pCachedSubdevice = NULL;
+    }
+
     if (pSubdevice->bGcoffDisallowed)
     {
         osClientGcoffDisallowRefcount(pGpu->pOsGpuInfo, NV_FALSE);
@@ -208,7 +232,6 @@ subdeviceDestruct_IMPL
                        pResourceRef->hResource, status);
     }
 
-    gpuUnregisterSubdevice(pGpu, pSubdevice);
 }
 
 NV_STATUS

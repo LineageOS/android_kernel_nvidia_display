@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -516,6 +516,16 @@ typedef struct
 #define NV_DECLARE_ALIGNED(TYPE_VAR, ALIGN) __align(ALIGN) TYPE_VAR
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
+#define NV_ALIGNOF(type) _Alignof(type)
+#elif defined(__cplusplus) && (__cplusplus >= 201103L)
+#define NV_ALIGNOF(type) alignof(type)
+#elif defined(__GNUC__) || defined(__clang__)
+#define NV_ALIGNOF(type) __alignof__(type)
+#elif defined(_MSC_VER)
+#define NV_ALIGNOF(type) __alignof(type)
+#endif
+
  /***************************************************************************\
 |*                       Function Declaration Types                          *|
  \***************************************************************************/
@@ -663,6 +673,27 @@ typedef struct
     #endif
 
 #endif  // defined(_MSC_VER)
+
+ /***************************************************************************\
+|*                                                                           *|
+|*  Definitions of binary/bytes representations of floating point values     *|
+|*                                                                           *|
+|*  Intended for use when passing values across kernel contexts in which     *|
+|*  floating point use is forbidden                                          *|
+|*                                                                           *|
+ \***************************************************************************/
+/*!
+ * A struct containing the 32-bit representation of an (IEEE-754 binary32)
+ * floating point value, i.e., the raw underlying bytes of an @ref NvF32
+ *
+ * This struct must be used in places where a value may be passed across a
+ * kernel boundary, as use of floating point within some kernels is, in general,
+ * banned.
+ */
+typedef struct
+{
+    NvU32 value;
+} NvF32Bytes;
 
 #ifdef __cplusplus
 }

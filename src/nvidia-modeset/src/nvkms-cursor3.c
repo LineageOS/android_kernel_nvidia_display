@@ -87,15 +87,6 @@ static void ReleaseElvC3(NVDevEvoPtr pDevEvo, NvU32 sd, NvU32 head)
             DRF_DEF(C37A, _UPDATE, _RELEASE_ELV, _TRUE);
 }
 
-NVEvoCursorHAL nvEvoCursorC3 = {
-    NVC37A_CURSOR_IMM_CHANNEL_PIO,              /* klass */
-    MoveCursorC3,                               /* MoveCursor */
-    ReleaseElvC3,                               /* ReleaseElv */
-    {                                           /* caps */
-        256,                                    /* maxSize */
-    },
-};
-
 NVEvoCursorHAL nvEvoCursorC5 = {
     NVC57A_CURSOR_IMM_CHANNEL_PIO,              /* klass */
     MoveCursorC3,                               /* MoveCursor */

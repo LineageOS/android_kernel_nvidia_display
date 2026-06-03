@@ -61,31 +61,21 @@ typedef struct OBJEHEAP OBJEHEAP;
 typedef struct EMEMBLOCK EMEMBLOCK;
 typedef struct OBJVASPACE *POBJVASPACE;
 typedef struct VASPACE VASPACE, *PVASPACE;
-
 struct VirtMemAllocator;
 
-#ifndef __NVOC_CLASS_VirtMemAllocator_TYPEDEF__
-#define __NVOC_CLASS_VirtMemAllocator_TYPEDEF__
-typedef struct VirtMemAllocator VirtMemAllocator;
-#endif /* __NVOC_CLASS_VirtMemAllocator_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_VirtMemAllocator
-#define __nvoc_class_id_VirtMemAllocator 0x899e48
+#define __nvoc_class_id_VirtMemAllocator 0x899e48u
+typedef struct VirtMemAllocator VirtMemAllocator;
 #endif /* __nvoc_class_id_VirtMemAllocator */
 
 
 typedef struct MMU_MAP_TARGET       MMU_MAP_TARGET;
 typedef struct NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS;
-
 struct Device;
 
-#ifndef __NVOC_CLASS_Device_TYPEDEF__
-#define __NVOC_CLASS_Device_TYPEDEF__
-typedef struct Device Device;
-#endif /* __NVOC_CLASS_Device_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_Device
-#define __nvoc_class_id_Device 0xe0ac20
+#define __nvoc_class_id_Device 0xe0ac20u
+typedef struct Device Device;
 #endif /* __nvoc_class_id_Device */
 
 
@@ -97,7 +87,6 @@ typedef struct
     NvBool bExternallyManaged : 1;
     NvBool bLazy : 1;
     NvBool bSparse : 1;
-    NvBool bPrivileged : 1;
     NvBool bClientAllocation : 1;
     NvBool bFixedAddressRange : 1;
     NvBool bFixedAddressAllocate : 1;
@@ -202,7 +191,6 @@ typedef enum
 #define VASPACE_FLAGS_PTETABLE_PMA_MANAGED                        NVBIT(14)
 #define VASPACE_FLAGS_INVALIDATE_SCOPE_NVLINK_TLB                 NVBIT(15)
 #define VASPACE_FLAGS_DISABLE_SPLIT_VAS                           NVBIT(16)
-#define VASPACE_FLAGS_SET_MIRRORED                                NVBIT(17)
 #define VASPACE_FLAGS_SHARED_MANAGEMENT                           NVBIT(18)
 #define VASPACE_FLAGS_ALLOW_ZERO_ADDRESS                          NVBIT(19)
 #define VASPACE_FLAGS_SKIP_SCRUB_MEMPOOL                          NVBIT(20)
@@ -316,13 +304,9 @@ struct NVOC_METADATA__OBJVASPACE {
     const struct NVOC_VTABLE__OBJVASPACE vtable;
 };
 
-#ifndef __NVOC_CLASS_OBJVASPACE_TYPEDEF__
-#define __NVOC_CLASS_OBJVASPACE_TYPEDEF__
-typedef struct OBJVASPACE OBJVASPACE;
-#endif /* __NVOC_CLASS_OBJVASPACE_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_OBJVASPACE
-#define __nvoc_class_id_OBJVASPACE 0x6c347f
+#define __nvoc_class_id_OBJVASPACE 0x6c347fu
+typedef struct OBJVASPACE OBJVASPACE;
 #endif /* __nvoc_class_id_OBJVASPACE */
 
 // Casting support
@@ -341,11 +325,34 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJVASPACE;
 NV_STATUS __nvoc_objCreateDynamic_OBJVASPACE(OBJVASPACE**, Dynamic*, NvU32, va_list);
 
 NV_STATUS __nvoc_objCreate_OBJVASPACE(OBJVASPACE**, Dynamic*, NvU32);
-#define __objCreate_OBJVASPACE(ppNewObj, pParent, createFlags) \
-    __nvoc_objCreate_OBJVASPACE((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
+#define __objCreate_OBJVASPACE(__nvoc_ppNewObj, __nvoc_pParent, __nvoc_createFlags) \
+    __nvoc_objCreate_OBJVASPACE((__nvoc_ppNewObj), staticCast((__nvoc_pParent), Dynamic), (__nvoc_createFlags))
 
 
-// Wrapper macros
+// Wrapper macros for implementation functions
+void vaspaceIncRefCnt_IMPL(struct OBJVASPACE *pVAS);
+#ifdef __nvoc_vaspace_h_disabled
+static inline void vaspaceIncRefCnt(struct OBJVASPACE *pVAS) {
+    NV_ASSERT_FAILED_PRECOMP("OBJVASPACE was disabled!");
+}
+#else // __nvoc_vaspace_h_disabled
+#define vaspaceIncRefCnt(pVAS) vaspaceIncRefCnt_IMPL(pVAS)
+#endif // __nvoc_vaspace_h_disabled
+
+void vaspaceDecRefCnt_IMPL(struct OBJVASPACE *pVAS);
+#ifdef __nvoc_vaspace_h_disabled
+static inline void vaspaceDecRefCnt(struct OBJVASPACE *pVAS) {
+    NV_ASSERT_FAILED_PRECOMP("OBJVASPACE was disabled!");
+}
+#else // __nvoc_vaspace_h_disabled
+#define vaspaceDecRefCnt(pVAS) vaspaceDecRefCnt_IMPL(pVAS)
+#endif // __nvoc_vaspace_h_disabled
+
+NV_STATUS vaspaceGetByHandleOrDeviceDefault_IMPL(struct RsClient *pClient, NvHandle hDeviceOrSubDevice, NvHandle hVASpace, struct OBJVASPACE **ppVAS);
+#define vaspaceGetByHandleOrDeviceDefault(pClient, hDeviceOrSubDevice, hVASpace, ppVAS) vaspaceGetByHandleOrDeviceDefault_IMPL(pClient, hDeviceOrSubDevice, hVASpace, ppVAS)
+
+
+// Wrapper macros for halified functions
 #define vaspaceConstruct__FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__vaspaceConstruct___
 #define vaspaceConstruct_(pVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags) vaspaceConstruct__DISPATCH(pVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags)
 #define vaspaceAlloc_FNPTR(pVAS) pVAS->__nvoc_metadata_ptr->vtable.__vaspaceAlloc__
@@ -402,7 +409,8 @@ static inline NvU32 vaspaceGetFlags_DISPATCH(struct OBJVASPACE *pVAS) {
     return pVAS->__nvoc_metadata_ptr->vtable.__vaspaceGetFlags__(pVAS);
 }
 
-static inline NV_STATUS vaspaceIncAllocRefCnt_14ee5e(struct OBJVASPACE *pVAS, NvU64 vAddr) {
+// Virtual method declarations and/or inline definitions
+static inline NV_STATUS vaspaceIncAllocRefCnt_14ee5e(struct OBJVASPACE *pVAS, NvU64 vAddr){
     NV_ASSERT_PRECOMP(NV_FALSE);
     return NV_ERR_NOT_SUPPORTED;
 }
@@ -411,33 +419,15 @@ NvU64 vaspaceGetVaStart_IMPL(struct OBJVASPACE *pVAS);
 
 NvU64 vaspaceGetVaLimit_IMPL(struct OBJVASPACE *pVAS);
 
-static inline NvU32 vaspaceGetFlags_edd98b(struct OBJVASPACE *pVAS) {
+static inline NvU32 vaspaceGetFlags_edd98b(struct OBJVASPACE *pVAS){
     return 0U;
 }
 
-void vaspaceIncRefCnt_IMPL(struct OBJVASPACE *pVAS);
-
-#ifdef __nvoc_vaspace_h_disabled
-static inline void vaspaceIncRefCnt(struct OBJVASPACE *pVAS) {
-    NV_ASSERT_FAILED_PRECOMP("OBJVASPACE was disabled!");
-}
-#else //__nvoc_vaspace_h_disabled
-#define vaspaceIncRefCnt(pVAS) vaspaceIncRefCnt_IMPL(pVAS)
-#endif //__nvoc_vaspace_h_disabled
-
-void vaspaceDecRefCnt_IMPL(struct OBJVASPACE *pVAS);
-
-#ifdef __nvoc_vaspace_h_disabled
-static inline void vaspaceDecRefCnt(struct OBJVASPACE *pVAS) {
-    NV_ASSERT_FAILED_PRECOMP("OBJVASPACE was disabled!");
-}
-#else //__nvoc_vaspace_h_disabled
-#define vaspaceDecRefCnt(pVAS) vaspaceDecRefCnt_IMPL(pVAS)
-#endif //__nvoc_vaspace_h_disabled
-
-NV_STATUS vaspaceGetByHandleOrDeviceDefault_IMPL(struct RsClient *pClient, NvHandle hDeviceOrSubDevice, NvHandle hVASpace, struct OBJVASPACE **ppVAS);
-
-#define vaspaceGetByHandleOrDeviceDefault(pClient, hDeviceOrSubDevice, hVASpace, ppVAS) vaspaceGetByHandleOrDeviceDefault_IMPL(pClient, hDeviceOrSubDevice, hVASpace, ppVAS)
+// Exported method declarations and/or inline definitions
+// HAL method declarations without bodies
+// Inline HAL method definitions
+// Static dispatch method declarations
+// Static inline method definitions
 #undef PRIVATE_FIELD
 
 

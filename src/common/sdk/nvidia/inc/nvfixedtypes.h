@@ -92,7 +92,7 @@ typedef NvUFXP64                                                   NvUFXP48_16;
 typedef NvUFXP64                                                   NvUFXP52_12;
 typedef NvUFXP64                                                   NvUFXP54_10;
 typedef NvUFXP64                                                    NvUFXP60_4;
-
+typedef NvUFXP64                                                   NvUFXP36_28;
 /*!
  * Utility macros used in converting between signed integers and fixed-point
  * notation.

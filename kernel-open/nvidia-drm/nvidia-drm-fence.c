@@ -29,10 +29,10 @@
 #endif
 
 #include "nvidia-drm-priv.h"
-#include "nvidia-drm-ioctl.h"
 #include "nvidia-drm-gem.h"
 #include "nvidia-drm-fence.h"
 #include "nvidia-dma-resv-helper.h"
+#include "nv_drm_common_ioctl.h"
 
 #include <linux/dma-fence.h>
 

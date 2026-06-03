@@ -218,18 +218,17 @@ NV_STATUS osRefGpuAccessNeeded
     return NV_OK;
 }
 
+void rm_check_s0ix_regkey_and_platform_support(void)
+{
+    return;
+}
+
 NV_STATUS
 deviceCtrlCmdOsUnixVTSwitch_IMPL
 (
     Device *pDevice,
     NV0080_CTRL_OS_UNIX_VT_SWITCH_PARAMS *pParams
 )
-{
-    return NV_OK;
-}
-
-NV_STATUS deviceCtrlCmdOsUnixVTGetFBInfo_IMPL(Device *pDevice,
-    NV0080_CTRL_OS_UNIX_VT_GET_FB_INFO_PARAMS *pParams)
 {
     return NV_OK;
 }

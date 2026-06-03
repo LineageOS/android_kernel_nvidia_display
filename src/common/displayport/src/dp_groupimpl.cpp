@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -157,7 +157,6 @@ void GroupImpl::insert(Device * dev)
 
     // Is HDCP on for this group?
     //  YES? Disable HDCP (ECF)
-    this->hdcpPreviousStatus = this->hdcpEnabled;
     if (this->hdcpEnabled)
     {
         NvU64 ecf = 0x0;
@@ -186,13 +185,6 @@ void GroupImpl::insert(Device * dev)
     }
 
     update(dev, true);
-
-    // After Add Stream, we turn the encryption back if it was on.
-    if (this->hdcpPreviousStatus)
-    {
-        hdcpSetEncrypted(true);
-    }
-
 }
 
 void GroupImpl::remove(Device * dev)

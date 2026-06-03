@@ -132,7 +132,6 @@ memMap_IMPL
     NV_ADDRESS_SPACE effectiveAddrSpace;
     NvBool bBroadcast;
     NvU64 mapLimit;
-    NvBool bIsSysmem = NV_FALSE;
     NvBool bSkipSizeCheck = (DRF_VAL(OS33, _FLAGS, _SKIP_SIZE_CHECK, pMapParams->flags) ==
                              NVOS33_FLAGS_SKIP_SIZE_CHECK_ENABLE);
 
@@ -198,9 +197,7 @@ memMap_IMPL
         effectiveAddrSpace = ADDR_SYSMEM;
     }
 
-    bIsSysmem = (effectiveAddrSpace == ADDR_SYSMEM) || (effectiveAddrSpace == ADDR_EGM);
-
-    if (bIsSysmem)
+    if (effectiveAddrSpace == ADDR_SYSMEM)
     {
         // A client can specify not to map memory by default when
         // calling into RmAllocMemory. In those cases, we don't have
@@ -311,8 +308,7 @@ memUnmap_IMPL
         // Nothing more to do
     }
     // System Memory case
-    else if ((pGpu == NULL) || (((memdescGetAddressSpace(pMemDesc) == ADDR_SYSMEM) ||
-                                  (memdescGetAddressSpace(pMemDesc) == ADDR_EGM)) &&
+    else if ((pGpu == NULL) || ((memdescGetAddressSpace(pMemDesc) == ADDR_SYSMEM) &&
                                  FLD_TEST_DRF(OS33, _FLAGS, _MAPPING, _DIRECT, pCpuMapping->flags)))
     {
         if (FLD_TEST_DRF(OS33, _FLAGS, _MAPPING, _DIRECT, pCpuMapping->flags))

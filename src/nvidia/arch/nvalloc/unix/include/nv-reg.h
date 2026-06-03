@@ -498,6 +498,22 @@
 #define NV_REG_EXCLUDED_GPUS NV_REG_STRING(__NV_EXCLUDED_GPUS)
 
 /*
+ * Option: NVreg_ExcludeAllGpus
+ *
+ * Description:
+ *
+ * This option allows the user to exclude all GPUs. If used in conjunction with
+ * UUID based GPU exclusion, all GPUs will be excluded
+ *
+ * Possible values:
+ * 1 - Excludes all GPUs from being attached or used
+ * 0 - No effect (default)
+ */
+ #define __NV_EXCLUDE_ALL_GPUS ExcludeAllGpus
+ #define NV_EXCLUDE_ALL_GPUS NV_REG_STRING(__NV_EXCLUDE_ALL_GPUS)
+ #define NV_EXCLUDE_ALL_GPUS_DEFAULT 0
+
+/*
  * Option: NvLinkDisable
  *
  * Description:
@@ -580,8 +596,8 @@
  *
  * Possible Values:
  *
- *  0: Suspend notifiers are not used
- *  1: Suspend notifiers are used when available (default)
+ *  0: Suspend notifiers are not used (default)
+ *  1: Suspend notifiers are used when available
  */
 
 #define __NV_USE_KERNEL_SUSPEND_NOTIFIERS UseKernelSuspendNotifiers
@@ -960,25 +976,6 @@
 #define NV_CREATE_IMEX_CHANNEL_0 NV_REG_STRING(__CREATE_IMEX_CHANNEL_0)
 
 /*
- * Option: NVreg_GrdmaPciTopoCheckOverride
- *
- * Description:
- *
- * This option allows users to override the PCI topology validation enforced by
- * the GPU driver's dma-buf and nv-p2p subsystems.
- *
- * Possible values:
- * 0 - Driver's topology check to allow or deny access (default).
- * 1 - Override driver's topology check to allow access.
- * 2 - Override driver's topology check to deny access.
- */
-#define __NV_GRDMA_PCI_TOPO_CHECK_OVERRIDE GrdmaPciTopoCheckOverride
-#define NV_GRDMA_PCI_TOPO_CHECK_OVERRIDE NV_REG_STRING(__NV_GRDMA_PCI_TOPO_CHECK_OVERRIDE)
-#define NV_REG_GRDMA_PCI_TOPO_CHECK_OVERRIDE_DEFAULT       0
-#define NV_REG_GRDMA_PCI_TOPO_CHECK_OVERRIDE_ALLOW_ACCESS  1
-#define NV_REG_GRDMA_PCI_TOPO_CHECK_OVERRIDE_DENY_ACCESS   2
-
-/*
  * Option: NVreg_EnableSystemMemoryPools
  *
  * Description:
@@ -996,6 +993,21 @@
 #define NV_ENABLE_SYSTEM_MEMORY_POOLS NV_REG_STRING(__NV_ENABLE_SYSTEM_MEMORY_POOLS)
 #define NV_ENABLE_SYSTEM_MEMORY_POOLS_DEFAULT 0x00000211
 #define NV_ENABLE_SYSTEM_MEMORY_POOLS_SHIFT 12
+
+/*
+ * Option: NVreg_GpuInitOnProbe
+ *
+ * Description:
+ *
+ * This option allows the user to control initialization of the GPU at PCI probe time
+ *
+ * Possible values:
+ * 0 - Disable initializing the GPUs on PCI probe
+ * 1 - Initialize GPUs on PCI probe
+ */
+ #define __NV_GPU_INIT_ON_PROBE GpuInitOnProbe
+ #define NV_GPU_INIT_ON_PROBE NV_REG_STRING(__NV_GPU_INIT_ON_PROBE)
+ #define NV_GPU_INIT_ON_PROBE_DEFAULT 0
 
 #if defined(NV_DEFINE_REGISTRY_KEY_TABLE)
 
@@ -1038,6 +1050,8 @@ NV_DEFINE_REG_ENTRY_GLOBAL(__NV_ENABLE_RESIZABLE_BAR, 0);
 NV_DEFINE_REG_ENTRY_GLOBAL(__NV_ENABLE_DBG_BREAKPOINT, 0);
 NV_DEFINE_REG_ENTRY_GLOBAL(__NV_TEGRA_GPU_PG_MASK, ~0);
 NV_DEFINE_REG_ENTRY_GLOBAL(__NV_ENABLE_NONBLOCKING_OPEN, 1);
+NV_DEFINE_REG_ENTRY_GLOBAL(__NV_EXCLUDE_ALL_GPUS, NV_EXCLUDE_ALL_GPUS_DEFAULT);
+NV_DEFINE_REG_ENTRY_GLOBAL(__NV_GPU_INIT_ON_PROBE, NV_GPU_INIT_ON_PROBE_DEFAULT);
 
 NV_DEFINE_REG_STRING_ENTRY(__NV_COHERENT_GPU_MEMORY_MODE, NULL);
 NV_DEFINE_REG_STRING_ENTRY(__NV_REGISTRY_DWORDS, NULL);
@@ -1051,10 +1065,8 @@ NV_DEFINE_REG_STRING_ENTRY(__NV_RM_NVLINK_BW, NULL);
 NV_DEFINE_REG_ENTRY(__NV_RM_NVLINK_BW_LINK_COUNT, 0);
 NV_DEFINE_REG_ENTRY_GLOBAL(__NV_IMEX_CHANNEL_COUNT, 2048);
 NV_DEFINE_REG_ENTRY_GLOBAL(__NV_CREATE_IMEX_CHANNEL_0, 0);
-NV_DEFINE_REG_ENTRY_GLOBAL(__NV_GRDMA_PCI_TOPO_CHECK_OVERRIDE,
-                           NV_REG_GRDMA_PCI_TOPO_CHECK_OVERRIDE_DEFAULT);
 NV_DEFINE_REG_ENTRY_GLOBAL(__NV_ENABLE_SYSTEM_MEMORY_POOLS, NV_ENABLE_SYSTEM_MEMORY_POOLS_DEFAULT);
-NV_DEFINE_REG_ENTRY_GLOBAL(__NV_USE_KERNEL_SUSPEND_NOTIFIERS, 1);
+NV_DEFINE_REG_ENTRY_GLOBAL(__NV_USE_KERNEL_SUSPEND_NOTIFIERS, 0);
 
 /*
  *----------------registry database definition----------------------
@@ -1105,7 +1117,6 @@ nv_parm_t nv_parms[] = {
     NV_DEFINE_PARAMS_TABLE_ENTRY(__NV_DMA_REMAP_PEER_MMIO),
     NV_DEFINE_PARAMS_TABLE_ENTRY(__NV_IMEX_CHANNEL_COUNT),
     NV_DEFINE_PARAMS_TABLE_ENTRY(__NV_CREATE_IMEX_CHANNEL_0),
-    NV_DEFINE_PARAMS_TABLE_ENTRY(__NV_GRDMA_PCI_TOPO_CHECK_OVERRIDE),
     NV_DEFINE_PARAMS_TABLE_ENTRY(__NV_ENABLE_SYSTEM_MEMORY_POOLS),
     {NULL, NULL}
 };

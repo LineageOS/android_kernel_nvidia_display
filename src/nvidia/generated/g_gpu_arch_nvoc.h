@@ -81,6 +81,8 @@ struct GpuArch {
     struct GpuArch *__nvoc_pbase_GpuArch;    // gpuarch
 
     // Data members
+    NvBool bGpuArchIsZeroFb;
+    NvBool bGpuarchSupportsIgpuRg;
     NvU32 chipArch;
     NvU32 chipImpl;
     NvU32 hidrev;
@@ -95,13 +97,9 @@ struct NVOC_METADATA__GpuArch {
     const struct NVOC_METADATA__GpuHalspecOwner metadata__GpuHalspecOwner;
 };
 
-#ifndef __NVOC_CLASS_GpuArch_TYPEDEF__
-#define __NVOC_CLASS_GpuArch_TYPEDEF__
-typedef struct GpuArch GpuArch;
-#endif /* __NVOC_CLASS_GpuArch_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_GpuArch
-#define __nvoc_class_id_GpuArch 0x4b33af
+#define __nvoc_class_id_GpuArch 0x4b33afu
+typedef struct GpuArch GpuArch;
 #endif /* __nvoc_class_id_GpuArch */
 
 // Casting support
@@ -121,95 +119,65 @@ NV_STATUS __nvoc_objCreateDynamic_GpuArch(GpuArch**, Dynamic*, NvU32, va_list);
 
 NV_STATUS __nvoc_objCreate_GpuArch(GpuArch**, Dynamic*, NvU32,
         NvU32 ChipHal_arch, NvU32 ChipHal_impl, NvU32 ChipHal_hidrev,
-        TEGRA_CHIP_TYPE TegraChipHal_tegraType, NvU32 arg_chipArch, NvU32 arg_chipImpl, NvU32 arg_hidrev, TEGRA_CHIP_TYPE arg_tegraType);
-#define __objCreate_GpuArch(ppNewObj, pParent, createFlags, ChipHal_arch, ChipHal_impl, ChipHal_hidrev, TegraChipHal_tegraType, arg_chipArch, arg_chipImpl, arg_hidrev, arg_tegraType) \
-    __nvoc_objCreate_GpuArch((ppNewObj), staticCast((pParent), Dynamic), (createFlags), ChipHal_arch, ChipHal_impl, ChipHal_hidrev, TegraChipHal_tegraType, arg_chipArch, arg_chipImpl, arg_hidrev, arg_tegraType)
+        TEGRA_CHIP_TYPE TegraChipHal_tegraType, NvU32 chipArch, NvU32 chipImpl, NvU32 hidrev, TEGRA_CHIP_TYPE tegraType);
+#define __objCreate_GpuArch(__nvoc_ppNewObj, __nvoc_pParent, __nvoc_createFlags, ChipHal_arch, ChipHal_impl, ChipHal_hidrev, TegraChipHal_tegraType, chipArch, chipImpl, hidrev, tegraType) \
+    __nvoc_objCreate_GpuArch((__nvoc_ppNewObj), staticCast((__nvoc_pParent), Dynamic), (__nvoc_createFlags), ChipHal_arch, ChipHal_impl, ChipHal_hidrev, TegraChipHal_tegraType, chipArch, chipImpl, hidrev, tegraType)
 
 
-// Wrapper macros
-
-// Dispatch functions
-NvU32 gpuarchGetSystemPhysAddrWidth_T234D(struct GpuArch *pGpuArch);
-
+// Wrapper macros for implementation functions
+NV_STATUS gpuarchConstruct_IMPL(struct GpuArch *pGpuArch, NvU32 chipArch, NvU32 chipImpl, NvU32 hidrev, TEGRA_CHIP_TYPE tegraType);
+#define __nvoc_gpuarchConstruct(pGpuArch, chipArch, chipImpl, hidrev, tegraType) gpuarchConstruct_IMPL(pGpuArch, chipArch, chipImpl, hidrev, tegraType)
 
 #ifdef __nvoc_gpu_arch_h_disabled
 static inline NvU32 gpuarchGetSystemPhysAddrWidth(struct GpuArch *pGpuArch) {
     NV_ASSERT_FAILED_PRECOMP("GpuArch was disabled!");
     return 0;
 }
-#else //__nvoc_gpu_arch_h_disabled
+#else // __nvoc_gpu_arch_h_disabled
 #define gpuarchGetSystemPhysAddrWidth(pGpuArch) gpuarchGetSystemPhysAddrWidth_T234D(pGpuArch)
-#endif //__nvoc_gpu_arch_h_disabled
-
-#define gpuarchGetSystemPhysAddrWidth_HAL(pGpuArch) gpuarchGetSystemPhysAddrWidth(pGpuArch)
-
-static inline NvU32 gpuarchGetDmaAddrWidth_4a4dee(struct GpuArch *pGpuArch) {
-    return 0;
-}
-
+#endif // __nvoc_gpu_arch_h_disabled
 
 #ifdef __nvoc_gpu_arch_h_disabled
 static inline NvU32 gpuarchGetDmaAddrWidth(struct GpuArch *pGpuArch) {
     NV_ASSERT_FAILED_PRECOMP("GpuArch was disabled!");
     return 0;
 }
-#else //__nvoc_gpu_arch_h_disabled
-#define gpuarchGetDmaAddrWidth(pGpuArch) gpuarchGetDmaAddrWidth_4a4dee(pGpuArch)
-#endif //__nvoc_gpu_arch_h_disabled
-
-#define gpuarchGetDmaAddrWidth_HAL(pGpuArch) gpuarchGetDmaAddrWidth(pGpuArch)
-
-static inline NvBool gpuarchIsZeroFb_491d52(struct GpuArch *pGpuArch) {
-    return ((NvBool)(0 != 0));
-}
-
-
-#ifdef __nvoc_gpu_arch_h_disabled
-static inline NvBool gpuarchIsZeroFb(struct GpuArch *pGpuArch) {
-    NV_ASSERT_FAILED_PRECOMP("GpuArch was disabled!");
-    return NV_FALSE;
-}
-#else //__nvoc_gpu_arch_h_disabled
-#define gpuarchIsZeroFb(pGpuArch) gpuarchIsZeroFb_491d52(pGpuArch)
-#endif //__nvoc_gpu_arch_h_disabled
-
-#define gpuarchIsZeroFb_HAL(pGpuArch) gpuarchIsZeroFb(pGpuArch)
-
-static inline NvBool gpuarchSupportsIgpuRg_491d52(struct GpuArch *pGpuArch) {
-    return ((NvBool)(0 != 0));
-}
-
-
-#ifdef __nvoc_gpu_arch_h_disabled
-static inline NvBool gpuarchSupportsIgpuRg(struct GpuArch *pGpuArch) {
-    NV_ASSERT_FAILED_PRECOMP("GpuArch was disabled!");
-    return NV_FALSE;
-}
-#else //__nvoc_gpu_arch_h_disabled
-#define gpuarchSupportsIgpuRg(pGpuArch) gpuarchSupportsIgpuRg_491d52(pGpuArch)
-#endif //__nvoc_gpu_arch_h_disabled
-
-#define gpuarchSupportsIgpuRg_HAL(pGpuArch) gpuarchSupportsIgpuRg(pGpuArch)
-
-static inline NvU32 gpuarchGetGpcFuseStatusOffset_4a4dee(struct GpuArch *pGpuArch) {
-    return 0;
-}
-
+#else // __nvoc_gpu_arch_h_disabled
+#define gpuarchGetDmaAddrWidth(pGpuArch) gpuarchGetDmaAddrWidth_b2b553(pGpuArch)
+#endif // __nvoc_gpu_arch_h_disabled
 
 #ifdef __nvoc_gpu_arch_h_disabled
 static inline NvU32 gpuarchGetGpcFuseStatusOffset(struct GpuArch *pGpuArch) {
     NV_ASSERT_FAILED_PRECOMP("GpuArch was disabled!");
     return 0;
 }
-#else //__nvoc_gpu_arch_h_disabled
-#define gpuarchGetGpcFuseStatusOffset(pGpuArch) gpuarchGetGpcFuseStatusOffset_4a4dee(pGpuArch)
-#endif //__nvoc_gpu_arch_h_disabled
+#else // __nvoc_gpu_arch_h_disabled
+#define gpuarchGetGpcFuseStatusOffset(pGpuArch) gpuarchGetGpcFuseStatusOffset_b2b553(pGpuArch)
+#endif // __nvoc_gpu_arch_h_disabled
 
+
+// Wrapper macros for halified functions
+#define gpuarchGetSystemPhysAddrWidth_HAL(pGpuArch) gpuarchGetSystemPhysAddrWidth(pGpuArch)
+#define gpuarchGetDmaAddrWidth_HAL(pGpuArch) gpuarchGetDmaAddrWidth(pGpuArch)
 #define gpuarchGetGpcFuseStatusOffset_HAL(pGpuArch) gpuarchGetGpcFuseStatusOffset(pGpuArch)
 
-NV_STATUS gpuarchConstruct_IMPL(struct GpuArch *arg_pGpuArch, NvU32 arg_chipArch, NvU32 arg_chipImpl, NvU32 arg_hidrev, TEGRA_CHIP_TYPE arg_tegraType);
+// Dispatch functions
+// Virtual method declarations and/or inline definitions
+// Exported method declarations and/or inline definitions
+// HAL method declarations without bodies
+NvU32 gpuarchGetSystemPhysAddrWidth_T234D(struct GpuArch *pGpuArch);
 
-#define __nvoc_gpuarchConstruct(arg_pGpuArch, arg_chipArch, arg_chipImpl, arg_hidrev, arg_tegraType) gpuarchConstruct_IMPL(arg_pGpuArch, arg_chipArch, arg_chipImpl, arg_hidrev, arg_tegraType)
+// Inline HAL method definitions
+static inline NvU32 gpuarchGetDmaAddrWidth_b2b553(struct GpuArch *pGpuArch){
+    return 0;
+}
+
+static inline NvU32 gpuarchGetGpcFuseStatusOffset_b2b553(struct GpuArch *pGpuArch){
+    return 0;
+}
+
+// Static dispatch method declarations
+// Static inline method definitions
 #undef PRIVATE_FIELD
 
 

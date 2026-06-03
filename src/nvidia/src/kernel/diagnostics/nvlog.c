@@ -21,13 +21,14 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include "core/locks.h"
+#include "diagnostics/tracer.h"
+#include "gpu_mgr/gpu_mgr.h"
 #include "nvlimits.h"
 #include "nvlog/nvlog.h"
 #include "nvrm_registry.h"
 #include "os/os.h"
-#include "diagnostics/tracer.h"
 #include "tls/tls.h"
-#include "core/locks.h"
 
 //
 // Buffer push method declarations
@@ -42,7 +43,7 @@ static NV_STATUS _allocateNvlogBuffer(NvU32 size, NvU32 flags, NvU32 tag,
                                       NVLOG_BUFFER **ppBuffer);
 static void _deallocateNvlogBuffer(NVLOG_BUFFER *pBuffer);
 
-volatile NvU32 nvlogInitCount;
+PORT_ATOMIC NvU32 nvlogInitCount;
 static void *nvlogRegRoot;
 
 // Zero (null) buffer definition.

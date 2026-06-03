@@ -64,6 +64,7 @@
 #include <class/cl0073.h>
 #include <class/cl2080.h>
 #include <class/cl402c.h>
+#include <ctrl/ctrl2080/ctrl2080gsp.h>
 
 #include <gpu/dce_client/dce_client.h>
 // RMCONFIG: need definition of REGISTER_ALL_HALS()
@@ -195,6 +196,8 @@ NV_STATUS osRmInitRm(void)
         return status;
     }
 
+    rm_check_s0ix_regkey_and_platform_support();
+
     // Setup any ThreadState defaults
     threadStateInitSetupFlags(THREAD_STATE_SETUP_FLAGS_ENABLED |
                               THREAD_STATE_SETUP_FLAGS_TIMEOUT_ENABLED |
@@ -264,7 +267,8 @@ void osDpcDetachGpu(
 NV_STATUS
 osHandleGpuLost
 (
-    OBJGPU *pGpu
+    OBJGPU *pGpu,
+    NvBool  bEmitXid
 )
 {
     nv_state_t *nv = NV_GET_NV_STATE(pGpu);
@@ -285,8 +289,11 @@ osHandleGpuLost
         // This will help to prevent accessing registers of a GPU
         // which has fallen off the bus.
         //
-        nvErrorLog_va((void *)pGpu, ROBUST_CHANNEL_GPU_HAS_FALLEN_OFF_THE_BUS,
-                      "GPU has fallen off the bus.");
+        if (bEmitXid)
+        {
+            nvErrorLog_va((void *)pGpu, ROBUST_CHANNEL_GPU_HAS_FALLEN_OFF_THE_BUS,
+                          "GPU has fallen off the bus.");
+        }
 
         gpuNotifySubDeviceEvent(pGpu, NV2080_NOTIFIERS_GPU_UNAVAILABLE, NULL,
                                 0, ROBUST_CHANNEL_GPU_HAS_FALLEN_OFF_THE_BUS, 0);
@@ -317,6 +324,55 @@ osHandleGpuLost
     return NV_OK;
 }
 
+static NV_STATUS
+RmGetFirmwareVersion
+(
+    nv_state_t *pNv,
+    RM_API     *pRmApi
+)
+{
+    NV2080_CTRL_GSP_GET_FEATURES_PARAMS gsp_params;
+    NV_STATUS          rmStatus = NV_OK;
+    pNv->cached_gpu_info.firmware_version[0] = '\0';
+
+    rmStatus = pRmApi->Control(pRmApi, pNv->rmapi.hClient, pNv->rmapi.hSubDevice,
+                               NV2080_CTRL_CMD_GSP_GET_FEATURES, &gsp_params,
+                               sizeof(gsp_params));
+
+    if (rmStatus != NV_OK)
+    {
+        if (RMCFG_FEATURE_GSP_CLIENT_RM && pNv->request_firmware)
+        {
+            const char *pTmpString = "N/A";
+            portStringCopy(pNv->cached_gpu_info.firmware_version,
+                           sizeof(pNv->cached_gpu_info.firmware_version),
+                           pTmpString, portStringLength(pTmpString) + 1);
+        }
+        NV_PRINTF(LEVEL_INFO,
+                  "%s: Failed to query gpu firmware version, status=0x%x\n",
+                  __FUNCTION__, rmStatus);
+    }
+    else
+    {
+        portMemCopy(pNv->cached_gpu_info.firmware_version,
+                    sizeof(pNv->cached_gpu_info.firmware_version),
+                    gsp_params.firmwareVersion, sizeof(gsp_params.firmwareVersion));
+    }
+
+    return NV_OK;
+}
+
+static NV_STATUS
+RmGetVbiosVersion
+(
+    nv_state_t *pNv,
+    RM_API     *pRmApi
+)
+{
+    pNv->cached_gpu_info.vbios_version[0] = '\0';
+    return NV_OK;
+}
+
 /*
  * Initialize the required GPU information by doing RMAPI control calls
  * and store the same in the UNIX specific data structures.
@@ -332,6 +388,7 @@ RmInitGpuInfoWithRmApi
     nv_priv_t  *nvp    = NV_GET_NV_PRIV(nv);
     NV2080_CTRL_GPU_GET_INFO_V2_PARAMS *pGpuInfoParams = { 0 };
     NV_STATUS   status;
+    const NvU8  *uuid;
 
     // LOCK: acquire GPUs lock
     status = rmGpuLocksAcquire(GPUS_LOCK_FLAGS_NONE, RM_LOCK_MODULES_INIT);
@@ -352,11 +409,10 @@ RmInitGpuInfoWithRmApi
 
     portMemSet(pGpuInfoParams, 0, sizeof(*pGpuInfoParams));
 
-    pGpuInfoParams->gpuInfoListSize = 4;
-    pGpuInfoParams->gpuInfoList[0].index = NV2080_CTRL_GPU_INFO_INDEX_4K_PAGE_ISOLATION_REQUIRED;
-    pGpuInfoParams->gpuInfoList[1].index = NV2080_CTRL_GPU_INFO_INDEX_MOBILE_CONFIG_ENABLED;
-    pGpuInfoParams->gpuInfoList[2].index = NV2080_CTRL_GPU_INFO_INDEX_DMABUF_CAPABILITY;
-    pGpuInfoParams->gpuInfoList[3].index = NV2080_CTRL_GPU_INFO_INDEX_COHERENT_GPU_MEMORY_MODE;
+    pGpuInfoParams->gpuInfoListSize = 3;
+    pGpuInfoParams->gpuInfoList[0].index = NV2080_CTRL_GPU_INFO_INDEX_MOBILE_CONFIG_ENABLED;
+    pGpuInfoParams->gpuInfoList[1].index = NV2080_CTRL_GPU_INFO_INDEX_DMABUF_CAPABILITY;
+    pGpuInfoParams->gpuInfoList[2].index = NV2080_CTRL_GPU_INFO_INDEX_COHERENT_GPU_MEMORY_MODE;
 
     status = pRmApi->Control(pRmApi, nv->rmapi.hClient,
                              nv->rmapi.hSubDevice,
@@ -365,20 +421,17 @@ RmInitGpuInfoWithRmApi
 
     if (status == NV_OK)
     {
-        nvp->b_4k_page_isolation_required =
-            (pGpuInfoParams->gpuInfoList[0].data ==
-             NV2080_CTRL_GPU_INFO_INDEX_4K_PAGE_ISOLATION_REQUIRED_YES);
         nvp->b_mobile_config_enabled =
-            (pGpuInfoParams->gpuInfoList[1].data ==
+            (pGpuInfoParams->gpuInfoList[0].data ==
              NV2080_CTRL_GPU_INFO_INDEX_MOBILE_CONFIG_ENABLED_YES);
         nv->dma_buf_supported =
-            (pGpuInfoParams->gpuInfoList[2].data ==
+            (pGpuInfoParams->gpuInfoList[1].data ==
              NV2080_CTRL_GPU_INFO_INDEX_DMABUF_CAPABILITY_YES);
     }
 
     nv->coherent =
         (pGpu->getProperty(pGpu, PDB_PROP_GPU_COHERENT_CPU_MAPPING) ||
-         pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB));
+         pGpu->pGpuArch->bGpuArchIsZeroFb);
 
     //
     // If coherent GPU memory mode is NONE, then GPU memory has struct page
@@ -388,7 +441,7 @@ RmInitGpuInfoWithRmApi
     // Tegra iGPU also falls under struct page category, although
     // COHERENT_GPU_MEMORY_MODE doesn't apply there.
     //
-    if (pGpuInfoParams->gpuInfoList[3].data ==
+    if (pGpuInfoParams->gpuInfoList[2].data ==
         NV2080_CTRL_GPU_INFO_INDEX_COHERENT_GPU_MEMORY_MODE_NONE)
     {
         nv->mem_has_struct_page = nv->coherent;
@@ -396,13 +449,47 @@ RmInitGpuInfoWithRmApi
     else
     {
         // If mode is not _NONE, we're already on a PDB_PROP_GPU_COHERENT_CPU_MAPPING platform.
-        nv->mem_has_struct_page = pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB) ||
-                                  (pGpuInfoParams->gpuInfoList[3].data ==
+        nv->mem_has_struct_page = pGpu->pGpuArch->bGpuArchIsZeroFb ||
+                                  (pGpuInfoParams->gpuInfoList[2].data ==
                                    NV2080_CTRL_GPU_INFO_INDEX_COHERENT_GPU_MEMORY_MODE_NUMA);
+    }
+
+    switch (pGpuInfoParams->gpuInfoList[2].data)
+    {
+        case NV2080_CTRL_GPU_INFO_INDEX_COHERENT_GPU_MEMORY_MODE_NONE:
+            nv->coherent_gpu_mem_mode = NV_COHERENT_GPU_MEM_MODE_NONE;
+            break;
+        case NV2080_CTRL_GPU_INFO_INDEX_COHERENT_GPU_MEMORY_MODE_NUMA:
+            nv->coherent_gpu_mem_mode = NV_COHERENT_GPU_MEM_MODE_NUMA;
+            break;
+        case NV2080_CTRL_GPU_INFO_INDEX_COHERENT_GPU_MEMORY_MODE_DRIVER:
+            nv->coherent_gpu_mem_mode = NV_COHERENT_GPU_MEM_MODE_DRIVER;
+            break;
     }
 
     portMemFree(pGpuInfoParams);
 
+    if (status != NV_OK)
+    {
+        goto finish;
+    }
+
+    uuid = RmGetGpuUuidRaw(nv);
+    if (uuid == NULL)
+    {
+        status = NV_ERR_GPU_UUID_NOT_FOUND;
+        goto finish;
+    }
+
+    status = RmGetFirmwareVersion(nv, pRmApi);
+    if (status != NV_OK)
+    {
+        goto finish;
+    }
+
+    status = RmGetVbiosVersion(nv, pRmApi);
+
+finish:
     // UNLOCK: release GPUs lock
     rmGpuLocksRelease(GPUS_LOCK_FLAGS_NONE, NULL);
 
@@ -556,7 +643,10 @@ osInitNvMapping(
     // we need this to check if we are running on virtual GPU
     // in gpuBindHal function later.
     //
-    gpuAttachArg->nvDomainBusDeviceFunc = nv_encode_pci_info(&nv->pci_info);
+    if (!NV_IS_SOC_DISPLAY_DEVICE(nv))
+    {
+        gpuAttachArg->nvDomainBusDeviceFunc = nv_encode_pci_info(&nv->pci_info);
+    }
 
     gpuAttachArg->bRequestFwClientRm = nv->request_fw_client_rm;
 
@@ -599,7 +689,6 @@ osInitNvMapping(
     NV_PRINTF(LEVEL_INFO,
               "NV fb using linear address  : 0x%p\n", pGpu->registerAccess.gpuFbAddr);
 
-    pGpu->setProperty(pGpu, PDB_PROP_GPU_ALTERNATE_TREE_ENABLED, NV_TRUE);
     pGpu->setProperty(pGpu, PDB_PROP_GPU_ALTERNATE_TREE_HANDLE_LOCKLESS, NV_TRUE);
 
     if (!os_is_vgx_hyper())
@@ -1082,6 +1171,7 @@ NvBool RmInitPrivateState(
     NvU32 pmc_boot_1 = 0;
     NvU32 pmc_boot_42 = 0;
     NvU32 dmaAddrWidth = 0;
+    NvU64 gpuDomainBusDevice = 0;
 
     NV_SET_NV_PRIV(pNv, NULL);
 
@@ -1114,9 +1204,18 @@ NvBool RmInitPrivateState(
         return NV_FALSE;
     }
 
-    gpuId = nv_generate_id_from_pci_info(&pNv->pci_info);
+    if (!NV_IS_SOC_DISPLAY_DEVICE(pNv))
+    {
+        gpuId = nv_generate_id_from_pci_info(&pNv->pci_info);
+        gpuDomainBusDevice = nv_encode_pci_info(&pNv->pci_info);
+    }
+    else
+    {
+        gpuId = NV0000_CTRL_GPU_INVALID_ID - 1;
+        gpuDomainBusDevice = 0;
+    }
 
-    if (gpumgrRegisterGpuId(gpuId, nv_encode_pci_info(&pNv->pci_info)) != NV_OK)
+    if (gpumgrRegisterGpuId(gpuId, gpuDomainBusDevice) != NV_OK)
     {
         NV_PRINTF(LEVEL_ERROR,
                   "failed to register GPU with GPU manager.\n");
@@ -1150,11 +1249,15 @@ NvBool RmInitPrivateState(
     }
     nv_set_dma_address_size(pNv, dmaAddrWidth);
 
-    pNv->is_tegra_pci_igpu = !NV_IS_SOC_DISPLAY_DEVICE(pNv) && gpuarchIsZeroFb(pGpuArch);
-    // Only certain Tegra PCI iGPUs support Rail-Gating
-    pNv->supports_tegra_igpu_rg = pNv->is_tegra_pci_igpu && gpuarchSupportsIgpuRg(pGpuArch);
+    pNv->is_tegra_pci_igpu = !NV_IS_SOC_DISPLAY_DEVICE(pNv) && pGpuArch->bGpuArchIsZeroFb;
+
+    //  Only certain Tegra PCI iGPUs support Rail-Gating
+    pNv->supports_tegra_igpu_rg = pNv->is_tegra_pci_igpu && pGpuArch->bGpuarchSupportsIgpuRg;
+
     // This offset is only used by the Tegra PCI iGPUs which register devfreq devices
     pNv->gpc_fuse_status_offset = gpuarchGetGpcFuseStatusOffset(pGpuArch);
+
+    pNv->sysmem_mapped_console = pGpuArch->bGpuArchIsZeroFb;
 
     os_mem_set(nvp, 0, sizeof(*nvp));
     nvp->status = NV_ERR_INVALID_STATE;
@@ -1309,14 +1412,19 @@ static void RmUnixFreeRmApi(
     nv_state_t *nv
 )
 {
-    RM_API *pRmApi = rmapiGetInterface(RMAPI_API_LOCK_INTERNAL);
-
-    if (nv->rmapi.hClient != 0)
+    if (rmGpuLocksAcquire(GPUS_LOCK_FLAGS_NONE, RM_LOCK_MODULES_DESTROY) == NV_OK)
     {
-        pRmApi->Free(pRmApi, nv->rmapi.hClient, nv->rmapi.hClient);
-    }
+        RM_API *pRmApi = rmapiGetInterface(RMAPI_GPU_LOCK_INTERNAL);
 
-    portMemSet(&nv->rmapi, 0, sizeof(nv->rmapi));
+        if (nv->rmapi.hClient != 0)
+        {
+            pRmApi->Free(pRmApi, nv->rmapi.hClient, nv->rmapi.hClient);
+        }
+
+        portMemSet(&nv->rmapi, 0, sizeof(nv->rmapi));
+
+        rmGpuLocksRelease(GPUS_LOCK_FLAGS_NONE, NULL);
+    }
 }
 
 static NvBool RmUnixAllocRmApi(
@@ -1324,11 +1432,19 @@ static NvBool RmUnixAllocRmApi(
     NvU32 deviceId
 )
 {
+    NV_STATUS status = NV_OK;
     NV0080_ALLOC_PARAMETERS deviceParams = { 0 };
     NV2080_ALLOC_PARAMETERS subDeviceParams = { 0 };
-    RM_API *pRmApi = rmapiGetInterface(RMAPI_API_LOCK_INTERNAL);
+    RM_API *pRmApi = rmapiGetInterface(RMAPI_GPU_LOCK_INTERNAL);
 
     portMemSet(&nv->rmapi, 0, sizeof(nv->rmapi));
+
+    // LOCK: acquire GPUs lock
+    status = rmGpuLocksAcquire(GPUS_LOCK_FLAGS_NONE, RM_LOCK_MODULES_INIT);
+    if (status != NV_OK)
+    {
+        return status;
+    }
 
     if (pRmApi->AllocWithHandle(
                     pRmApi,
@@ -1338,17 +1454,6 @@ static NvBool RmUnixAllocRmApi(
                     NV01_ROOT,
                     &nv->rmapi.hClient,
                     sizeof(nv->rmapi.hClient)) != NV_OK)
-    {
-        goto fail;
-    }
-
-    //
-    // Any call to rmapiDelPendingDevices() will internally delete the UNIX OS
-    // layer RMAPI handles. Set this flag to preserve these handles. These
-    // handles will be freed explicitly by RmUnixFreeRmApi().
-    //
-    if (!rmclientSetClientFlagsByHandle(nv->rmapi.hClient,
-                                        RMAPI_CLIENT_FLAG_RM_INTERNAL_CLIENT))
     {
         goto fail;
     }
@@ -1414,9 +1519,15 @@ static NvBool RmUnixAllocRmApi(
         nv->rmapi.hDisp = 0;
     }
 
+    // UNLOCK: release GPUs lock
+    rmGpuLocksRelease(GPUS_LOCK_FLAGS_NONE, NULL);
+
     return NV_TRUE;
 
 fail:
+    // UNLOCK: release GPUs lock
+    rmGpuLocksRelease(GPUS_LOCK_FLAGS_NONE, NULL);
+
     RmUnixFreeRmApi(nv);
     return NV_FALSE;
 }
@@ -1441,7 +1552,6 @@ NvBool RmInitAdapter(
     KernelDisplay  *pKernelDisplay;
     const void     *gspFwHandle = NULL;
     const void     *gspFwLogHandle = NULL;
-    NvBool          consoleDisabled = NV_FALSE;
 
     NV_DEV_PRINTF(NV_DBG_SETUP, nv, "RmInitAdapter\n");
 
@@ -1493,6 +1603,7 @@ NvBool RmInitAdapter(
         goto shutdown;
     }
 
+
     // initialize the RM device register mapping
     osInitNvMapping(nv, &devicereference, &status);
     if (! RM_INIT_SUCCESS(status.initStatus) )
@@ -1513,6 +1624,8 @@ NvBool RmInitAdapter(
     //
     pGpu   = gpumgrGetGpu(devicereference);
 
+    gpumgrSetCurrentGpuInstance(pGpu->gpuInstance);
+
     pOS    = SYS_GET_OS(pSys);
 
     // Boot GSP-RM proxy through COT command either via FSP or SEC2
@@ -1530,16 +1643,6 @@ NvBool RmInitAdapter(
     RmDeterminePrimaryDevice(pGpu);
 
     RmInitAcpiMethods(pOS, pSys, pGpu);
-
-    //
-    // For GPU driving console, disable console access here, to ensure no console
-    // writes through BAR1 can interfere with physical RM's setup of BAR1
-    //
-    if (nv->client_managed_console)
-    {
-        os_disable_console_access();
-        consoleDisabled = NV_TRUE;
-    }
 
     // This needs to run before GSP-RM is booted, or else it will timeout
     if (pGpu->getProperty(pGpu, PDB_PROP_GPU_CLKS_IN_TEGRA_SOC))
@@ -1627,12 +1730,6 @@ NvBool RmInitAdapter(
         goto shutdown;
     }
 
-    if (consoleDisabled)
-    {
-        os_enable_console_access();
-        consoleDisabled = NV_FALSE;
-    }
-
     //
     // Expanded GPU visibility in GPUMGR is no longer needed once the
     // GPU is initialized.
@@ -1691,7 +1788,7 @@ NvBool RmInitAdapter(
 
     nv->flags &= ~NV_FLAG_IN_RECOVERY;
 
-    pOS->setProperty(pOS, PDB_PROP_OS_SYSTEM_EVENTS_SUPPORTED, NV_TRUE);
+    pSys->setProperty(pSys, PDB_PROP_SYS_SYSTEM_EVENTS_SUPPORTED, NV_TRUE);
 
     RmInitPowerManagement(nv);
 
@@ -1737,11 +1834,6 @@ NvBool RmInitAdapter(
 
     gpumgrThreadDisableExpandedGpuVisibility();
 
-    if (consoleDisabled)
-    {
-        os_enable_console_access();
-    }
-
     // call ShutdownAdapter to undo anything we've done above
     RmShutdownAdapter(nv);
 
@@ -1752,6 +1844,8 @@ NvBool RmInitAdapter(
 done:
     nv_put_firmware(gspFwHandle);
     nv_put_firmware(gspFwLogHandle);
+
+    gpumgrSetCurrentGpuInstance(NV_U32_MAX);
 
     return retVal;
 }
@@ -1797,8 +1891,6 @@ void RmShutdownAdapter(
                 rmapiSetDelPendingClientResourcesFromGpuMask(NVBIT(gpuInstance));
                 rmapiDelPendingDevices(NVBIT(gpuInstance));
 
-                os_disable_console_access();
-
                 if (nvp->flags & NV_INIT_FLAG_GPU_STATE_LOAD)
                 {
                     rmStatus = gpuStateUnload(pGpu, GPU_STATE_DEFAULT);
@@ -1819,8 +1911,6 @@ void RmShutdownAdapter(
                         NV_PRINTF(LEVEL_ERROR, "DCE firmware RM Shutdown failure\n");
                     }
                 }
-
-                os_enable_console_access();
 
                 if (pGpu->getProperty(pGpu, PDB_PROP_GPU_CLKS_IN_TEGRA_SOC))
                 {
@@ -1891,6 +1981,13 @@ void RmDisableAdapter(
     NvU32      gpuMask;
     nv_priv_t *nvp  = NV_GET_NV_PRIV(nv);
 
+    if (pGpu == NULL)
+    {
+        return;
+    }
+
+    gpumgrSetCurrentGpuInstance(pGpu->gpuInstance);
+
     if (pGpu->getProperty(pGpu, PDB_PROP_GPU_IN_SECONDARY_BUS_RESET) ||
         pGpu->getProperty(pGpu, PDB_PROP_GPU_IN_FULLCHIP_RESET))
     {
@@ -1911,13 +2008,8 @@ void RmDisableAdapter(
             //
             // Free the client allocated resources.
             //
-            // This needs to happen prior to tearing down SLI state when SLI is enabled.
-            //
             // Note this doesn't free RM internal resource allocations. Those are
-            // freed during (gpumgrUpdateSLIConfig->...->)gpuStateUnload.
-            //
-            // We need to free resources for all GPUs linked in a group as
-            // gpumgrUpdateSLIConfig will teardown GPU state for the entire set.
+            // freed during gpuStateUnload.
             //
             gpuMask = gpumgrGetGpuMask(pGpu);
 
@@ -1926,16 +2018,12 @@ void RmDisableAdapter(
 
             nv_stop_rc_timer(nv);
 
-            os_disable_console_access();
-
             if (nvp->flags & NV_INIT_FLAG_GPU_STATE_LOAD)
             {
                 rmStatus = gpuStateUnload(pGpu, GPU_STATE_DEFAULT);
                 NV_ASSERT(rmStatus == NV_OK);
                 nvp->flags &= ~NV_INIT_FLAG_GPU_STATE_LOAD;
             }
-
-            os_enable_console_access();
 
             // UNLOCK: release GPUs lock
             rmGpuLocksRelease(GPUS_LOCK_FLAGS_NONE, NULL);
@@ -1945,6 +2033,8 @@ void RmDisableAdapter(
         if (nv->is_external_gpu)
             serverUnlockAllClients(&g_resServ);
     }
+
+    gpumgrSetCurrentGpuInstance(NV_U32_MAX);
 }
 
 NV_STATUS RmGetAdapterStatus(

@@ -41,7 +41,7 @@
 #define NV_VGPU_GUEST_OS_TYPE_OS                                7:3 /* -W-4F */
 #define NV_VGPU_GUEST_OS_TYPE_OS_UNKNOWN                          0 /* -W--V */
 #define NV_VGPU_GUEST_OS_TYPE_OS_LINUX                            1 /* -W--V */
-#define NV_VGPU_GUEST_OS_TYPE_OS_WINDOWS7                         2 /* -W--V */
+#define NV_VGPU_GUEST_OS_TYPE_OS_WINDOWS7_DEPRECATED              2 /* -W--V */
 #define NV_VGPU_GUEST_OS_TYPE_OS_WINDOWS10                        3 /* -W--V */
 #define NV_VGPU_GUEST_OS_TYPE_OS_INVALID                          4 /* -W--V */
 // All remaining values for NV_VGPU_GUEST_OS_TYPE_OS are reserved/not supported.
@@ -319,6 +319,10 @@ typedef union {
 /******************************************************************************/
 /* GSP Control buffer shared between Guest RM and GSP Plugin - END            */
 /******************************************************************************/
+
+// vGPU RPC timeouts shared between Guest RM and GSP
+#define NV_VGPU_RPC_TIMEOUT_DEFAULT_USEC    12500000u                        // 12.5s
+#define NV_VGPU_RPC_TIMEOUT_EMU_USEC        (2700u * 1000u * 1000u)          // 2700s
 
 // VGPU GSP dirty sysmem tracking pfn format
 #define VGPU_GSP_SYSMEM_PFN_BITMAP_BUF_ADDR_VALIDITY                         0:0

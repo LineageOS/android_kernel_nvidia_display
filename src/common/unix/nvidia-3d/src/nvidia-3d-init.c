@@ -29,7 +29,6 @@
 
 #include "nvidia-3d-fermi.h"
 #include "nvidia-3d-kepler.h"
-#include "nvidia-3d-maxwell.h"
 #include "nvidia-3d-pascal.h"
 #include "nvidia-3d-volta.h"
 #include "nvidia-3d-turing.h"
@@ -43,18 +42,10 @@
 #include <class/clc797.h> // AMPERE_B
 #include <class/clc697.h> // AMPERE_A
 #include <class/clc597.h> // TURING_A
-#include <class/clc397.h> // VOLTA_A
-#include <class/clc197.h> // PASCAL_B
-#include <class/clc097.h> // PASCAL_A
-#include <class/clb197.h> // MAXWELL_B
-#include <class/clb097.h> // MAXWELL_A
 
 #include <ctrl/ctrl2080/ctrl2080gr.h>
 #include <nvos.h>
 
-#include "g_maxwell_shader_info.h"
-#include "g_pascal_shader_info.h"
-#include "g_volta_shader_info.h"
 #include "g_turing_shader_info.h"
 #include "g_ampere_shader_info.h"
 #include "g_hopper_shader_info.h"
@@ -86,9 +77,6 @@ static Nv3dChannelProgramsRec PickProgramsRec(
 {
     const Nv3dChannelProgramsRec programsTable[NV3D_SHADER_ARCH_COUNT] = {
 
-        _NV3D_CHANNEL_PROGRAMS_ENTRY(maxwell, Maxwell, MAXWELL),
-        _NV3D_CHANNEL_PROGRAMS_ENTRY(pascal, Pascal, PASCAL),
-        _NV3D_CHANNEL_PROGRAMS_ENTRY(volta, Volta, VOLTA),
         _NV3D_CHANNEL_PROGRAMS_ENTRY(turing, Turing, TURING),
         _NV3D_CHANNEL_PROGRAMS_ENTRY(ampere, Ampere, AMPERE),
     };
@@ -189,9 +177,6 @@ static NvU32 GetSmVersion(
          * the SM version based on NVAModelConfig.
          */
         static const NvU32 table[] = {
-            [NV_AMODEL_MAXWELL]     = NV2080_CTRL_GR_INFO_SM_VERSION_5_0,
-            [NV_AMODEL_PASCAL]      = NV2080_CTRL_GR_INFO_SM_VERSION_6_0,
-            [NV_AMODEL_VOLTA]       = NV2080_CTRL_GR_INFO_SM_VERSION_7_0,
             [NV_AMODEL_TURING]      = NV2080_CTRL_GR_INFO_SM_VERSION_7_5,
             [NV_AMODEL_AMPERE]      = NV2080_CTRL_GR_INFO_SM_VERSION_8_2,
         };
@@ -259,20 +244,6 @@ static NvBool GetSpaVersion(
         NvU32 smVersion;
         Nv3dDeviceSpaVersionRec spaVersion;
     } table[] = {
-        /* Maxwell */
-        { NV2080_CTRL_GR_INFO_SM_VERSION_5_0, { 5,0 } },
-        { NV2080_CTRL_GR_INFO_SM_VERSION_5_2, { 5,2 } },
-        { NV2080_CTRL_GR_INFO_SM_VERSION_5_3, { 5,3 } },
-
-        /* Pascal */
-        { NV2080_CTRL_GR_INFO_SM_VERSION_6_0, { 5,5 } },
-        { NV2080_CTRL_GR_INFO_SM_VERSION_6_1, { 5,5 } },
-        { NV2080_CTRL_GR_INFO_SM_VERSION_6_2, { 5,6 } },
-
-        /* Volta */
-        { NV2080_CTRL_GR_INFO_SM_VERSION_7_0, { 7,0 } },
-        { NV2080_CTRL_GR_INFO_SM_VERSION_7_2, { 7,2 } },
-
         /* Turing */
         { NV2080_CTRL_GR_INFO_SM_VERSION_7_3, { 7,3 } },
         { NV2080_CTRL_GR_INFO_SM_VERSION_7_5, { 7,5 } },
@@ -303,33 +274,6 @@ static NvBool GetSpaVersion(
 
     return FALSE;
 }
-
-static const Nv3dHal _nv3dHalMaxwell = {
-    _nv3dSetSpaVersionKepler,                       /* setSpaVersion */
-    _nv3dInitChannelMaxwell,                        /* initChannel */
-    _nv3dUploadDataInlineKepler,                    /* uploadDataInline */
-    _nv3dSetProgramOffsetFermi,                     /* setProgramOffset */
-    _nv3dAssignNv3dTextureMaxwell,                  /* assignNv3dTexture */
-    _nv3dSetVertexStreamEndFermi,                   /* setVertexStreamEnd */
-};
-
-static const Nv3dHal _nv3dHalPascal = {
-    _nv3dSetSpaVersionKepler,                       /* setSpaVersion */
-    _nv3dInitChannelPascal,                         /* initChannel */
-    _nv3dUploadDataInlineKepler,                    /* uploadDataInline */
-    _nv3dSetProgramOffsetFermi,                     /* setProgramOffset */
-    _nv3dAssignNv3dTexturePascal,                   /* assignNv3dTexture */
-    _nv3dSetVertexStreamEndFermi,                   /* setVertexStreamEnd */
-};
-
-static const Nv3dHal _nv3dHalVolta = {
-    _nv3dSetSpaVersionKepler,                       /* setSpaVersion */
-    _nv3dInitChannelPascal,                         /* initChannel */
-    _nv3dUploadDataInlineKepler,                    /* uploadDataInline */
-    _nv3dSetProgramOffsetVolta,                     /* setProgramOffset */
-    _nv3dAssignNv3dTexturePascal,                   /* assignNv3dTexture */
-    _nv3dSetVertexStreamEndFermi,                   /* setVertexStreamEnd */
-};
 
 static const Nv3dHal _nv3dHalTuring = {
     _nv3dSetSpaVersionKepler,                       /* setSpaVersion */
@@ -363,38 +307,27 @@ NvBool nv3dAllocDevice(
 #define ENTRY(_classNumber,                                          \
               _arch,                                                 \
               _amodelArch,                                           \
-              _hasSetBindlessTexture,                                \
-              _hasProgramRegion,                                     \
               _maxDim,                                               \
               _hal)                                                  \
         {                                                            \
             .base.classNumber           = _classNumber,              \
             .base.amodelConfig          = NV_AMODEL_ ## _amodelArch, \
-            .caps.hasSetBindlessTexture = _hasSetBindlessTexture,    \
-            .caps.hasProgramRegion      = _hasProgramRegion,         \
             .caps.maxDim                = _maxDim,                   \
             .hal                        = &_nv3dHal ## _hal,         \
             .shaderArch                 = NV3D_SHADER_ARCH_ ## _arch,\
         }
 
         /*
-         * hal--------------------------------------------------+
-         * maxDim----------------------------------------+      |
-         * hasProgramRegion---------------------------+  |      |
-         * hasSetBindlessTexture-------------------+  |  |      |
-         * amodel arch----------------+            |  |  |      |
-         * shader arch---+            |            |  |  |      |
-         * classNumber   |            |            |  |  |      |
-         *    |          |            |            |  |  |      |
+         * hal------------------------------------------+
+         * maxDim--------------------------------+      |
+         * amodel arch----------------+          |      |
+         * shader arch-----+          |          |      |
+         * classNumber     |          |          |      |
+         *    |            |          |          |      |
          */
-        ENTRY(AMPERE_B,  AMPERE,      AMPERE,      0, 0, 32768, Ampere),
-        ENTRY(AMPERE_A,  AMPERE,      AMPERE,      0, 0, 32768, Ampere),
-        ENTRY(TURING_A,  TURING,      TURING,      0, 0, 32768, Turing),
-        ENTRY(VOLTA_A,   VOLTA,       VOLTA,       0, 0, 32768, Volta),
-        ENTRY(PASCAL_B,  PASCAL,      PASCAL,      1, 1, 32768, Pascal),
-        ENTRY(PASCAL_A,  PASCAL,      PASCAL,      1, 1, 32768, Pascal),
-        ENTRY(MAXWELL_B, MAXWELL,     MAXWELL,     1, 1, 16384, Maxwell),
-        ENTRY(MAXWELL_A, MAXWELL,     MAXWELL,     1, 1, 16384, Maxwell),
+        ENTRY(AMPERE_B,    AMPERE,    AMPERE,    32768, Ampere),
+        ENTRY(AMPERE_A,    AMPERE,    AMPERE,    32768, Ampere),
+        ENTRY(TURING_A,    TURING,    TURING,    32768, Turing),
     };
 
     int i;

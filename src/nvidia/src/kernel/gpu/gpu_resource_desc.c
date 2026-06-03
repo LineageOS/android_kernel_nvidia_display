@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -512,23 +512,23 @@ static NV_STATUS
 _gpuDeleteClassFromClassDBByEngTagClassId(OBJGPU *pGpu, ENGDESCRIPTOR *pEngDesc, NvU32 *pExternalClassId)
 {
     GpuClassDb *pClassDB = &pGpu->classDB;
-    NvU32 i, j;
 
     NV_CHECK_OR_RETURN(LEVEL_INFO, (NULL != pEngDesc) || (NULL != pExternalClassId), NV_ERR_INVALID_ARGUMENT);
 
-    for (i = 0; i < pClassDB->numClasses; i++)
+    NvU32 j = 0;
+    for (NvU32 i = 0; i < pClassDB->numClasses; i++)
     {
         if (((NULL == pEngDesc) || (pClassDB->pClasses[i].engDesc == *pEngDesc)) &&
             ((NULL == pExternalClassId) || (pClassDB->pClasses[i].externalClassId == *pExternalClassId)))
         {
-            for (j = i; j < pClassDB->numClasses - 1; j++)
-            {
-                pClassDB->pClasses[j] = pClassDB->pClasses[j + 1];
-            }
-            pClassDB->numClasses--;
-            i--;    // Be sure to check the new entry at index i on the next loop.
+            // delete this index
+            continue;
         }
+
+        pClassDB->pClasses[j] = pClassDB->pClasses[i];
+        j++;
     }
+    pClassDB->numClasses = j;
 
     pGpu->engineDB.bValid = NV_FALSE;
 

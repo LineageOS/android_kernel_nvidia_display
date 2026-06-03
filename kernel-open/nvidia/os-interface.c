@@ -284,9 +284,11 @@ void* NV_API_CALL os_alloc_rwlock(void)
     init_rwsem(&os_rwlock->sem);
 
 #if defined(CONFIG_LOCKDEP)
+#if NV_IS_EXPORT_SYMBOL_PRESENT_lockdep_register_key
     // Register the dynamically allocated key to Lockdep.
     lockdep_register_key(&os_rwlock->key);
     lockdep_set_class(&os_rwlock->sem, &os_rwlock->key);
+#endif //NV_IS_EXPORT_SYMBOL_PRESENT_lockdep_register_key
 #endif // CONFIG_LOCKDEP
 
     return os_rwlock;
@@ -371,7 +373,7 @@ NvBool NV_API_CALL os_semaphore_may_sleep(void)
 
 NvBool NV_API_CALL os_is_isr(void)
 {
-    return (in_irq());
+    return (nv_in_hardirq());
 }
 
 // return TRUE if the caller is the super-user
@@ -523,7 +525,7 @@ NV_STATUS NV_API_CALL os_memcpy_from_user(
     NvU32       n
 )
 {
-    return (NV_COPY_FROM_USER(to, from, n) ? NV_ERR_INVALID_ADDRESS : NV_OK);
+    return (copy_from_user(to, from, n) ? NV_ERR_INVALID_ADDRESS : NV_OK);
 }
 
 NV_STATUS NV_API_CALL os_memcpy_to_user(
@@ -532,7 +534,7 @@ NV_STATUS NV_API_CALL os_memcpy_to_user(
     NvU32       n
 )
 {
-    return (NV_COPY_TO_USER(to, from, n) ? NV_ERR_INVALID_ADDRESS : NV_OK);
+    return (copy_to_user(to, from, n) ? NV_ERR_INVALID_ADDRESS : NV_OK);
 }
 
 void* NV_API_CALL os_mem_set(
@@ -753,7 +755,7 @@ NvU64 NV_API_CALL os_get_cpu_frequency(void)
 
 NvU32 NV_API_CALL os_get_current_process(void)
 {
-    return NV_GET_CURRENT_PROCESS();
+    return current->tgid;
 }
 
 void NV_API_CALL os_get_current_process_name(char *buf, NvU32 len)
@@ -1262,7 +1264,7 @@ NvU32 NV_API_CALL os_get_cpu_number(void)
 
 NvU32 NV_API_CALL os_get_cpu_count(void)
 {
-    return NV_NUM_CPUS();
+    return num_possible_cpus();
 }
 
 NvBool NV_API_CALL os_pat_supported(void)
@@ -1284,6 +1286,15 @@ typedef struct os_spinlock_s
 {
     nv_spinlock_t      lock;
     unsigned long      eflags;
+#if defined(CONFIG_LOCKDEP)
+    /**
+     * A key of lock class. It would be registered to Lockdep validator so all
+     * instances' usages and dependencies will contribute to constructing correct
+     * locking rules and this lock will be tracked by the Lockdep validator.
+     *
+     */
+    struct lock_class_key key;
+#endif // CONFIG_LOCKDEP
 } os_spinlock_t;
 
 NV_STATUS NV_API_CALL os_alloc_spinlock(void **ppSpinlock)
@@ -1300,12 +1311,25 @@ NV_STATUS NV_API_CALL os_alloc_spinlock(void **ppSpinlock)
 
     os_spinlock = (os_spinlock_t *)*ppSpinlock;
     NV_SPIN_LOCK_INIT(&os_spinlock->lock);
+#if defined(CONFIG_LOCKDEP)
+#if NV_IS_EXPORT_SYMBOL_PRESENT_lockdep_register_key
+    // Register the dynamically allocated key to Lockdep.
+    lockdep_register_key(&os_spinlock->key);
+    lockdep_set_class(&os_spinlock->lock, &os_spinlock->key);
+#endif // NV_IS_EXPORT_SYMBOL_PRESENT_lockdep_register_key
+#endif // CONFIG_LOCKDEP
     os_spinlock->eflags = 0;
     return NV_OK;
 }
 
 void NV_API_CALL os_free_spinlock(void *pSpinlock)
 {
+
+#if defined(CONFIG_LOCKDEP)
+    os_spinlock_t *os_spinlock = (os_spinlock_t *)pSpinlock;
+    // Unregister the dynamically allocated key.
+    lockdep_unregister_key(&os_spinlock->key);
+#endif // CONFIG_LOCKDEP
     os_free_mem(pSpinlock);
 }
 
@@ -1366,6 +1390,15 @@ NV_STATUS NV_API_CALL os_get_is_openrm(NvBool *bIsOpenRm)
 #else // defined(NVCPU_X86_64) || defined(NVCPU_AARCH64)
     return NV_ERR_NOT_SUPPORTED;
 #endif // defined(NVCPU_X86_64) || defined(NVCPU_AARCH64)
+}
+
+NvBool NV_API_CALL os_is_bif_reset_supported(void *pOsGpuInfo)
+{
+    nv_state_t *nv = (nv_state_t *) pOsGpuInfo;
+    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
+
+    // BIF reset is not supported if init on probe is enabled
+    return !(nvl->init_on_probe);
 }
 
 NvBool NV_API_CALL os_is_xen_dom0(void)
@@ -1691,7 +1724,15 @@ NV_STATUS NV_API_CALL os_alloc_pages_node
      *                              the requested order is too large (just fail
      *                              instead).
      *
-     * 5. (Optional) __GFP_RECLAIM: Used to allow/forbid reclaim.
+     * 5. __GFP_RETRY_MAYFAIL:      Used to avoid the Linux kernel OOM killer.
+     *                              To help PMA on paths where UVM might be in
+     *                              memory over subscription. This gives UVM a
+     *                              chance to free memory before invoking any
+     *                              action from the OOM killer.  Freeing
+     *                              non-essential memory will also benefit the
+     *                              system as a whole.
+     *
+     * 6. (Optional) __GFP_RECLAIM: Used to allow/forbid reclaim.
      *                              This is part of GFP_USER and consequently
      *                              GFP_HIGHUSER_MOVABLE.
      *
@@ -1705,37 +1746,12 @@ NV_STATUS NV_API_CALL os_alloc_pages_node
      */
 
     gfp_mask = __GFP_THISNODE | GFP_HIGHUSER_MOVABLE | __GFP_COMP |
-               __GFP_NOWARN;
-    
-#if defined(__GFP_RETRY_MAYFAIL)
+               __GFP_NOWARN | __GFP_RETRY_MAYFAIL;
 
-    /*
-     * __GFP_RETRY_MAYFAIL :  Used to avoid the Linux kernel OOM killer.
-     *                        To help PMA on paths where UVM might be
-     *                        in memory over subscription. This gives UVM 
-     *                        a chance to free memory before invoking any 
-     *                        action from the OOM killer.
-     *                        Freeing non-essential memory will also benefit 
-     *                        the system as a whole.
-     */
-
-    gfp_mask |= __GFP_RETRY_MAYFAIL;
-#elif defined(__GFP_NORETRY)
-
-    /*
-     *  __GFP_NORETRY :       Use __GFP_NORETRY on older kernels where
-     *                        __GFP_RETRY_MAYFAIL is not present.
-     */
-
-    gfp_mask |= __GFP_NORETRY;
-#endif
-
-#if defined(__GFP_RECLAIM)
     if (flag & NV_ALLOC_PAGES_NODE_SKIP_RECLAIM)
     {
         gfp_mask &= ~(__GFP_RECLAIM);
     }
-#endif // defined(__GFP_RECLAIM)
 
     alloc_addr = alloc_pages_node(nid, gfp_mask, order);
     if (alloc_addr == NULL)
@@ -2061,6 +2077,22 @@ NV_STATUS NV_API_CALL os_get_random_bytes
     return NV_OK;
 }
 
+NvU32 NV_API_CALL os_get_current_process_flags
+(
+    void
+)
+{
+    NvU32 flags = OS_CURRENT_PROCESS_FLAG_NONE;
+
+    if (current->flags & PF_EXITING)
+        flags |= OS_CURRENT_PROCESS_FLAG_EXITING;
+
+    if (current->flags & PF_KTHREAD)
+        flags |= OS_CURRENT_PROCESS_FLAG_KERNEL_THREAD;
+
+    return flags;
+}
+
 NV_STATUS NV_API_CALL os_alloc_wait_queue
 (
     os_wait_queue **wq
@@ -2274,6 +2306,11 @@ NV_STATUS NV_API_CALL os_tegra_igpu_perf_boost
 #endif
 }
 
+NvU64 NV_API_CALL os_get_reclaimable_memory_usage(void)
+{
+    return nv_get_reclaimable_memory_usage();
+}
+
 /*
  * Reads the total memory and free memory of a NUMA node from the kernel.
  */
@@ -2358,7 +2395,7 @@ static int os_numa_verify_gpu_memory_zone(struct notifier_block *nb,
     return NOTIFY_OK;
 }
 
-#define ADD_REMOVE_GPU_MEMORY_NUM_SEGMENTS 4
+#define ADD_REMOVE_GPU_MEMORY_NUM_SEGMENTS 128
 
 NV_STATUS NV_API_CALL os_numa_add_gpu_memory
 (

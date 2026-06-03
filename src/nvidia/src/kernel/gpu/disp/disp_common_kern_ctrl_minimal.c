@@ -201,9 +201,7 @@ dispcmnCtrlCmdSystemQueryUefiDisplayBandwidth_IMPL
 
     status = dispapiValidateRmctrlPriv(pGpu);
     if (status != NV_OK)
-    {
         return status;
-    }
 
     pKernelDisplay = GPU_GET_KERNEL_DISPLAY(pGpu);
 

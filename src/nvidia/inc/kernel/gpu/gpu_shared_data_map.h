@@ -34,6 +34,7 @@
 //                          Type definitions
 // ****************************************************************************
 typedef struct RusdQueryCache RUSD_QUERY_CACHE;
+typedef struct RusdStaticQueryCache RUSD_STATIC_QUERY_CACHE;
 
 typedef struct GpuSharedDataMap {
     MEMORY_DESCRIPTOR *pMemDesc;
@@ -41,8 +42,9 @@ typedef struct GpuSharedDataMap {
     NvU64 lastPolledDataMask;
     NvU32 processId;
     NvU32 pollingRegistryOverride;
-    NvU32 pollingFrequencyMs;
-    NvBool bPollFrequencyOverridden;
+    NvU32 defaultPollingIntervalMs;
+    NvU32 pollingIntervalMs;
+    NvBool bPollIntervalOverridden;
 
     TMR_EVENT *pRusdRefreshTmrEvent;
 
@@ -50,6 +52,7 @@ typedef struct GpuSharedDataMap {
 
     // Private data to assist metrics query
     RUSD_QUERY_CACHE *pRusdQueryCache;
+    RUSD_STATIC_QUERY_CACHE *pRusdStaticQueryCache;
     NvU8 curGroup;
     NvBool bWorkItemPending;
 } GpuSharedDataMap;

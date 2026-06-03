@@ -186,6 +186,8 @@ gpumgrConstruct_IMPL(OBJGPUMGR *pGpuMgr)
 
     NV_ASSERT_OK_OR_GOTO(status, gpumgrInitPcieP2PCapsCache(pGpuMgr), cleanup);
 
+    portMemSet(pGpuMgr->currentGpuInstances, 0xff, sizeof(pGpuMgr->currentGpuInstances));
+
     return NV_OK;
 
 cleanup:
@@ -1322,6 +1324,7 @@ gpumgrAttachGpu(NvU32 gpuInstance, GPUATTACHARG *pAttachArg)
     OBJGPUMGR *pGpuMgr = SYS_GET_GPUMGR(pSys);
     OBJGPU    *pGpu = NULL;
     NV_STATUS  status;
+    NvU32 prevGpuInst = NV_U32_MAX;
 
     NV_ASSERT_OR_RETURN(rmapiLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
 
@@ -1333,6 +1336,8 @@ gpumgrAttachGpu(NvU32 gpuInstance, GPUATTACHARG *pAttachArg)
 
     // get a pointer to the new OBJGPU
     pGpu = gpumgrGetGpu(gpuInstance);
+
+    prevGpuInst = gpumgrSetCurrentGpuInstance(pGpu->gpuInstance);
 
     // load up attach parameters
     gpumgrSetAttachInfo(pGpu, pAttachArg);
@@ -1388,6 +1393,8 @@ gpumgrAttachGpu(NvU32 gpuInstance, GPUATTACHARG *pAttachArg)
     if (!IS_FW_CLIENT(pGpu))
         pGpuMgr->gpuMonolithicRmMask |= NVBIT(gpuInstance);
 
+    gpumgrSetCurrentGpuInstance(prevGpuInst);
+
     return status;
 
 gpumgrAttach_error_and_exit:
@@ -1404,6 +1411,9 @@ gpumgrAttach_error_and_exit:
 
     osDpcDetachGpu(pGpu);
     _gpumgrDestroyGpu(gpuInstance);
+
+    gpumgrSetCurrentGpuInstance(prevGpuInst);
+
     return status;
 }
 
@@ -1714,13 +1724,6 @@ gpumgrSetAttachInfo(OBJGPU *pGpu, GPUATTACHARG *pAttachArg)
             pGpu->busInfo.gpuPhysAddr = pGpu->deviceMappings[SOC_DEV_MAPPING_DISP].gpuNvPAddr;
             pGpu->gpuDeviceMapCount = 1;
         }
-
-        //
-        // TODO bug 2100708: a fake DBDF is used on SOC to opt out of some
-        // RM paths that cause issues otherwise, see the bug for details.
-        //
-        pGpu->busInfo.nvDomainBusDeviceFunc = pAttachArg->nvDomainBusDeviceFunc;
-        pGpu->busInfo.bNvDomainBusDeviceFuncValid = NV_TRUE;
     }
     else if (pAttachArg->bIsSOC)
     {
@@ -1736,13 +1739,6 @@ gpumgrSetAttachInfo(OBJGPU *pGpu, GPUATTACHARG *pAttachArg)
             NV_ASSERT(sizeof(pGpu->deviceMappings) == sizeof(pAttachArg->socDeviceMappings));
             portMemCopy(pGpu->deviceMappings, sizeof(pGpu->deviceMappings), pAttachArg->socDeviceMappings, sizeof(pGpu->deviceMappings));
             pGpu->gpuDeviceMapCount = pAttachArg->socDeviceCount;
-
-            //
-            // TODO bug 2100708: a fake DBDF is used on SOC to opt out of some
-            // RM paths that cause issues otherwise, see the bug for details.
-            //
-            pGpu->busInfo.nvDomainBusDeviceFunc = pAttachArg->nvDomainBusDeviceFunc;
-            pGpu->busInfo.bNvDomainBusDeviceFuncValid = NV_TRUE;
         }
     }
     else
@@ -2382,7 +2378,7 @@ gpumgrGetGpuIdInfoV2(NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS *pGpuInfo)
     }
 
     // is this GPU part of an SOC
-    if (pGpu->bIsSOC || pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB))
+    if (pGpu->bIsSOC || pGpu->pGpuArch->bGpuArchIsZeroFb)
     {
         pGpuInfo->gpuFlags |= DRF_DEF(0000, _CTRL_GPU_ID_INFO, _SOC, _TRUE);
     }
@@ -2405,7 +2401,7 @@ gpumgrGetGpuIdInfoV2(NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS *pGpuInfo)
                                          _SOC_TYPE, _DISPLAY_AND_IGPU,
                                          pGpuInfo->gpuFlags);
     }
-    else if (pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB))
+    else if (pGpu->pGpuArch->bGpuArchIsZeroFb)
     {
         pGpuInfo->gpuFlags = FLD_SET_DRF(0000, _CTRL_GPU_ID_INFO,
                                          _SOC_TYPE, _IGPU,
@@ -2560,9 +2556,8 @@ gpumgrSetGpuInitStatus(NvU32 gpuId, NV_STATUS status)
 //
 // This routine looks at the set of GPUs and picks a the primary (parent)
 // with the following rules, in this order:
-// 1- If a primary GPU has been passed in an SLI config by a client
-// 2- If there is a boot primary in the GPU mask
-// 3- The first VGA device attached (not 3d controller)
+// 1- If there is a boot primary in the GPU mask
+// 2- The first VGA device attached (not 3d controller)
 //
 NvU32
 gpumgrGetDefaultPrimaryGpu
@@ -2579,27 +2574,13 @@ gpumgrGetDefaultPrimaryGpu
         return 0;
     }
 
-    // Find  masterFromSLIConfig, set when a RM client passes a primary GPU
-    // index from a SLI config
+    // default to boot primary
     gpuInstance = 0;
     while ((pGpu = gpumgrGetNextGpu(gpuMask, &gpuInstance)) != NULL)
     {
-        if (pGpu->masterFromSLIConfig)
+        if (pGpu->getProperty(pGpu, PDB_PROP_GPU_PRIMARY_DEVICE))
         {
             break;
-        }
-    }
-
-    // default to boot primary
-    if (pGpu == NULL)
-    {
-        gpuInstance = 0;
-        while ((pGpu = gpumgrGetNextGpu(gpuMask, &gpuInstance)) != NULL)
-        {
-            if (pGpu->getProperty(pGpu, PDB_PROP_GPU_PRIMARY_DEVICE))
-            {
-                break;
-            }
         }
     }
 
@@ -2711,7 +2692,7 @@ RmPhysAddr gpumgrGetGpuPhysFbAddr(OBJGPU *pGpu)
 
     physFbAddr = pGpu->busInfo.gpuPhysFbAddr;
 
-    NV_ASSERT(pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB) || physFbAddr);
+    NV_ASSERT(pGpu->pGpuArch->bGpuArchIsZeroFb || physFbAddr);
     return physFbAddr;
 }
 
@@ -3123,33 +3104,91 @@ gpumgrCacheGetActiveDeviceIds_IMPL
 }
 
 /**
- * @brief Saves a pointer to the current GPU instance in thread local storage,
- *        to be logged by NVLOG, until gpumgrSetGpuRelease is called.
- *        Returns a pointer to tls entry (to be passed to gpumgrSetGpuRelease)
+ * @brief set current GPU instance in TLS for debugging.
  *
- * @param[in] pGpu
+ * Call this in the beginning of a GPU-specific operation.
+ * @return previous GPU instance in TLS
  */
-NvBool
-gpumgrSetGpuAcquire(OBJGPU *pGpu)
+NvU32 gpumgrSetCurrentGpuInstance(NvU32 gpuInstance)
 {
-    NvU32 **ppGpuInstance;
-    ppGpuInstance = (NvU32 **)tlsEntryAcquire
-                    (TLS_ENTRY_ID_CURRENT_GPU_INSTANCE);
-    if (ppGpuInstance)
+    if (portUtilIsInterruptContext())
+        return NV_U32_MAX;
+
+    OBJSYS *pSys = SYS_GET_INSTANCE();
+    NV_ASSERT_OR_RETURN(pSys != NULL, NV_U32_MAX);
+
+    OBJGPUMGR *pGpuMgr = SYS_GET_GPUMGR(pSys);
+    NV_ASSERT_OR_RETURN(pGpuMgr != NULL, NV_U32_MAX);
+
+    NvU64 tid = portThreadGetCurrentThreadId();
+    GPUMGR_CURRENT_GPU_INSTANCE *pGpuInstanceSlot = NULL;
+
+    // Is there an existing entry for this thread?
+    for (NvU32 i = 0; i < NV_ARRAY_ELEMENTS(pGpuMgr->currentGpuInstances); i++)
     {
-        *ppGpuInstance = &(pGpu->gpuInstance);
-        return NV_TRUE;
+        if (pGpuMgr->currentGpuInstances[i].tid == tid)
+        {
+            pGpuInstanceSlot = &pGpuMgr->currentGpuInstances[i];
+            break;
+        }
     }
-    return NV_FALSE;
+
+    if (pGpuInstanceSlot == NULL)
+    {
+        // Allocate a new entry
+        for (NvU32 i = 0; i < NV_ARRAY_ELEMENTS(pGpuMgr->currentGpuInstances); i++)
+        {
+            if (portAtomicExCompareAndSwapU64(&pGpuMgr->currentGpuInstances[i].tid, tid, NV_U64_MAX))
+            {
+                pGpuInstanceSlot = &pGpuMgr->currentGpuInstances[i];
+                break;
+            }
+        }
+    }
+
+    // Failed to obtain any slot, abort
+    if (pGpuInstanceSlot == NULL)
+        return NV_U32_MAX;
+
+    NvU32 prev = pGpuInstanceSlot->gpuInstance;
+    pGpuInstanceSlot->gpuInstance = gpuInstance;
+
+    // Free tid slot if possible
+    if (gpuInstance == NV_U32_MAX)
+    {
+        portAtomicExSetU64(&pGpuInstanceSlot->tid, NV_U64_MAX);
+    }
+
+    return prev;
 }
 
 /**
- * @brief Releases the thread local storage for GPU ID.
+ * @return current GPU instance in TLS or NV_U32_MAX if unknown
  */
-void
-gpumgrSetGpuRelease(void)
+NvU32 gpumgrGetCurrentGpuInstance(void)
 {
-    tlsEntryRelease(TLS_ENTRY_ID_CURRENT_GPU_INSTANCE);
+    if (portUtilIsInterruptContext())
+        return NV_U32_MAX;
+
+    OBJSYS *pSys = SYS_GET_INSTANCE();
+    if (pSys == NULL)
+        return NV_U32_MAX;
+
+    OBJGPUMGR *pGpuMgr = SYS_GET_GPUMGR(pSys);
+    if (pGpuMgr == NULL)
+        return NV_U32_MAX;
+
+    NvU64 tid = portThreadGetCurrentThreadId();
+
+    for (NvU32 i = 0; i < NV_ARRAY_ELEMENTS(pGpuMgr->currentGpuInstances); i++)
+    {
+        if (pGpuMgr->currentGpuInstances[i].tid == tid)
+        {
+            return pGpuMgr->currentGpuInstances[i].gpuInstance;
+        }
+    }
+
+    return NV_U32_MAX;
 }
 
 /**
@@ -3482,6 +3521,7 @@ NvBool gpumgrIsDeviceMsixAllowed
 // There is a BAR firewall that will prevent any reads/writes to the BAR
 // register space while a reset is still pending. We must wait for this
 // to drop. Return true if the wait is successful, false otherwise
+// This is currently only enabled for Linux/FreeBSD
 //
 NvBool gpumgrWaitForBarFirewall
 (
@@ -3497,3 +3537,42 @@ NvBool gpumgrWaitForBarFirewall
     return NV_TRUE;
 }
 
+/**
+ * @brief Checks if the given ALID is present in the ALID-CLID map
+ *
+ * @param[in]   pGpuMgr  OBJGPUMGR pointer
+ * @param[in]   alid     NVLE ALID
+ *
+ * return NV_TRUE if mapping exists, else return NV_FALSE
+ */
+NvBool
+gpuMgrIsNvleAlidPresent
+(
+    OBJGPUMGR *pGpuMgr,
+    NvU32      alid
+)
+{
+
+    return NV_FALSE;
+}
+
+/**
+ * @brief Adds the given ALID, CLID in the ALID-CLID map
+ *
+ * @param[in]   pGpuMgr  OBJGPUMGR pointer
+ * @param[in]   alid     NVLE ALID to be added
+ * @param[in]   clid     NVLE CLID to be added
+ *
+ * return NV_TRUE if alid was successfully added
+ */
+NvBool
+gpuMgrCacheNvleAlidClid
+(
+    OBJGPUMGR *pGpuMgr,
+    NvU32      alid,
+    NvU32      clid
+)
+{
+
+    return NV_FALSE;
+}

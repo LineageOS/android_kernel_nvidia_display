@@ -1170,8 +1170,7 @@ void memSetSysmemCacheAttrib_IMPL
     MemoryManager *pMemoryManager = GPU_GET_MEMORY_MANAGER(pGpu);
     NvU32 gpuCacheAttrib, cpuCacheAttrib;
 
-    NV_ASSERT((memdescGetAddressSpace(pMemDesc) == ADDR_EGM) ||
-              (memdescGetAddressSpace(pMemDesc) == ADDR_SYSMEM));
+    NV_ASSERT(memdescGetAddressSpace(pMemDesc) == ADDR_SYSMEM);
 
     //
     // For system memory default to GPU uncached. GPU caching is different from

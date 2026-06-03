@@ -1047,6 +1047,49 @@ NV_STATUS nvUvmInterfaceDisableAccessCntr(uvmGpuDeviceHandle device,
 }
 EXPORT_SYMBOL(nvUvmInterfaceDisableAccessCntr);
 
+NV_STATUS nvUvmInterfaceAccessBitsBufAlloc(uvmGpuDeviceHandle device,
+                                           UvmGpuAccessBitsBufferAlloc* pAccessBitsInfo)
+{
+    nvidia_stack_t *sp = nvUvmGetSafeStack();
+    NV_STATUS status;
+
+    status = rm_gpu_ops_access_bits_buffer_alloc(sp, (gpuDeviceHandle)device,
+                                                 pAccessBitsInfo);
+
+    nvUvmFreeSafeStack(sp);
+    return status;
+}
+EXPORT_SYMBOL(nvUvmInterfaceAccessBitsBufAlloc);
+
+NV_STATUS nvUvmInterfaceAccessBitsBufFree(uvmGpuDeviceHandle device,
+                                          UvmGpuAccessBitsBufferAlloc* pAccessBitsInfo)
+{
+    nvidia_stack_t *sp = nvUvmGetSafeStack();
+    NV_STATUS status;
+
+    status = rm_gpu_ops_access_bits_buffer_free(sp, (gpuDeviceHandle)device,
+                                                pAccessBitsInfo);
+
+    nvUvmFreeSafeStack(sp);
+    return status;
+}
+EXPORT_SYMBOL(nvUvmInterfaceAccessBitsBufFree);
+
+NV_STATUS nvUvmInterfaceAccessBitsDump(uvmGpuDeviceHandle device,
+                                       UvmGpuAccessBitsBufferAlloc* pAccessBitsInfo,
+                                       UVM_ACCESS_BITS_DUMP_MODE mode)
+{
+    nvidia_stack_t *sp = nvUvmGetSafeStack();
+    NV_STATUS status = NV_OK;
+
+    status = rm_gpu_ops_access_bits_dump(sp, (gpuDeviceHandle)device,
+                                         pAccessBitsInfo, mode);
+
+    nvUvmFreeSafeStack(sp);
+    return status;
+}
+EXPORT_SYMBOL(nvUvmInterfaceAccessBitsDump);
+
 // this function is called by the UVM driver to register the event callbacks
 NV_STATUS nvUvmInterfaceRegisterUvmEvents(struct UvmEventsLinux *importedEvents)
 {

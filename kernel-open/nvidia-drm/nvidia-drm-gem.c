@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2015-2025, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -25,7 +25,6 @@
 #if defined(NV_DRM_AVAILABLE)
 
 #include "nvidia-drm-priv.h"
-#include "nvidia-drm-ioctl.h"
 #include "nvidia-drm-fence.h"
 #include "nvidia-drm-gem.h"
 #include "nvidia-drm-gem-nvkms-memory.h"
@@ -34,14 +33,12 @@
 #include "nvidia-drm-helper.h"
 #include "nvidia-drm-gem-dma-buf.h"
 #include "nvidia-drm-gem-nvkms-memory.h"
+#include "nv_drm_common_ioctl.h"
 
 #include <drm/drm_drv.h>
 #include <drm/drm_prime.h>
 #include <drm/drm_file.h>
-
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
 #include <drm/drm_vma_manager.h>
-#endif
 
 #include "linux/dma-buf.h"
 
@@ -250,7 +247,6 @@ int nv_drm_gem_map_offset_ioctl(struct drm_device *dev,
     return ret;
 }
 
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
 int nv_drm_mmap(struct file *file, struct vm_area_struct *vma)
 {
     struct drm_file *priv = file->private_data;
@@ -310,7 +306,6 @@ done:
 
     return ret;
 }
-#endif
 
 int nv_drm_gem_identify_object_ioctl(struct drm_device *dev,
                                      void *data, struct drm_file *filep)
@@ -332,14 +327,12 @@ int nv_drm_gem_identify_object_ioctl(struct drm_device *dev,
         goto done;
     }
 
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
     nv_nvkms_memory = nv_drm_gem_object_nvkms_memory_lookup(filep, p->handle);
     if (nv_nvkms_memory) {
         p->object_type = NV_GEM_OBJECT_NVKMS;
         nv_gem = &nv_nvkms_memory->base;
         goto done;
     }
-#endif
 
     nv_user_memory = nv_drm_gem_object_user_memory_lookup(filep, p->handle);
     if (nv_user_memory) {

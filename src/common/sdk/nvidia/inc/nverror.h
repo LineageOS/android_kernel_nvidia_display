@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1993-2025, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 1993-2026, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -109,7 +109,7 @@
 #define ROBUST_CHANNEL_NVJPG5_ERROR                     (103)
 #define ROBUST_CHANNEL_NVJPG6_ERROR                     (104)
 #define ROBUST_CHANNEL_NVJPG7_ERROR                     (105)
-#define DESTINATION_FLA_TRANSLATION_ERROR               (108)
+#define NVLINK_REMOTE_TRANSLATION_ERROR                 (108)
 #define SEC_FAULT_ERROR                                 (110)
 #define GSP_RPC_TIMEOUT                                 (119)
 #define GSP_ERROR                                       (120)
@@ -129,7 +129,7 @@
 #define ROBUST_CHANNEL_CE18_ERROR                       (134)
 #define ROBUST_CHANNEL_CE19_ERROR                       (135)
 #define ALI_TRAINING_FAIL                               (136)
-#define NVLINK_FLA_PRIV_ERR                             (137)
+#define NVLINK_PRIV_ERR                                 (137)
 #define ROBUST_CHANNEL_DLA_ERROR                        (138)
 #define ROBUST_CHANNEL_OFA1_ERROR                       (139)
 #define UNRECOVERABLE_ECC_ERROR_ESCAPE                  (140)
@@ -162,10 +162,14 @@
 #define PCIE_FATAL_TIMEOUT                              (167)
 #define REDUCED_GPU_MEMORY_CAPACITY                     (168)
 #define SEC2_HALT_ERROR                                 (169)
-#define NVLINK_SECURE_NON_NVLE_ERROR                    (170)
+#define NVLINK_SECURE_ERROR                             (170)
 #define UNCORRECTABLE_DRAM_ERROR                        (171)
 #define UNCORRECTABLE_SRAM_ERROR                        (172)
-#define ROBUST_CHANNEL_LAST_ERROR                       (172)
+#define C2C_FATAL_LINK_FAILURE                          (173)
+#define ROBUST_CHANNEL_RESETCHANNEL_KILL_PROCESS_SILENT (174)
+#define MEMORY_SUBSYSTEM_ERROR                          (175)
+#define PCIE_CORRECTABLE_ERROR_FAULT                    (176) 
+#define ROBUST_CHANNEL_LAST_ERROR                       (176)
 
 // Indexed CE reference
 #define ROBUST_CHANNEL_CE_ERROR(x)                                        \

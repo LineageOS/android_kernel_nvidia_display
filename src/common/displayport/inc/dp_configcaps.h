@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -535,7 +535,9 @@ namespace DisplayPort
         virtual bool readPrSinkDebugInfo(panelReplaySinkDebugInfo *prDbgInfo) = 0;
 
         virtual bool     isDpInTunnelingSupported() = 0;
-        virtual void     enableDpTunnelingBwAllocationSupport() = 0;
+        virtual void     setDpTunnelingBwAllocationSupport(bool bEnable) = 0;
+        virtual bool     isDpInTunnelingPanelReplayOptimizationSupported() = 0;
+        virtual bool     isDpInTunnelingBwAllocationSupported() = 0;
         virtual bool     isDpTunnelBwAllocationEnabled() = 0;
         virtual bool     getDpTunnelEstimatedBw(NvU8 &estimatedBw) = 0;
         virtual bool     getDpTunnelGranularityMultiplier(NvU8 &granularityMultiplier) = 0;
@@ -713,7 +715,11 @@ namespace DisplayPort
                 //
                 bool linkStatusDirtied;
             } laneStatusIntr;
-
+            struct
+            {
+                bool receiverPort0InSync;
+                bool receiverPort1InSync;
+            } sinkStatus;                                           // DPCD offset 205
             struct
             {
                 bool testRequestTraining;                          // DPCD offset 218
@@ -1096,7 +1102,7 @@ namespace DisplayPort
         void readLTTPRLinkStatus(NvS32 rxIndex, NvU8 *buffer);
         void resetIntrLaneStatus();
 
-        void fetchLinkStatusESI();
+        virtual void fetchLinkStatusESI();
         void fetchLinkStatusLegacy();
 
         virtual bool readTraining(NvU8* voltageSwingLane,  NvU8* preemphasisLane,
@@ -1430,9 +1436,17 @@ namespace DisplayPort
             return caps.dpInTunnelingCaps.bIsSupported;
         }
 
-        virtual void     enableDpTunnelingBwAllocationSupport()
+        virtual bool     isDpInTunnelingPanelReplayOptimizationSupported()
         {
-            bEnableDpTunnelBwAllocationSupport = true;
+            return caps.dpInTunnelingCaps.bIsPanelReplayOptimizationSupported;
+        }
+        virtual bool     isDpInTunnelingBwAllocationSupported()
+        {
+            return caps.dpInTunnelingCaps.bIsBwAllocationSupported;
+        }
+        virtual void     setDpTunnelingBwAllocationSupport(bool bEnable)
+        {
+            bEnableDpTunnelBwAllocationSupport = bEnable;
         }
 
         virtual bool     isDpTunnelBwAllocationEnabled()

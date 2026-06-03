@@ -229,9 +229,18 @@ osCreateMemdescFromPages
     }
 
     memdescSetGpuCacheAttrib(pMemDesc, gpuCachedFlags);
-    memdescSetAddress(pMemDesc, NvP64_NULL);
     memdescSetFlag(pMemDesc, MEMDESC_FLAGS_KERNEL_MODE, NV_FALSE);
     memdescSetFlag(pMemDesc, MEMDESC_FLAGS_EXT_PAGE_ARRAY_MEM, NV_TRUE);
+
+    if (IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc))
+    {
+        NV_ASSERT_OR_GOTO((os_page_size & (pMemDesc->pageArrayGranularity - 1ULL)) == 0, cleanup);
+        NV_ASSERT_OK_OR_GOTO(rmStatus, memdescSetAllocSizeFields(pMemDesc, size, os_page_size), cleanup);
+    }
+    else
+    {
+        NV_ASSERT_OK_OR_GOTO(rmStatus, memdescSetAllocSizeFields(pMemDesc, size, NV_RM_PAGE_SIZE), cleanup);
+    }
 
     if (!NV_IS_ALIGNED64(memdescGetPhysAddr(pMemDesc, AT_CPU, 0), os_page_size))
     {
@@ -239,15 +248,18 @@ osCreateMemdescFromPages
         NV_ASSERT_OR_GOTO(0, cleanup);
     }
 
-    NV_ASSERT_OK_OR_GOTO(rmStatus, memdescSetAllocSizeFields(pMemDesc, size, NV_RM_PAGE_SIZE), cleanup);
-
 
     //
     // If the OS layer doesn't think in RM page size, we need to inflate the
     // PTE array into RM pages.
     //
-    if ((NV_RM_PAGE_SIZE < os_page_size) &&
-        !memdescGetContiguity(pMemDesc, AT_CPU))
+    if (IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc))
+    {
+        // Because os_page_size == pMemDesc->pageArrayGranularity, we don't need to do any page array conversion.
+        NV_ASSERT_OR_ELSE(os_page_size == pMemDesc->pageArrayGranularity, rmStatus = NV_ERR_INVALID_ARGUMENT; goto cleanup);
+    }
+    else if ((NV_RM_PAGE_SIZE < os_page_size) &&
+            !memdescGetContiguity(pMemDesc, AT_CPU))
     {
         RmInflateOsToRmPageArray(memdescGetPteArray(pMemDesc, AT_CPU), pMemDesc->PageCount);
     }
@@ -266,11 +278,16 @@ osCreateMemdescFromPages
 cleanup:
     if (rmStatus != NV_OK)
     {
-        if ((NV_RM_PAGE_SIZE < os_page_size) &&
-            !memdescGetContiguity(pMemDesc, AT_CPU))
+        if (IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc))
+        {
+            // Because os_page_size == pMemDesc->pageArrayGranularity, we don't need to do any page array conversion.
+            NV_ASSERT(os_page_size == pMemDesc->pageArrayGranularity);
+        }
+        else if ((NV_RM_PAGE_SIZE < os_page_size) &&
+                !memdescGetContiguity(pMemDesc, AT_CPU))
         {
             RmDeflateRmToOsPageArray(memdescGetPteArray(pMemDesc, AT_CPU),
-                                     pMemDesc->PageCount);
+                                    pMemDesc->PageCount);
         }
 
         nv_unregister_user_pages(NV_GET_NV_STATE(pGpu),
@@ -371,7 +388,7 @@ osCheckGpuBarsOverlapAddrRange
             return NV_ERR_INVALID_ADDRESS;
         }
 
-        if ((pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB)) ||
+        if ((pGpu->pGpuArch->bGpuArchIsZeroFb) ||
             (pGpu->getProperty(pGpu, PDB_PROP_GPU_TEGRA_SOC_NVDISPLAY)))
         {
             // No local FB or BAR2 for ZERO_FB and TEGRA_SOC_NVDISPLAY.
@@ -507,7 +524,6 @@ osCreateOsDescriptorFromIoMemory
         gpuCachedFlags = NV_MEMORY_UNCACHED;
 
     memdescSetGpuCacheAttrib(pMemDesc, gpuCachedFlags);
-    memdescSetAddress(pMemDesc, NvP64_NULL);
     memdescSetMemData(pMemDesc, NULL, NULL);
     memdescSetFlag(pMemDesc, MEMDESC_FLAGS_KERNEL_MODE, NV_FALSE);
     memdescSetFlag(pMemDesc, MEMDESC_FLAGS_PEER_IO_MEM, NV_TRUE);
@@ -522,12 +538,22 @@ osCreateOsDescriptorFromIoMemory
         rmStatus = NV_ERR_INVALID_ARGUMENT;
         NV_ASSERT_OR_GOTO(0, cleanup);
     }
-    NV_ASSERT_OK_OR_GOTO(rmStatus, memdescSetAllocSizeFields(pMemDesc, size, NV_RM_PAGE_SIZE), cleanup);
+    NvU64 osPageCount;
+    if (IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc))
+    {
+        NV_ASSERT_OK_OR_GOTO(rmStatus, memdescSetAllocSizeFields(pMemDesc, size, os_page_size), cleanup);
+        osPageCount = pMemDesc->PageCount;
+    }
+    else
+    {
+        NV_ASSERT_OK_OR_GOTO(rmStatus, memdescSetAllocSizeFields(pMemDesc, size, NV_RM_PAGE_SIZE), cleanup);
+        osPageCount = NV_RM_PAGES_TO_OS_PAGES(pMemDesc->PageCount);
+    }
 
     if (bAllowMmap)
     {
         rmStatus = nv_register_peer_io_mem(NV_GET_NV_STATE(pGpu), pPteArray,
-                                NV_RM_PAGES_TO_OS_PAGES(pMemDesc->PageCount),
+                                osPageCount,
                                 ppPrivate);
         if (rmStatus != NV_OK)
         {
@@ -633,7 +659,6 @@ osCreateOsDescriptorFromPhysAddr
 
     pMemDesc = *ppMemDesc;
 
-    memdescSetAddress(pMemDesc, NvP64_NULL);
     memdescSetMemData(pMemDesc, NULL, NULL);
     memdescSetFlag(pMemDesc, MEMDESC_FLAGS_EXT_PAGE_ARRAY_MEM, NV_TRUE);
 
@@ -657,7 +682,14 @@ osCreateOsDescriptorFromPhysAddr
     if (rmStatus != NV_OK)
         goto cleanup_memdesc;
 
-    NV_ASSERT_OK_OR_RETURN(memdescSetAllocSizeFields(pMemDesc, size, NV_RM_PAGE_SIZE));
+    if (IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc))
+    {
+        NV_ASSERT_OK_OR_GOTO(rmStatus, memdescSetAllocSizeFields(pMemDesc, size, os_page_size), cleanup_pages);
+    }
+    else
+    {
+        NV_ASSERT_OK_OR_GOTO(rmStatus, memdescSetAllocSizeFields(pMemDesc, size, NV_RM_PAGE_SIZE), cleanup_pages);
+    }
 
     // If IOMMU skip flag wasn't set earlier, create IOVA mapping.
     if (!memdescGetFlag(pMemDesc, MEMDESC_FLAGS_SKIP_IOMMU_MAPPING))
@@ -795,7 +827,6 @@ _createMemdescFromDmaBufSgtHelper
     pMemDesc = *ppMemDesc;
 
     memdescSetGpuCacheAttrib(pMemDesc, gpuCachedFlags);
-    memdescSetAddress(pMemDesc, NvP64_NULL);
     memdescSetMemData(pMemDesc, NULL, NULL);
     memdescSetFlag(pMemDesc, MEMDESC_FLAGS_KERNEL_MODE, NV_FALSE);
     memdescSetFlag(pMemDesc, MEMDESC_FLAGS_EXT_PAGE_ARRAY_MEM, NV_TRUE);
@@ -815,6 +846,14 @@ _createMemdescFromDmaBufSgtHelper
         return rmStatus;
     }
 
+    if (IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc))
+    {
+        NV_ASSERT_OK_OR_GOTO(rmStatus, memdescSetAllocSizeFields(pMemDesc, size, os_page_size), cleanup);
+    }
+    else
+    {
+        NV_ASSERT_OK_OR_GOTO(rmStatus, memdescSetAllocSizeFields(pMemDesc, size, NV_RM_PAGE_SIZE), cleanup);
+    }
 
     if (!NV_IS_ALIGNED64(memdescGetPhysAddr(pMemDesc, AT_CPU, 0), os_page_size))
     {
@@ -822,14 +861,17 @@ _createMemdescFromDmaBufSgtHelper
         NV_ASSERT_OR_GOTO(0, cleanup);
     }
 
-    NV_ASSERT_OK_OR_GOTO(rmStatus, memdescSetAllocSizeFields(pMemDesc, size, NV_RM_PAGE_SIZE), cleanup);
-
     //
     // If the OS layer doesn't think in RM page size, we need to inflate the
     // PTE array into RM pages.
     //
-    if ((NV_RM_PAGE_SIZE < os_page_size) &&
-        !memdescGetContiguity(pMemDesc, AT_CPU))
+    if (IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc))
+    {
+        // Because os_page_size == pMemDesc->pageArrayGranularity, we don't need to do any page array conversion.
+        NV_ASSERT_OR_ELSE(os_page_size == pMemDesc->pageArrayGranularity, rmStatus = NV_ERR_INVALID_ARGUMENT; goto cleanup);
+    }
+    else if ((NV_RM_PAGE_SIZE < os_page_size) &&
+            !memdescGetContiguity(pMemDesc, AT_CPU))
     {
         RmInflateOsToRmPageArray(memdescGetPteArray(pMemDesc, AT_CPU), pMemDesc->PageCount);
     }
@@ -848,11 +890,16 @@ _createMemdescFromDmaBufSgtHelper
 cleanup:
     if (rmStatus != NV_OK)
     {
-        if ((NV_RM_PAGE_SIZE < os_page_size) &&
-            !memdescGetContiguity(pMemDesc, AT_CPU))
+        if (IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc))
+        {
+            // Because os_page_size == pMemDesc->pageArrayGranularity, we don't need to do any page array conversion.
+            NV_ASSERT(os_page_size == pMemDesc->pageArrayGranularity);
+        }
+        else if ((NV_RM_PAGE_SIZE < os_page_size) &&
+                !memdescGetContiguity(pMemDesc, AT_CPU))
         {
             RmDeflateRmToOsPageArray(memdescGetPteArray(pMemDesc, AT_CPU),
-                                     pMemDesc->PageCount);
+                                    pMemDesc->PageCount);
         }
         if (*ppPrivate != NULL)
         {
@@ -1110,7 +1157,7 @@ osDestroyOsDescriptorPageArray
 )
 {
     OBJGPU   *pGpu        = pMemDesc->pGpu;
-    NvU64     osPageCount = NV_RM_PAGES_TO_OS_PAGES(pMemDesc->PageCount);
+    NvU64     osPageCount;
     NV_STATUS status;
     void     *pPrivate;
 
@@ -1127,11 +1174,21 @@ osDestroyOsDescriptorPageArray
     // be cleaned up once the fix for bug 1811006 is known.
     //
 
-    if ((NV_RM_PAGE_SIZE < os_page_size) &&
-        !memdescGetContiguity(pMemDesc, AT_CPU))
+    if (IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc))
     {
-        RmDeflateRmToOsPageArray(memdescGetPteArray(pMemDesc, AT_CPU),
-                                 pMemDesc->PageCount);
+        // Because os_page_size == pMemDesc->pageArrayGranularity, we don't need to do any page array conversion.
+        NV_ASSERT_OR_RETURN_VOID(os_page_size == pMemDesc->pageArrayGranularity);
+        osPageCount = pMemDesc->PageCount;
+    }
+    else
+    {
+        osPageCount = NV_RM_PAGES_TO_OS_PAGES(pMemDesc->PageCount);
+        if ((NV_RM_PAGE_SIZE < os_page_size) &&
+            !memdescGetContiguity(pMemDesc, AT_CPU))
+        {
+            RmDeflateRmToOsPageArray(memdescGetPteArray(pMemDesc, AT_CPU),
+                                    pMemDesc->PageCount);
+        }
     }
 
     nv_unregister_user_pages(NV_GET_NV_STATE(pGpu), osPageCount,
@@ -1174,11 +1231,16 @@ osDestroyOsDescriptorFromDmaBuf
      */
     memdescUnmapIommu(pMemDesc, pGpu->busInfo.iovaspaceId);
 
-    if ((NV_RM_PAGE_SIZE < os_page_size) &&
-        !memdescGetContiguity(pMemDesc, AT_CPU))
+    if (IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc))
+    {
+        // Because os_page_size == pMemDesc->pageArrayGranularity, we don't need to do any page array conversion.
+        NV_ASSERT_OR_RETURN_VOID(os_page_size == pMemDesc->pageArrayGranularity);
+    }
+    else if ((NV_RM_PAGE_SIZE < os_page_size) &&
+            !memdescGetContiguity(pMemDesc, AT_CPU))
     {
         RmDeflateRmToOsPageArray(memdescGetPteArray(pMemDesc, AT_CPU),
-                                 pMemDesc->PageCount);
+                                pMemDesc->PageCount);
     }
 
     nv_unregister_sgt(NV_GET_NV_STATE(pGpu), &pImportSgt,
@@ -1213,11 +1275,16 @@ osDestroyOsDescriptorFromSgt
      */
     memdescUnmapIommu(pMemDesc, pGpu->busInfo.iovaspaceId);
 
-    if ((NV_RM_PAGE_SIZE < os_page_size) &&
-        !memdescGetContiguity(pMemDesc, AT_CPU))
+    if (IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc))
+    {
+        // Because os_page_size == pMemDesc->pageArrayGranularity, we don't need to do any page array conversion.
+        NV_ASSERT_OR_RETURN_VOID(os_page_size == pMemDesc->pageArrayGranularity);
+    }
+    else if ((NV_RM_PAGE_SIZE < os_page_size) &&
+            !memdescGetContiguity(pMemDesc, AT_CPU))
     {
         RmDeflateRmToOsPageArray(memdescGetPteArray(pMemDesc, AT_CPU),
-                                 pMemDesc->PageCount);
+                                pMemDesc->PageCount);
     }
 
     nv_unregister_sgt(NV_GET_NV_STATE(pGpu), &pImportSgt,

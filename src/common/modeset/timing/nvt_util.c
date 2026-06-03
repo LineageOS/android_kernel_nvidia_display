@@ -1,31 +1,29 @@
-//*****************************************************************************
-//
-//  SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-//  SPDX-License-Identifier: MIT
-//
-//  Permission is hereby granted, free of charge, to any person obtaining a
-//  copy of this software and associated documentation files (the "Software"),
-//  to deal in the Software without restriction, including without limitation
-//  the rights to use, copy, modify, merge, publish, distribute, sublicense,
-//  and/or sell copies of the Software, and to permit persons to whom the
-//  Software is furnished to do so, subject to the following conditions:
-//
-//  The above copyright notice and this permission notice shall be included in
-//  all copies or substantial portions of the Software.
-//
-//  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-//  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-//  THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-//  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-//  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-//  DEALINGS IN THE SOFTWARE.
-//
-//  File:       nvt_util.c
-//
-//  Purpose:    provide the utility functions for timing library
-//
-//*****************************************************************************
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2006-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: MIT
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE.
+ */
+
+/** @file  nvt_util.c
+ *  @brief provide the utility functions for timing library
+ */
 
 #include "nvBinSegment.h"
 
@@ -214,6 +212,34 @@ void patchChecksum(NvU8 *pBuf)
 }
 
 CODE_SEGMENT(PAGE_DD_CODE)
+NvU32 NvTiming_CalculateVBlankTimeInUs(const NVT_TIMING *pT)
+{
+    NvU32 activeLines, blankLines;
+    NvU32 blankPixels;
+    NvU32 pclk1khz = pT->pclk1khz;
+
+    if (pclk1khz == 0)
+    {
+        pclk1khz = RRx1kToPclk1khz(pT);
+        if (pclk1khz == 0)
+        {
+            return 0;
+        }
+    }
+
+    // Calculate HBlank pixels on the last active line
+    blankPixels = pT->HTotal - pT->HVisible;
+    
+    // Calculate active and blank lines (handle interlaced mode)
+    activeLines = pT->interlaced ? pT->VVisible * 2 : pT->VVisible;
+    blankLines  = (pT->interlaced == 0) ? (pT->VTotal - activeLines): (pT->VTotal * 2 + 1 - activeLines);
+    
+    // Include HBlank time on the last active line together with all VBlank lines
+    blankPixels = blankPixels + (blankLines * pT->HTotal);
+    return (NvU32)((NvU64)blankPixels * 1000 / pclk1khz);
+}
+
+CODE_SEGMENT(PAGE_DD_CODE)
 NVT_STATUS NvTiming_ComposeCustTimingString(NVT_TIMING *pT)
 {
     if (pT == NULL) 
@@ -341,7 +367,14 @@ NvU32 NvTiming_IsTimingRelaxedEqual(const NVT_TIMING *pT1, const NVT_TIMING *pT2
 }
 
 CODE_SEGMENT(NONPAGE_DD_CODE)
-NvU32 RRx1kToPclk (NVT_TIMING *pT)
+NvU32 NvTiming_IsTimingRelaxedEqualEx(const NVT_TIMING *pT1, const NVT_TIMING *pT2)
+{
+    NvU32 bIsTimingRelaxedEqual = NvTiming_IsTimingRelaxedEqual(pT1, pT2);
+    return (bIsTimingRelaxedEqual && (pT1->etc.rrx1k == pT2->etc.rrx1k));
+}
+
+CODE_SEGMENT(NONPAGE_DD_CODE)
+NvU32 RRx1kToPclk (const NVT_TIMING *pT)
 {
     return (NvU32)axb_div_c_64(pT->HTotal * (pT->VTotal + ((pT->interlaced != 0) ? (pT->VTotal + 1) : 0)),
                                pT->etc.rrx1k,
@@ -349,7 +382,7 @@ NvU32 RRx1kToPclk (NVT_TIMING *pT)
 }
 
 CODE_SEGMENT(NONPAGE_DD_CODE)
-NvU32 RRx1kToPclk1khz (NVT_TIMING *pT)
+NvU32 RRx1kToPclk1khz (const NVT_TIMING *pT)
 {
     return (NvU32)axb_div_c_64((NvU32)pT->HTotal * (NvU32)(pT->VTotal + ((pT->interlaced != 0) ? (pT->VTotal + 1) : 0)),
                                pT->etc.rrx1k,

@@ -30,14 +30,13 @@ NVIDIA_DRM_SOURCES += nvidia-drm/nvidia-drm-os-interface.c
 # Register the conftests needed by nvidia-drm.ko
 #
 
-NV_CONFTEST_GENERIC_COMPILE_TESTS += drm_available
-NV_CONFTEST_GENERIC_COMPILE_TESTS += drm_atomic_available
 NV_CONFTEST_GENERIC_COMPILE_TESTS += is_export_symbol_gpl_refcount_inc
 NV_CONFTEST_GENERIC_COMPILE_TESTS += is_export_symbol_gpl_refcount_dec_and_test
 NV_CONFTEST_GENERIC_COMPILE_TESTS += drm_alpha_blending_available
 NV_CONFTEST_GENERIC_COMPILE_TESTS += is_export_symbol_present_drm_gem_prime_fd_to_handle
 NV_CONFTEST_GENERIC_COMPILE_TESTS += is_export_symbol_present_drm_gem_prime_handle_to_fd
 NV_CONFTEST_GENERIC_COMPILE_TESTS += is_export_symbol_present_timer_delete_sync
+NV_CONFTEST_GENERIC_COMPILE_TESTS += is_export_symbol_gpl___vma_start_write
 
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += get_user_pages_remote
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += get_user_pages
@@ -65,6 +64,7 @@ NV_CONFTEST_FUNCTION_COMPILE_TESTS += vmf_insert_mixed
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += drm_gem_prime_mmap
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += drm_sysfs_connector_property_event
 NV_CONFTEST_FUNCTION_COMPILE_TESTS += drm_sysfs_connector_status_event
+NV_CONFTEST_FUNCTION_COMPILE_TESTS += vm_flags_set
 
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_driver_has_legacy_dev_list
 NV_CONFTEST_TYPE_COMPILE_TESTS += vm_ops_fault_removed_vma_arg
@@ -94,7 +94,6 @@ NV_CONFTEST_TYPE_COMPILE_TESTS += reservation_object_reserve_shared_has_num_fenc
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_connector_has_override_edid
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_file_get_master
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_modeset_lock_all_end
-NV_CONFTEST_TYPE_COMPILE_TESTS += vm_area_struct_has_const_vm_flags
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_driver_has_dumb_destroy
 NV_CONFTEST_TYPE_COMPILE_TESTS += fence_ops_use_64bit_seqno
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_aperture_remove_conflicting_framebuffers_has_driver_arg
@@ -109,3 +108,4 @@ NV_CONFTEST_TYPE_COMPILE_TESTS += drm_driver_has_gem_prime_mmap
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_output_poll_changed
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_driver_has_date
 NV_CONFTEST_TYPE_COMPILE_TESTS += drm_connector_helper_funcs_mode_valid_has_const_mode_arg
+NV_CONFTEST_TYPE_COMPILE_TESTS += drm_fb_create_takes_format_info

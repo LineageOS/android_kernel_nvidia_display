@@ -43,14 +43,16 @@
 
 #include "vgpu/rpc_hal_stubs.h"
 
-#define RPC_TIMEOUT_GPU_RESET_THRESHOLD 3  // Reset GPU after 3 back to back GSP RPC timeout
 #define RPC_TIMEOUT_PRINT_RATE_SKIP   29 // skip 29 of 30 prints
+
+#define SLOW_RPC_THRESHOLD_US 66000
 
 #define RPC_HISTORY_DEPTH 128
 
 typedef struct RpcHistoryEntry
 {
     NvU32 function;
+    NvU32 sequence;
     NvU64 data[2];
     NvU64 ts_start;
     NvU64 ts_end;

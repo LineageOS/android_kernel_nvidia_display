@@ -30,13 +30,13 @@
 typedef struct
 {
     PORT_SEMAPHORE     *pLock;         //<! Lock that threads actually block on
-    volatile NvU32      waiting;       //<! Number of waiting threads, debug use only
+    PORT_ATOMIC NvU32   waiting;       //<! Number of waiting threads, debug use only
     OS_THREAD_HANDLE    threadId;      //<! ID of thread owning the lock, ~0 if none
     NvU64               timestamp;     //<! Timestamp of last lock acquire
     LOCK_TRACE_INFO     traceInfo;     //<! Lock acquire/release trace info
     NvBool              bValid;        //<! If ready to acquire/release the lock
-    volatile NvU64      totalWaitTime; //<! Total time spent waiting to acquire GPU lock
-    volatile NvU64      totalHoldTime; //<! Total time spent holding GPU lock
+    PORT_ATOMIC NvU64   totalWaitTime; //<! Total time spent waiting to acquire GPU lock
+    PORT_ATOMIC NvU64   totalHoldTime; //<! Total time spent holding GPU lock
 } GPULOCK;
 
 static GPULOCK rmGpuLock;

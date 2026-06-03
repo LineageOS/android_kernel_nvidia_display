@@ -78,7 +78,7 @@
 #include <linux/pci-ats.h>
 #endif
 
-extern int NVreg_GrdmaPciTopoCheckOverride;
+extern int NVreg_ExcludeAllGpus;
 
 static void
 nv_check_and_exclude_gpu(
@@ -87,6 +87,13 @@ nv_check_and_exclude_gpu(
 )
 {
     char *uuid_str;
+
+    if (NVreg_ExcludeAllGpus)
+    {
+        NV_DEV_PRINTF(NV_DBG_INFO, nv, "Excluding all GPUs as requested\n");
+        nv->flags |= NV_FLAG_EXCLUDE;
+        return;
+    }
 
     uuid_str = rm_get_gpu_uuid(sp, nv);
     if (uuid_str == NULL)
@@ -244,7 +251,11 @@ static int nv_resize_pcie_bars(struct pci_dev *pci_dev) {
 
 resize:
     /* Attempt to resize BAR1 to the largest supported size */
+#if defined(NV_PCI_RESIZE_RESOURCE_HAS_EXCLUDE_BARS_ARG)
+    r = pci_resize_resource(pci_dev, NV_GPU_BAR1, requested_size, 0);
+#else
     r = pci_resize_resource(pci_dev, NV_GPU_BAR1, requested_size);
+#endif
 
     if (r) {
         if (r == -ENOSPC)
@@ -435,6 +446,12 @@ nv_init_coherent_link_info
     if (device_property_read_u64(nvl->dev, "nvidia,gpu-mem-base-pa", &pa) == 0)
     {
         nvl->coherent_link_info.gpu_mem_pa = pa;
+
+        NvU64 gpu_mem_size;
+        if (device_property_read_u64(nvl->dev, "nvidia,gpu-mem-size", &gpu_mem_size) == 0)
+        {
+            nvl->coherent_link_info.gpu_mem_size = gpu_mem_size;
+        }
     }
     else
     {
@@ -1265,9 +1282,11 @@ nv_pci_gb10b_suspend_devfreq(struct device *dev)
 
     if (nvl->gpc_devfreq_dev != NULL && nvl->gpc_devfreq_dev->devfreq != NULL)
     {
+#if defined(NV_DEVFREQ_HAS_SUSPEND_FREQ)
         mutex_lock(&nvl->gpc_devfreq_dev->devfreq->lock);
         nvl->gpc_devfreq_dev->devfreq->suspend_freq = nvl->gpc_devfreq_dev->devfreq->previous_freq;
         mutex_unlock(&nvl->gpc_devfreq_dev->devfreq->lock);
+#endif
 
         err = devfreq_suspend_device(nvl->gpc_devfreq_dev->devfreq);
         if (err)
@@ -1285,9 +1304,11 @@ nv_pci_gb10b_suspend_devfreq(struct device *dev)
 
     if (nvl->nvd_devfreq_dev != NULL && nvl->nvd_devfreq_dev->devfreq != NULL)
     {
+#if defined(NV_DEVFREQ_HAS_SUSPEND_FREQ)
         mutex_lock(&nvl->nvd_devfreq_dev->devfreq->lock);
         nvl->nvd_devfreq_dev->devfreq->suspend_freq = nvl->nvd_devfreq_dev->devfreq->previous_freq;
         mutex_unlock(&nvl->nvd_devfreq_dev->devfreq->lock);
+#endif
 
         err = devfreq_suspend_device(nvl->nvd_devfreq_dev->devfreq);
         if (err)
@@ -1320,6 +1341,7 @@ nv_pci_gb10b_resume_devfreq(struct device *dev)
         {
             return err;
         }
+#if defined(NV_UPDATE_DEVFREQ_PRESENT)
         /*
          * During GPU runtime suspended state, switching the devfreq governor
          * which doesn't poll for GPU utilization could lead to devfreq
@@ -1331,6 +1353,7 @@ nv_pci_gb10b_resume_devfreq(struct device *dev)
         mutex_lock(&nvl->gpc_devfreq_dev->devfreq->lock);
         update_devfreq(nvl->gpc_devfreq_dev->devfreq);
         mutex_unlock(&nvl->gpc_devfreq_dev->devfreq->lock);
+#endif
     }
 
     if (nvl->nvd_devfreq_dev != NULL && nvl->nvd_devfreq_dev->devfreq != NULL)
@@ -1340,9 +1363,11 @@ nv_pci_gb10b_resume_devfreq(struct device *dev)
         {
             return err;
         }
+#if defined(NV_UPDATE_DEVFREQ_PRESENT)
         mutex_lock(&nvl->nvd_devfreq_dev->devfreq->lock);
         update_devfreq(nvl->nvd_devfreq_dev->devfreq);
         mutex_unlock(&nvl->nvd_devfreq_dev->devfreq->lock);
+#endif
     }
 
     return err;
@@ -1376,6 +1401,7 @@ nv_pci_gb10b_devfreq_enable_boost(struct device *dev, unsigned int duration)
     if (tdev != NULL && tdev->devfreq != NULL && tdev->boost_enabled == 0)
     {
         tdev->boost_enabled = 1;
+
         INIT_DELAYED_WORK(&tdev->boost_disable, nv_pci_devfreq_disable_boost);
         schedule_delayed_work(&tdev->boost_disable, delay);
     }
@@ -1384,6 +1410,7 @@ nv_pci_gb10b_devfreq_enable_boost(struct device *dev, unsigned int duration)
     if (tdev != NULL && tdev->devfreq != NULL && tdev->boost_enabled == 0)
     {
         tdev->boost_enabled = 1;
+
         INIT_DELAYED_WORK(&tdev->boost_disable, nv_pci_devfreq_disable_boost);
         schedule_delayed_work(&tdev->boost_disable, delay);
     }
@@ -1457,6 +1484,14 @@ nv_pci_tegra_devfreq_remove(struct nv_pci_tegra_devfreq_dev *tdev)
     struct thermal_zone_device *tzdev;
 #endif
 
+#if defined(NV_UPDATE_DEVFREQ_PRESENT)
+    if (tdev->boost_enabled)
+    {
+        tdev->boost_enabled = 0;
+        cancel_delayed_work_sync(&tdev->boost_disable);
+    }
+#endif
+
     if (tdev->devfreq != NULL)
     {
 #if NV_HAS_COOLING_SUPPORTED
@@ -1471,8 +1506,8 @@ nv_pci_tegra_devfreq_remove(struct nv_pci_tegra_devfreq_dev *tdev)
             thermal_unbind_cdev_from_trip(tzdev, data->passive_trip, tdev->devfreq->cdev);
         }
 #endif
-        devm_devfreq_remove_device(&tdev->dev, tdev->devfreq);
         nv_pci_tegra_devfreq_remove_opps(tdev);
+        devm_devfreq_remove_device(&tdev->dev, tdev->devfreq);
         tdev->devfreq = NULL;
     }
 
@@ -1511,7 +1546,7 @@ nv_pci_tegra_devfreq_remove(struct nv_pci_tegra_devfreq_dev *tdev)
 
     if (tdev->clk != NULL)
     {
-        devm_clk_put(tdev->dev.parent, tptr->clk);
+        devm_clk_put(tdev->dev.parent, tdev->clk);
         tdev->clk = NULL;
         device_unregister(&tdev->dev);
     }
@@ -1555,7 +1590,7 @@ nv_pci_get_tegra_igpu_data(struct pci_dev *pdev)
     return NULL;
 }
 
-void nv_pci_tegra_boost_sys_uproc(struct device *dev)
+void nv_pci_tegra_boost_clocks(struct device *dev)
 {
 #if defined(CONFIG_PM_DEVFREQ)
     nv_linux_state_t *nvl = pci_get_drvdata(to_pci_dev(dev));
@@ -1651,7 +1686,6 @@ static void nv_init_tegra_gpu_pg_mask(nvidia_stack_t *sp, struct pci_dev *pci_de
     nv_linux_state_t *nvl = pci_get_drvdata(pci_dev);
     nv_state_t *nv = NV_STATE_PTR(nvl);
     struct device_node *np = pci_dev->dev.of_node;
-    struct device *dev = &pci_dev->dev;
     u32 gpu_pg_mask = 0;
 
     /* Only continue with certain Tegra PCI iGPUs */
@@ -1754,11 +1788,6 @@ nv_pci_probe
     nv_printf(NV_DBG_SETUP, "NVRM: probing 0x%x 0x%x, class 0x%x\n",
         pci_dev->vendor, pci_dev->device, pci_dev->class);
 
-    if (nv_kmem_cache_alloc_stack(&sp) != 0)
-    {
-        return -1;
-    }
-
 #ifdef NV_PCI_SRIOV_SUPPORT
     if (pci_dev->is_virtfn)
     {
@@ -1774,20 +1803,24 @@ nv_pci_probe
                       "since IOMMU is not present on the system.\n",
                        NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
                        NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
-            goto failed;
+            return -1;
         }
 
-        nv_kmem_cache_free_stack(sp);
         return 0;
 #else
         nv_printf(NV_DBG_ERRORS, "NVRM: Ignoring probe for VF %04x:%02x:%02x.%x ",
                   NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
                   NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
 
-        goto failed;
+        return -1;
 #endif /* NV_VGPU_KVM_BUILD */
     }
 #endif /* NV_PCI_SRIOV_SUPPORT */
+
+    if (nv_kmem_cache_alloc_stack(&sp) != 0)
+    {
+        return -1;
+    }
 
     if (!rm_wait_for_bar_firewall(
                 sp,
@@ -1864,8 +1897,8 @@ nv_pci_probe
     }
 
     nv  = NV_STATE_PTR(nvl);
+    os_mem_copy(nv->cached_gpu_info.vbios_version, "??.??.??.??.??", 15);
 
-    // Map BAR0
     for (i = 0; i < NVRM_PCICFG_NUM_BARS; i++)
     {
         if ((NV_PCI_RESOURCE_VALID(pci_dev, i)) &&
@@ -1907,6 +1940,9 @@ nv_pci_probe
         goto err_not_supported;
     }
 
+    if ((rm_is_supported_device(sp, nv)) != NV_OK)
+        goto err_not_supported;
+
     // Wire RM HAL
     if (!rm_init_private_state(sp, nv))
     {
@@ -1930,7 +1966,6 @@ nv_pci_probe
     nvl->gpu_wakeup_callback_needed = NV_TRUE;
     INIT_LIST_HEAD(&nvl->open_files);
 
-    // Map BAR>=1
     if (!nv->is_tegra_pci_igpu)
     {
         for (i = 0, j = 0; i < NVRM_PCICFG_NUM_BARS && j < NV_GPU_NUM_BARS; i++)
@@ -1953,7 +1988,6 @@ nv_pci_probe
         }
     }
 
-    // Assign empty BAR1 if absent
     nv->fb   = &nv->bars[NV_GPU_BAR_INDEX_FB];
     nv->interrupt_line = pci_dev->irq;
 
@@ -1972,6 +2006,7 @@ nv_pci_probe
 
         NV_DEV_PRINTF(NV_DBG_INFO, nv, "ATS supported by this GPU!\n");
 
+#if NV_IS_EXPORT_SYMBOL_GPL_iommu_dev_enable_feature
 #if defined(CONFIG_IOMMU_SVA) && \
     (defined(NV_IOASID_GET_PRESENT) || defined(NV_MM_PASID_DROP_PRESENT))
         ret = iommu_dev_enable_feature(nvl->dev, IOMMU_DEV_FEAT_SVA);
@@ -1994,6 +2029,7 @@ nv_pci_probe
                       "Enabling SMMU SVA feature failed due to lack of necessary kernel configs.\n");
         nv->ats_support = NV_FALSE;
 #endif
+#endif // NV_IS_EXPORT_SYMBOL_GPL_iommu_dev_enable_feature
     }
 
     if (pci_devid_is_self_hosted(pci_dev->device))
@@ -2020,18 +2056,18 @@ nv_pci_probe
     if (status == NV_ERR_GPU_IS_LOST)
     {
         NV_DEV_PRINTF(NV_DBG_INFO, nv, "GPU is lost, skipping nv_pci_probe\n");
-        goto err_not_supported;
+        goto err_gpu_lost;
     }
 
-    if ((rm_is_supported_device(sp, nv)) != NV_OK)
-        goto err_not_supported;
-
     nv->cpu_numa_node_id = dev_to_node(nvl->dev);
+
+    /* Initialize per-device init_on_probe from registry value NVreg_GpuInitOnProbe */
+    nvl->init_on_probe = (NVreg_GpuInitOnProbe != 0);
 
     if (nv_linux_init_open_q(nvl) != 0)
     {
         NV_DEV_PRINTF(NV_DBG_ERRORS, nv, "nv_linux_init_open_q() failed!\n");
-        goto err_zero_dev;
+        goto err_gpu_lost;
     }
 
     nv_printf(NV_DBG_INFO,
@@ -2047,47 +2083,22 @@ nv_pci_probe
 
     num_nv_devices++;
 
-    /*
-     * The newly created nvl object is added to the nv_linux_devices global list
-     * only after all the initialization operations for that nvl object are
-     * completed, so as to protect against simultaneous lookup operations which
-     * may discover a partially initialized nvl object in the list
-     */
-    LOCK_NV_LINUX_DEVICES();
-
-    if (nv_linux_add_device_locked(nvl) != 0)
-    {
-        UNLOCK_NV_LINUX_DEVICES();
-        goto err_add_device;
-    }
-
-    UNLOCK_NV_LINUX_DEVICES();
-
     pm_vt_switch_required(nvl->dev, NV_TRUE);
 
 #if defined(CONFIG_PM_DEVFREQ)
     // Support dynamic power management if device is a tegra PCI iGPU
     rm_init_tegra_dynamic_power_management(sp, nv);
 #endif
-
     nv_init_dynamic_power_management(sp, pci_dev);
 
     nv_init_tegra_gpu_pg_mask(sp, pci_dev);
 
-    nv_procfs_add_gpu(nvl);
+    rm_get_gpu_uuid_raw(sp, nv);
 
     /* Parse and set any per-GPU registry keys specified. */
     nv_parse_per_device_option_string(sp);
 
     rm_set_rm_firmware_requested(sp, nv);
-
-#if defined(NV_VGPU_KVM_BUILD)
-    if (nvidia_vgpu_vfio_probe(nvl->pci_dev) != NV_OK)
-    {
-        NV_DEV_PRINTF(NV_DBG_ERRORS, nv, "Failed to register device to vGPU VFIO module");
-        goto err_free_all;
-    }
-#endif
 
     nv_check_and_exclude_gpu(sp, nv);
 
@@ -2111,9 +2122,76 @@ nv_pci_probe
     if (nv_pci_tegra_register_devfreq(pci_dev) != 0)
     {
         NV_DEV_PRINTF(NV_DBG_ERRORS, nv, "Failed to register linux devfreq");
-        goto err_free_all;
+        goto err_add_device;
     };
 #endif
+
+    /*
+     * Assign a minor number for the newly created nvl object
+     */
+    LOCK_NV_LINUX_DEVICES();
+    if (nv_linux_assign_minor_locked(nvl) != 0)
+    {
+        UNLOCK_NV_LINUX_DEVICES();
+        goto err_add_device;
+    }
+    UNLOCK_NV_LINUX_DEVICES();
+
+    if (nvl->init_on_probe && !(nv->flags & NV_FLAG_EXCLUDE))
+    {
+        int ret;
+        nv_printf(NV_DBG_SETUP, "NVRM: Starting device %04x:%02x:%02x.%x\n",
+            NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
+            NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
+
+        ret = nv_start_device(nv, sp);
+        if (ret)
+        {
+            nv_printf(NV_DBG_ERRORS, "NVRM: Device start failed for %04x:%02x:%02x.%x (ret=%d)\n",
+                NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
+                NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn), ret);
+            goto err_remove_minor;
+        }
+    }
+
+    /*
+     * The newly created nvl object is added to the nv_linux_devices global list
+     * only after all the initialization operations for that nvl object are
+     * completed, so as to protect against simultaneous lookup operations which
+     * may discover a partially initialized nvl object in the list
+     */
+    LOCK_NV_LINUX_DEVICES();
+    nv_linux_add_device_locked(nvl);
+    UNLOCK_NV_LINUX_DEVICES();
+
+    /*
+     * Create the procfs entry only after all the initialization operations for
+     * the nvl object are completed and the device is added to the
+     * nv_linux_devices global list
+     */
+    nv_procfs_add_gpu(nvl);
+
+#if defined(NV_VGPU_KVM_BUILD)
+    /*
+     * vGPU VFIO probe requires the device to be added to the nv_linux_devices
+     * global list since the vgpu mgr daemon invokes a open() call on the device
+     * as part of the probe sequence
+     */
+    if (nvidia_vgpu_vfio_probe(nvl->pci_dev) != NV_OK)
+    {
+        NV_DEV_PRINTF(NV_DBG_ERRORS, nv, "Failed to register device to vGPU VFIO module");
+        goto err_free_all;
+    }
+#endif
+
+    /*
+     * Notification must be sent only after all the initialization operations
+     * as part of the probe sequence are complete.
+     * Do not add code after this line which can fail nv_pci_probe().
+     */
+    rm_notify_gpu_addition(sp, nv);
+
+    nvidia_modeset_probe(nvl);
 
     /*
      * Dynamic power management should be enabled as the last step.
@@ -2123,32 +2201,33 @@ nv_pci_probe
      */
     rm_enable_dynamic_power_management(sp, nv);
 
-    /*
-     * This must be the last action in nv_pci_probe(). Do not add code after this line.
-     */
-    rm_notify_gpu_addition(sp, nv);
-
     nv_kmem_cache_free_stack(sp);
-
-    nvidia_modeset_probe(nvl);
 
     return 0;
 
-goto err_free_all;
+#if defined(NV_VGPU_KVM_BUILD)
 err_free_all:
+#endif
     nv_procfs_remove_gpu(nvl);
-    rm_cleanup_dynamic_power_management(sp, nv);
-    pm_vt_switch_unregister(nvl->dev);
     LOCK_NV_LINUX_DEVICES();
     nv_linux_remove_device_locked(nvl);
     UNLOCK_NV_LINUX_DEVICES();
+    if (nvl->init_on_probe)
+        nv_stop_device(nv, sp);
+err_remove_minor:
+    LOCK_NV_LINUX_DEVICES();
+    nv_linux_remove_minor_locked(nvl);
+    UNLOCK_NV_LINUX_DEVICES();
 err_add_device:
+    rm_cleanup_dynamic_power_management(sp, nv);
+    pm_vt_switch_unregister(nvl->dev);
     nv_linux_stop_open_q(nvl);
+err_gpu_lost:
+    nv_clk_clear_handles(nv);
+    nv_ats_supported = prev_nv_ats_supported;
 err_zero_dev:
     rm_free_private_state(sp, nv);
 err_not_supported:
-    nv_clk_clear_handles(nv);
-    nv_ats_supported = prev_nv_ats_supported;
     nv_lock_destroy_locks(sp, nv);
 failed:
     if (bar0_requested)
@@ -2194,6 +2273,7 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
 
     nv = NV_STATE_PTR(nvl);
 
+#if NV_IS_EXPORT_SYMBOL_GPL_iommu_dev_disable_feature
 #if defined(CONFIG_IOMMU_SVA) && \
     (defined(NV_IOASID_GET_PRESENT) || defined(NV_MM_PASID_DROP_PRESENT))
     if (nv->ats_support)
@@ -2212,6 +2292,7 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
         }
     }
 #endif
+#endif // NV_IS_EXPORT_SYMBOL_GPL_iommu_dev_disable_feature
 
     /*
      * Flush and stop open_q before proceeding with removal to ensure nvl
@@ -2224,7 +2305,7 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
     LOCK_NV_LINUX_DEVICES();
     down(&nvl->ldata_lock);
 
-    if (!block_if_gpu_in_use && (NV_ATOMIC_READ(nvl->usage_count) != 0))
+    if (!block_if_gpu_in_use && (atomic64_read(&nvl->usage_count) != 0))
     {
         up(&nvl->ldata_lock);
         UNLOCK_NV_LINUX_DEVICES();
@@ -2238,7 +2319,7 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
         return;
     }
 
-    nv->flags |= NV_FLAG_PCI_REMOVE_IN_PROGRESS;
+    nv_linux_remove_device_locked(nvl);
 
     rm_notify_gpu_removal(sp, nv);
 
@@ -2247,7 +2328,7 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
      * For eGPU, fall off the bus along with clients active is a valid scenario.
      * Hence skipping the sanity check for eGPU.
      */
-    if ((NV_ATOMIC_READ(nvl->usage_count) != 0) && !(nv->is_external_gpu))
+    if ((atomic64_read(&nvl->usage_count) != 0) && !(nv->is_external_gpu))
     {
         nv_printf(NV_DBG_ERRORS,
                   "NVRM: Attempting to remove device %04x:%02x:%02x.%x with non-zero usage count!\n",
@@ -2258,7 +2339,7 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
          * We can't return from this function without corrupting state, so we wait for
          * the usage count to go to zero.
          */
-        while (NV_ATOMIC_READ(nvl->usage_count) != 0)
+        while (atomic64_read(&nvl->usage_count) != 0)
         {
             /*
              * While waiting, release the locks so that other threads can make
@@ -2294,8 +2375,6 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
 
     rm_check_for_gpu_surprise_removal(sp, nv);
 
-    nv_linux_remove_device_locked(nvl);
-
     /* Remove proc entry for this GPU */
     nv_procfs_remove_gpu(nvl);
 
@@ -2307,6 +2386,19 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
 
     rm_cleanup_dynamic_power_management(sp, nv);
 
+    /*
+     * Stop device if it was initialized on probe but only after dynamic power
+     * management is disabled
+     */
+    if (nvl->init_on_probe && !(nv->flags & NV_FLAG_EXCLUDE))
+    {
+        nv_printf(NV_DBG_SETUP, "NVRM: Stopping device %04x:%02x:%02x.%x\n",
+              NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
+              NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
+        nv_stop_device(nv, sp);
+    }
+
+    nv_linux_remove_minor_locked(nvl);
     nv->removed = NV_TRUE;
 
     UNLOCK_NV_LINUX_DEVICES();
@@ -2318,7 +2410,7 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
     nvidia_vgpu_vfio_remove(pci_dev, NV_TRUE);
 #endif
 
-    if ((nv->flags & NV_FLAG_PERSISTENT_SW_STATE) || (nv->flags & NV_FLAG_OPEN))
+    if ((nv->flags & NV_FLAG_PERSISTENT_SW_STATE) || (nv->flags & NV_FLAG_INITIALIZED))
     {
         nv_acpi_unregister_notifier(nvl);
         if (nv->flags & NV_FLAG_PERSISTENT_SW_STATE)
@@ -2335,7 +2427,7 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
         nvl->sysfs_config_file = NULL;
     }
 
-    if (NV_ATOMIC_READ(nvl->usage_count) == 0)
+    if (atomic64_read(&nvl->usage_count) == 0)
     {
         nv_lock_destroy_locks(sp, nv);
     }
@@ -2351,7 +2443,7 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
 
     num_nv_devices--;
 
-    if (NV_ATOMIC_READ(nvl->usage_count) == 0)
+    if (atomic64_read(&nvl->usage_count) == 0)
     {
         NV_PCI_DISABLE_DEVICE(pci_dev);
         NV_KFREE(nvl, sizeof(nv_linux_state_t));
@@ -2575,7 +2667,9 @@ nv_pci_count_devices(void)
 /*
  * On coherent platforms that support BAR1 mappings for GPUDirect RDMA,
  * dma-buf and nv-p2p subsystems need to ensure the 2 devices belong to
- * the same IOMMU group.
+ * the same IOMMU group. If the importer device doesn't have an IOMMU
+ * group assigned, at least check if the GPU and importer are under the same
+ * root port.
  */
 NvBool nv_pci_is_valid_topology_for_direct_pci(
     nv_state_t     *nv,
@@ -2590,14 +2684,13 @@ NvBool nv_pci_is_valid_topology_for_direct_pci(
         return NV_FALSE;
     }
 
-    switch (NVreg_GrdmaPciTopoCheckOverride) {
-        case NV_REG_GRDMA_PCI_TOPO_CHECK_OVERRIDE_ALLOW_ACCESS:
-            return NV_TRUE;
-        case NV_REG_GRDMA_PCI_TOPO_CHECK_OVERRIDE_DENY_ACCESS:
-            return NV_FALSE;
-        default:
-           return (pdev0->dev.iommu_group == pdev1->dev.iommu_group);
-    }
+    if (pdev0->dev.iommu_group == pdev1->dev.iommu_group)
+        return NV_TRUE;
+
+    if (pdev1->dev.iommu_group == NULL)
+        return nv_pci_has_common_pci_switch(nv, peer);
+
+    return NV_FALSE;
 }
 
 NvBool nv_pci_has_common_pci_switch(
@@ -2641,16 +2734,6 @@ NvBool NV_API_CALL nv_grdma_pci_topology_supported(
         return NV_TRUE;
     }
 
-    switch (NVreg_GrdmaPciTopoCheckOverride)
-    {
-        case NV_REG_GRDMA_PCI_TOPO_CHECK_OVERRIDE_ALLOW_ACCESS:
-            return NV_TRUE;
-        case NV_REG_GRDMA_PCI_TOPO_CHECK_OVERRIDE_DENY_ACCESS:
-            return NV_FALSE;
-        default:
-            break;
-    }
-
     // Allow RDMA by default on passthrough VMs.
     if ((nv->flags & NV_FLAG_PASSTHRU) != 0)
         return NV_TRUE;
@@ -2682,6 +2765,7 @@ struct pci_driver nv_pci_driver = {
 #if defined(CONFIG_PM)
     .driver.pm = &nv_pm_ops,
 #endif
+    .driver.probe_type = PROBE_FORCE_SYNCHRONOUS,
 };
 
 void nv_pci_unregister_driver(void)

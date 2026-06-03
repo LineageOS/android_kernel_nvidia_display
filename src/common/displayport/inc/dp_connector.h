@@ -105,6 +105,14 @@ namespace DisplayPort
         connectorVGA
     };
 
+    typedef enum
+    {
+        // Read DID2x first, then read EDID regardless of DID2x availability.
+        DISPLAYID2_MST_POLICY_DID2X_THEN_EDID = 0,
+        // Read DID2x first, then read EDID only if DID2x is not available.
+        DISPLAYID2_MST_POLICY_DID2X_ONLY = 1,
+    } DISPLAYID2_MST_POLICY;
+
     typedef struct portMap
     {
         NvU16   validMap;       // port i is valid = bit i is high
@@ -230,6 +238,8 @@ namespace DisplayPort
         // Copies RawEDID into client buffer. Fails if the buffer is too small
         virtual bool            getRawEDID(char * buffer, unsigned size) const = 0;
 
+        virtual unsigned        getDisplayId2xSize() const = 0;
+        virtual bool            getDisplayId2x(char * buffer, unsigned size) const = 0;
         virtual bool            getPCONCaps(PCONCaps *pPCONCaps) = 0;
 
         virtual bool            isFallbackEdid() = 0;           // is the device edid a fallback one?
@@ -659,6 +669,15 @@ namespace DisplayPort
         virtual void setPolicyForceLTAtNAB(bool enabled) = 0;
 
         //
+        //  Set the policy of reading DID2x on MST devices.
+        //  Valid values are 0-1.
+        //  0 - DID2x then EDID.    - DPLib will read DID2x then EDID before reporting device to client.
+        //  1 - DID2x only.         - DPLib will only read DID2x and ignore EDID.
+        //  Default value is 0.
+        //  All other values are reserved.
+        //
+        virtual void setDisplayId2MSTPolicy(DISPLAYID2_MST_POLICY policy) = 0;
+        //
         //  There are cases where OS does not detach heads from connector immediately after hot-unplug,
         //  on next hot-plug there is no guarantee that newly connected sink is capable to drive existing
         //  raster timings. Flush mode has following restriction
@@ -767,6 +786,10 @@ namespace DisplayPort
     virtual bool willLinkSupportModeSST(const LinkConfiguration &linkConfig,
                                         const ModesetInfo &modesetInfo,
                                         const DscParams *pDscParams = NULL) = 0;
+    virtual bool isDpInTunnelingSupported() = 0;
+    virtual bool isDpInTunnelingPanelReplayOptimizationSupported() = 0;
+    virtual bool isDpInTunnelingBwAllocationSupported() = 0;
+    virtual bool getUSBDpInAdapterInfo(NvU32 displayId, NV0073_CTRL_DP_USB4_INFO *pInfo) = 0;
 
     protected:
            virtual ~Connector() {}

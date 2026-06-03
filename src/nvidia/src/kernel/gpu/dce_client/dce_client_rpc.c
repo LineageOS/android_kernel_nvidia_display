@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -328,7 +328,7 @@ void dceclientHandleAsyncRpcCallback
             {
                 PEVENTNOTIFICATION pNotifyList  = NULL;
                 PEVENTNOTIFICATION pNotifyEvent = NULL;
-                Event             *pEvent       = NULL;
+                EventApi          *pEvent       = NULL;
                 NV_STATUS          nvStatus     = NV_OK;
 
                 // Get the notification list that contains this event.
@@ -346,7 +346,7 @@ void dceclientHandleAsyncRpcCallback
                     if (pNotifyEvent->hEvent == rpc_params->hEvent)
                     {
                         nvStatus = osNotifyEvent(pGpu, pNotifyEvent, 0,
-                                   rpc_params->data, rpc_params->status);
+                                   rpc_params->data, rpc_params->status, NV_TRUE);
                         if (nvStatus != NV_OK)
                             NV_PRINTF(LEVEL_ERROR, "osNotifyEvent failed with status: %x\n",nvStatus);
                         break;
@@ -407,6 +407,8 @@ NV_STATUS rpcRmApiControl_dce
 
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE : Prepare and send RmApiControl RPC [cmd:0x%x]\n", cmd);
 
+    NV_ASSERT_OR_RETURN(pGpu != NULL, NV_ERR_INVALID_STATE);
+
     msg_data = _dceRpcGetMessageData(pRpc);
     rpc_params = &msg_data->gsp_rm_control_v;
 
@@ -435,9 +437,9 @@ NV_STATUS rpcRmApiControl_dce
     status = _dceRpcGetRpcResult(pRpc);
     if (status != NV_OK)
     {
-         NV_PRINTF(status != NV_ERR_NOT_SUPPORTED ? LEVEL_ERROR : LEVEL_INFO,
-		  "NVRM_RPC_DCE: Failed RM ctrl call cmd:0x%x result 0x%x: %s\n",
-                  cmd, status, nvstatusToString(status));
+        NV_PRINTF_COND(status != NV_ERR_NOT_SUPPORTED, LEVEL_ERROR, LEVEL_INFO,
+                       "NVRM_RPC_DCE: Failed RM ctrl call cmd:0x%x result 0x%x: %s\n",
+                       cmd, status, nvstatusToString(status));
     }
     else
     {
@@ -471,6 +473,8 @@ NV_STATUS rpcRmApiAlloc_dce
     NvBool bNullAllowed;
 
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE: Prepare and send RmApiAlloc RPC\n");
+
+    NV_ASSERT_OR_RETURN(pGpu != NULL, NV_ERR_INVALID_STATE);
 
     msg_data = _dceRpcGetMessageData(pRpc);
     rpc_params = &msg_data->gsp_rm_alloc_v;
@@ -541,6 +545,8 @@ NV_STATUS rpcRmApiFree_dce(RM_API *pRmApi, NvHandle hClient, NvHandle hObject)
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE Free "
               "RPC Called for hClient: 0x%x\n", hClient);
 
+    NV_ASSERT_OR_RETURN(pGpu != NULL, NV_ERR_INVALID_STATE);
+
     msg_data = _dceRpcGetMessageData(pRpc);
     rpc_params = &msg_data->free_v.params;
 
@@ -596,6 +602,7 @@ NV_STATUS rpcRmApiDupObject_dce
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE Dup Object "
               "RPC Called for hClient: 0x%x\n", hClient);
 
+    NV_ASSERT_OR_RETURN(pGpu != NULL, NV_ERR_INVALID_STATE);
 
     msg_data = _dceRpcGetMessageData(pRpc);
     rpc_params = &msg_data->dup_object_v.params;
@@ -654,6 +661,8 @@ rpcDceRmInit_dce
 
     NV_PRINTF(LEVEL_INFO, "NVRM_RPC_DCE RPC to trigger %s called\n",
               bInit ? "RmInitAdapter" : "RmShutdownAdapter");
+
+    NV_ASSERT_OR_RETURN(pGpu != NULL, NV_ERR_INVALID_STATE);
 
     msg_data = _dceRpcGetMessageData(pRpc);
     rpc_params = &msg_data->dce_rm_init_v;

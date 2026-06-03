@@ -55,6 +55,13 @@
 
 #endif
 
+#include <linux/kconfig.h> // for IS_ENABLED()
+
+#if (IS_ENABLED(CONFIG_DRM) && IS_ENABLED(CONFIG_DRM_KMS_HELPER)) ||           \
+    defined(__FreeBSD__)
+#define NV_DRM_AVAILABLE
+#endif
+
 #if defined(NV_DRM_FBDEV_GENERIC_SETUP_PRESENT) &&                             \
     defined(NV_DRM_APERTURE_REMOVE_CONFLICTING_PCI_FRAMEBUFFERS_PRESENT)
 #define NV_DRM_FBDEV_AVAILABLE

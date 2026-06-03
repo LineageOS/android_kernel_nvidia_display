@@ -35,12 +35,6 @@
     (NVBIT64(NvKmsSurfaceMemoryFormatRF16GF16BF16XF16) |    \
      NVBIT64(NvKmsSurfaceMemoryFormatX2B10G10R10))
 
-#define NV_EVO3_SUPPORTED_DITHERING_MODES                               \
-    ((1 << NV_KMS_DPY_ATTRIBUTE_REQUESTED_DITHERING_MODE_AUTO)        | \
-     (1 << NV_KMS_DPY_ATTRIBUTE_REQUESTED_DITHERING_MODE_DYNAMIC_2X2) | \
-     (1 << NV_KMS_DPY_ATTRIBUTE_REQUESTED_DITHERING_MODE_STATIC_2X2)  | \
-     (1 << NV_KMS_DPY_ATTRIBUTE_REQUESTED_DITHERING_MODE_TEMPORAL))
-
 #define NV_EVO3_SUPPORTED_CURSOR_COMP_BLEND_MODES              \
     ((1 << NVKMS_COMPOSITION_BLENDING_MODE_OPAQUE)                    | \
      (1 << NVKMS_COMPOSITION_BLENDING_MODE_NON_PREMULT_ALPHA)         | \
@@ -128,8 +122,6 @@ nvEvoIsModePossibleC3(NVDispEvoPtr pDispEvo,
                     const NVEvoIsModePossibleDispInput *pInput,
                     NVEvoIsModePossibleDispOutput *pOutput);
 
-void nvEvoPrePostIMPC3(NVDispEvoPtr pDispEvo, NvBool isPre);
-
 void nvEvoSetNotifierC3(NVDevEvoRec *pDevEvo,
                              const NvBool notify,
                              const NvBool awaken,
@@ -152,6 +144,9 @@ void nvEvoParseCapabilityNotifier6(NVDevEvoPtr pDevEvo,
                                    volatile const NvU32 *pCaps);
 
 NvU32 nvHwFormatFromKmsFormatC6(const enum NvKmsSurfaceMemoryFormat format);
+
+NvU32 nvEvoGetRasterParamsHBlankDelayC6(const NVHwModeTimingsEvo *pTimings,
+                                        const NVDscInfoEvoRec *pDscInfo);
 
 NvBool nvEvoGetCapabilitiesC6(NVDevEvoPtr pDevEvo);
 
@@ -257,7 +252,6 @@ void nvEvoSetImmPointOutC3(NVDevEvoPtr pDevEvo,
 
 NvBool nvEvoQueryHeadCRC32_C3(NVDevEvoPtr pDevEvo,
                                    NVEvoDmaPtr pDma,
-                                   NvU32 sd,
                                    NvU32 entry_count,
                                    CRC32NotifierCrcOut *crc32,
                                    NvU32 *numCRC32);

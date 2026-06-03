@@ -62,6 +62,11 @@ struct os_work_queue;
 /* Each OS defines its own version of this opaque type */
 typedef struct os_wait_queue os_wait_queue;
 
+/* Flags needed by os_get_current_proccess_flags */
+#define OS_CURRENT_PROCESS_FLAG_NONE            0x0
+#define OS_CURRENT_PROCESS_FLAG_KERNEL_THREAD   0x1
+#define OS_CURRENT_PROCESS_FLAG_EXITING         0x2
+
 /*
  * ---------------------------------------------------------------------------
  *
@@ -158,6 +163,7 @@ void        NV_API_CALL  os_release_rwlock_write          (void *);
 NvBool      NV_API_CALL  os_semaphore_may_sleep           (void);
 NV_STATUS   NV_API_CALL  os_get_version_info              (os_version_info*);
 NV_STATUS   NV_API_CALL  os_get_is_openrm                 (NvBool *);
+NvBool      NV_API_CALL  os_is_bif_reset_supported        (void *);
 NvBool      NV_API_CALL  os_is_isr                        (void);
 NvBool      NV_API_CALL  os_pat_supported                 (void);
 void        NV_API_CALL  os_dump_stack                    (void);
@@ -194,6 +200,7 @@ NV_STATUS   NV_API_CALL  os_open_readonly_file            (const char *, void **
 NV_STATUS   NV_API_CALL  os_open_and_read_file            (const char *, NvU8 *, NvU64);
 NvBool      NV_API_CALL  os_is_nvswitch_present           (void);
 NV_STATUS   NV_API_CALL  os_get_random_bytes              (NvU8 *, NvU16);
+NvU32       NV_API_CALL  os_get_current_process_flags     (void);
 NV_STATUS   NV_API_CALL  os_alloc_wait_queue              (os_wait_queue **);
 void        NV_API_CALL  os_free_wait_queue               (os_wait_queue *);
 void        NV_API_CALL  os_wait_uninterruptible          (os_wait_queue *);
@@ -217,6 +224,7 @@ enum os_pci_req_atomics_type {
 };
 NV_STATUS   NV_API_CALL  os_enable_pci_req_atomics   (void *, enum os_pci_req_atomics_type);
 void        NV_API_CALL  os_pci_trigger_flr(void *handle);
+NvU64       NV_API_CALL  os_get_reclaimable_memory_usage(void);
 NV_STATUS   NV_API_CALL  os_get_numa_node_memory_usage (NvS32, NvU64 *, NvU64 *);
 NV_STATUS   NV_API_CALL  os_numa_add_gpu_memory      (void *, NvU64, NvU64, NvU32 *);
 NV_STATUS   NV_API_CALL  os_numa_remove_gpu_memory   (void *, NvU64, NvU64, NvU32); 

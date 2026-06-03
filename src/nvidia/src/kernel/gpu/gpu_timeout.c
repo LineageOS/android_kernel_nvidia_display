@@ -162,13 +162,13 @@ timeoutRegistryOverride
                   pTD->defaultus);
     }
 
-    if (IS_SIMULATION(pGpu) && 
+    if (IS_SIMULATION(pGpu) &&
         (osReadRegistryDword(pGpu,
                             NV_REG_STR_RM_RESET_FSM_STATE_TRANSITION_TIMEOUT_US,
                             &data32) == NV_OK) &&
         (data32 > gpuGetDefaultResetFSMStateTransitionUs_HAL(pGpu)))
     {
-        // The default delay value can only be overwritten by a greater value 
+        // The default delay value can only be overwritten by a greater value
         pTD->defaultResetFSMStateTransitionUs = data32;
         pTD->bDefaultResetFSMStateTransitionOverridden = NV_TRUE;
         NV_PRINTF(LEVEL_ERROR, "Overriding default timeout for reset FSM state transition to 0x%08x\n",
@@ -235,9 +235,10 @@ timeoutSet
     NvU32         flags
 )
 {
-    OBJTMR             *pTmr;
-    NvU64               timeInNs;
-    NvU64               timeoutNs;
+    OBJTMR  *pTmr;
+    NvU64   timeInNs;
+    NvU64   timeoutNs;
+    OBJGPU  *pGpu = pTD->pGpu;
 
     portMemSet(pTimeout, 0, sizeof(*pTimeout));
 
@@ -277,8 +278,15 @@ timeoutSet
 
     // Set end time for elapsed time methods
     timeoutNs = (NvU64)timeoutUs * 1000;
+
     if (pTimeout->flags & GPU_TIMEOUT_FLAGS_OSTIMER)
     {
+        // WAR for FMODEL: Increase timeout by 10x to handle slow GSPRM on FMODEL on CPURM
+        if (IS_GSP_CLIENT(pGpu) && IS_FMODEL(pGpu))
+        {
+            timeoutNs *= 10;
+        }
+
         //
         // For small timeouts (timeout durations on the order of magnitude of
         // the OS tick resolution), starting the timeout near the end of a tick
@@ -296,7 +304,6 @@ timeoutSet
     else if ((pTimeout->flags & GPU_TIMEOUT_FLAGS_TMR) ||
              (pTimeout->flags & GPU_TIMEOUT_FLAGS_TMRDELAY))
     {
-        OBJGPU *pGpu = pTD->pGpu;
         NV_ASSERT_OR_RETURN_VOID(pGpu != NULL);
 
         OBJGPU *pParentGpu = gpumgrGetParentGPU(pGpu);

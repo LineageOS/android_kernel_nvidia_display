@@ -148,7 +148,9 @@ NV_FORCERESULTCHECK void *portMemAllocNonPaged(NvLength lengthBytes);
  * Otherwise it is defined to @ref portMemAllocNonPaged and @ref portMemFree.
  */
 #define portMemExAllocStack(lengthBytes) __builtin_alloca(lengthBytes)
-#define portMemExAllocStack_SUPPORTED PORT_COMPILER_IS_GCC
+// We can't use portMemExAllocStack on kernel as we get the following error:
+// stack usage might be unbounded
+#define portMemExAllocStack_SUPPORTED PORT_COMPILER_IS_GCC && NVOS_IS_LIBOS
 
 #if portMemExAllocStack_SUPPORTED && NVOS_IS_LIBOS
 #define portMemAllocStackOrHeap(lengthBytes) portMemExAllocStack(lengthBytes)
@@ -547,11 +549,11 @@ PORT_MEM_ALLOCATOR *portMemAllocatorGetGlobalPaged(void);
  * @note Printing is done using portDbgPrintf, which prints regardless of
  * build type and debug levels.
  */
-void portMemPrintTrackingInfo(const PORT_MEM_ALLOCATOR_TRACKING *pTracking);
+void portMemPrintTrackingInfo(const PORT_MEM_ALLOCATOR_TRACKING *pTracking, NvBool bReportLeaks);
 /**
  * @brief Calls @ref portMemPrintTrackingInfo for all current allocator trackers.
  */
-void portMemPrintAllTrackingInfo(void);
+void portMemPrintAllTrackingInfo(NvBool bReportLeaks);
 
 // @} End core functions
 

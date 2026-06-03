@@ -45,11 +45,11 @@ typedef struct
     NvU64               timestamp;
     LOCK_TRACE_INFO     traceInfo;
     NvU64               tlsEntryId;
-    volatile NvU32      contentionCount;
+    PORT_ATOMIC NvU32   contentionCount;
     NvU32               lowPriorityAging;
-    volatile NvU64      totalWaitTime;
-    volatile NvU64      totalRwHoldTime;
-    volatile NvU64      totalRoHoldTime;
+    PORT_ATOMIC NvU64   totalWaitTime;
+    PORT_ATOMIC NvU64   totalRwHoldTime;
+    PORT_ATOMIC NvU64   totalRoHoldTime;
 } RMAPI_LOCK;
 
 RsServer          g_resServ;
@@ -678,19 +678,25 @@ rmapiLockAcquire(NvU32 flags, NvU32 module)
         {
             threadStateResetTimeout(NULL);
         }
-    }
 
-    NvP64 *pStartTime = tlsEntryAcquire(g_RmApiLock.tlsEntryId);
-    if (pStartTime != NULL)
-    {
-        //
-        // Store start time to track lock hold time. This is done
-        // regardless of the value of PDB_PROP_SYS_RM_LOCK_TIME_COLLECT since
-        // the API lock can be acquired before PDB properties are initialized
-        // and released after they are which could lead to uninitialized memory
-        // being present in TLS.
-        //
-        *(NvU64*)pStartTime = osGetMonotonicTimeNs();
+        NvP64 *pStartTime = tlsEntryAcquire(g_RmApiLock.tlsEntryId);
+        if (pStartTime != NULL)
+        {
+            //
+            // Store start time to track lock hold time. This is done
+            // regardless of the value of PDB_PROP_SYS_RM_LOCK_TIME_COLLECT since
+            // the API lock can be acquired before PDB properties are initialized
+            // and released after they are which could lead to uninitialized memory
+            // being present in TLS.
+            //
+            *(NvU64*)pStartTime = osGetMonotonicTimeNs();
+        }
+        else
+        {
+            // Consider the locking operation failed if we can't get the TLS entry
+            rmapiLockRelease();
+            rmStatus = NV_ERR_INSUFFICIENT_RESOURCES;
+        }
     }
 
     return rmStatus;
@@ -732,7 +738,7 @@ rmapiLockRelease(void)
         g_RmApiLock.timestamp = timestamp;
 
         // Update total RW API lock hold time if measuring lock times
-        if (pSys->getProperty(pSys, PDB_PROP_SYS_RM_LOCK_TIME_COLLECT))
+        if (pSys->getProperty(pSys, PDB_PROP_SYS_RM_LOCK_TIME_COLLECT) && startTime != 0)
             portAtomicExAddU64(&g_RmApiLock.totalRwHoldTime, timestamp - startTime);
 
         portSyncRwLockReleaseWrite(g_RmApiLock.pLock);
@@ -741,7 +747,7 @@ rmapiLockRelease(void)
     else
     {
         // Update total RO API lock hold time if measuring lock times
-        if (pSys->getProperty(pSys, PDB_PROP_SYS_RM_LOCK_TIME_COLLECT))
+        if (pSys->getProperty(pSys, PDB_PROP_SYS_RM_LOCK_TIME_COLLECT) && startTime != 0)
             portAtomicExAddU64(&g_RmApiLock.totalRoHoldTime, timestamp - startTime);
 
         portSyncRwLockReleaseRead(g_RmApiLock.pLock);
@@ -880,7 +886,7 @@ rmapiDelPendingDevices
         pRsClient = staticCast(pClient, RsClient);
 
         if (((pClient->Flags & RMAPI_CLIENT_FLAG_DELETE_PENDING) != 0) &&
-            ((pClient->Flags & RMAPI_CLIENT_FLAG_RM_INTERNAL_CLIENT) == 0))
+            (!serverIsClientInternal(&g_resServ, pRsClient->hClient)))
         {
             it = clientRefIter(pRsClient, NULL, classId(Device), RS_ITERATE_CHILDREN, NV_TRUE);
             while(clientRefIterNext(pRsClient, &it))
@@ -897,6 +903,47 @@ rmapiDelPendingDevices
                 }
             }
 
+        }
+
+        ppClient = serverutilGetNextClientUnderLock(ppClient);
+    }
+}
+
+void
+rmapiReportInternalLeakedDevices
+(
+    NvU32 gpuMask
+)
+{
+    RmClient **ppClient;
+    RmClient  *pClient;
+    RsClient  *pRsClient;
+    RS_ITERATOR it;
+
+    ppClient = serverutilGetFirstClientUnderLock();
+    while (ppClient)
+    {
+        pClient = *ppClient;
+        pRsClient = staticCast(pClient, RsClient);
+
+        it = clientRefIter(pRsClient, NULL, classId(Device), RS_ITERATE_CHILDREN, NV_TRUE);
+        while (clientRefIterNext(pRsClient, &it))
+        {
+            RsResourceRef *pDeviceRef = it.pResourceRef;
+            Device *pDevice = dynamicCast(pDeviceRef->pResource, Device);
+            OBJGPU *pGpu = GPU_RES_GET_GPU(pDevice);
+
+            if ((gpuMask & NVBIT(gpuGetInstance(pGpu))) != 0)
+            {
+                // Check if this is an internal client
+                if (serverIsClientInternal(&g_resServ, pRsClient->hClient))
+                {
+                    NV_PRINTF(LEVEL_ERROR,
+                              "Internal device object leak: (0x%x, 0x%x). Please file a bug against RM-core.\n",
+                              pRsClient->hClient, pDeviceRef->hResource);
+                    NV_ASSERT(0);
+                }
+            }
         }
 
         ppClient = serverutilGetNextClientUnderLock(ppClient);
@@ -922,23 +969,29 @@ rmapiReportLeakedDevices
         pRsClient = staticCast(pClient, RsClient);
 
         it = clientRefIter(pRsClient, NULL, classId(Device), RS_ITERATE_CHILDREN, NV_TRUE);
-        while(clientRefIterNext(pRsClient, &it))
+        while (clientRefIterNext(pRsClient, &it))
         {
             RsResourceRef *pDeviceRef = it.pResourceRef;
             Device *pDevice = dynamicCast(pDeviceRef->pResource, Device);
 
             if ((gpuMask & NVBIT(gpuGetInstance(GPU_RES_GET_GPU(pDevice)))) != 0)
             {
-                NV_PRINTF(LEVEL_ERROR,
-                          "Device object leak: (0x%x, 0x%x). Please file a bug against RM-core.\n",
-                          pRsClient->hClient, pDeviceRef->hResource);
-                NV_ASSERT(0);
+                //
+                // Skip reporting if this is an internal client, it should be freed by the end of gpuStateDestroy.
+                //
+                if (!serverIsClientInternal(&g_resServ, pRsClient->hClient))
+                {
+                    NV_PRINTF(LEVEL_ERROR,
+                              "Device object leak: (0x%x, 0x%x). Please file a bug against RM-core.\n",
+                              pRsClient->hClient, pDeviceRef->hResource);
+                    NV_ASSERT(0);
 
-                // Delete leaked resource from database
-                pRmApi->Free(pRmApi, pRsClient->hClient, pDeviceRef->hResource);
+                    // Delete leaked resource from database
+                    pRmApi->Free(pRmApi, pRsClient->hClient, pDeviceRef->hResource);
 
-                // Client's resource map has been modified, re-snap iterator
-                it = clientRefIter(pRsClient, NULL, classId(Device), RS_ITERATE_CHILDREN, NV_TRUE);
+                    // Client's resource map has been modified, re-snap iterator
+                    it = clientRefIter(pRsClient, NULL, classId(Device), RS_ITERATE_CHILDREN, NV_TRUE);
+                }
             }
         }
 

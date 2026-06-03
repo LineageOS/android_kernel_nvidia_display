@@ -506,17 +506,26 @@ static void _threadStateLogInitCaller(THREAD_STATE_NODE *pThreadNode, NvU64 func
 
 /**
  * @brief Common initialization logic for both stack and heap thread state nodes
- *
- * @param[in/out] pThreadNode The node to initialize
+ * 
+ * @param[in/out] pThreadNode The node to initialize 
  * @param[in] flags Thread state flags
  * @param[in] bUsingHeap NV_TRUE if heap-allocated, NV_FALSE if stack-allocated
- *
+ * 
  * @return NV_OK on success, error code on failure
  */
 static NV_STATUS _threadStateInitCommon(THREAD_STATE_NODE *pThreadNode, NvU32 flags, NvBool bUsingHeap)
 {
     NV_STATUS rmStatus;
     NvU64 funcAddr;
+    NvU32 osFlags;
+
+    osFlags = osGetCurrentProcessFlags();
+
+    if (osFlags & OS_CURRENT_PROCESS_FLAG_KERNEL_THREAD)
+        flags |= THREAD_STATE_FLAGS_IS_KERNEL_THREAD;
+
+    if (osFlags & OS_CURRENT_PROCESS_FLAG_EXITING)
+        flags |= THREAD_STATE_FLAGS_IS_EXITING;
 
     portMemSet(pThreadNode, 0, sizeof(*pThreadNode));
     pThreadNode->bUsingHeap = bUsingHeap;
@@ -539,7 +548,7 @@ static NV_STATUS _threadStateInitCommon(THREAD_STATE_NODE *pThreadNode, NvU32 fl
     if (rmStatus != NV_OK)
         return rmStatus;
 
-    NV_ASSERT_OR_RETURN(pThreadNode->cpuNum < threadStateDatabase.maxCPUs,
+    NV_ASSERT_OR_RETURN(pThreadNode->cpuNum < threadStateDatabase.maxCPUs, 
                         NV_ERR_INVALID_STATE);
 
     funcAddr = (NvU64) (NV_RETURN_ADDRESS());

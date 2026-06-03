@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -56,7 +56,7 @@ nvidia_soc_isr_kthread_bh(
 
     os_release_mutex(nvl->soc_bh_mutex);
 
-    NV_SPIN_LOCK_IRQSAVE(&nvl->soc_isr_lock, flags);
+    NV_SPIN_LOCK_IRQSAVE(&nvl->soc_isr_info_lock, flags);
     for (irq_count = 0; irq_count < nv->num_soc_irqs; irq_count++)
     {
         if (nv->soc_irq_info[irq_count].irq_num == irq)
@@ -70,20 +70,21 @@ nvidia_soc_isr_kthread_bh(
         }
     }
     nv->current_soc_irq = -1;
-    NV_SPIN_UNLOCK_IRQRESTORE(&nvl->soc_isr_lock, flags);
+    NV_SPIN_UNLOCK_IRQRESTORE(&nvl->soc_isr_info_lock, flags);
 
     return ret;
 }
 
 static irqreturn_t nvidia_soc_isr(int irq, void *arg)
 {
-    unsigned long flags;
+    unsigned long flags = 0;
     irqreturn_t ret;
     nv_linux_state_t *nvl = (void *) arg;
     nv_state_t *nv = NV_STATE_PTR(nvl);
     NvU32 irq_count;
 
     NV_SPIN_LOCK_IRQSAVE(&nvl->soc_isr_lock, flags);
+    NV_SPIN_LOCK_IRQSAVE(&nvl->soc_isr_info_lock, flags);
 
     /*
      * > Only 1 interrupt at a time is allowed to be serviced.
@@ -101,27 +102,19 @@ static irqreturn_t nvidia_soc_isr(int irq, void *arg)
     {
         if (nv->soc_irq_info[irq_count].bh_pending == NV_TRUE)
         {
+            NV_SPIN_UNLOCK_IRQRESTORE(&nvl->soc_isr_info_lock, flags);
             NV_SPIN_UNLOCK_IRQRESTORE(&nvl->soc_isr_lock, flags);
-            /*
-             *  Return IRQ_HANDLED to prevent the Linux kernel from thinking
-             *  that this interrupt is spurious. Since all interrupts that we
-             *  care are level triggered the interrupt should still continue
-             *  to fire later.
-             */
-            return IRQ_HANDLED;
+            return IRQ_NONE;
         }
     }
     nv->current_soc_irq = irq;
-    for (irq_count = 0; irq_count < nv->num_soc_irqs; irq_count++)
-    {
-        if (nv->soc_irq_info[irq_count].ref_count == 1)
-        {
-            nv->soc_irq_info[irq_count].ref_count--;
-            disable_irq_nosync(nv->soc_irq_info[irq_count].irq_num);
-        }
-    }
+
+    // Don't hold info lock across callstacks
+    NV_SPIN_UNLOCK_IRQRESTORE(&nvl->soc_isr_info_lock, flags);
 
     ret = nvidia_isr(irq, arg);
+
+    NV_SPIN_LOCK_IRQSAVE(&nvl->soc_isr_info_lock, flags);
     if (ret == IRQ_WAKE_THREAD)
     {
         for (irq_count = 0; irq_count < nv->num_soc_irqs; irq_count++)
@@ -134,29 +127,11 @@ static irqreturn_t nvidia_soc_isr(int irq, void *arg)
     }
     else
     {
-        for (irq_count = 0; irq_count < nv->num_soc_irqs; irq_count++)
-        {
-            if (nv->soc_irq_info[irq_count].ref_count == 0)
-            {
-                nv->soc_irq_info[irq_count].ref_count++;
-                enable_irq(nv->soc_irq_info[irq_count].irq_num);
-            }
-        }
         nv->current_soc_irq = -1;
     }
 
+    NV_SPIN_UNLOCK_IRQRESTORE(&nvl->soc_isr_info_lock, flags);
     NV_SPIN_UNLOCK_IRQRESTORE(&nvl->soc_isr_lock, flags);
-
-    /*
-     *  Return IRQ_HANDLED to prevent the Linux kernel from thinking
-     *  that this interrupt is spurious. Since all interrupts that we
-     *  care are level triggered the interrupt should still continue
-     *  to fire later.
-     */
-    if (ret == IRQ_NONE)
-    {
-        ret = IRQ_HANDLED;
-    }
 
     return ret;
 }
@@ -722,7 +697,7 @@ static NV_STATUS nv_platform_get_disp_clocks_max_rate(struct platform_device *pl
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: nv_platform_get_disp_clocks_max_rate, nvidia,max-disp-clk-rate-khz has invalid value\n");
         status = NV_ERR_GENERIC;
-        goto fail;
+        goto done;
     }
 
     /* Parse hub clock max rate for its parent passed by UEFI */
@@ -739,10 +714,10 @@ static NV_STATUS nv_platform_get_disp_clocks_max_rate(struct platform_device *pl
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: nv_platform_get_disp_clocks_max_rate, nvidia,max-hub-clk-rate-khz has invalid value\n");
         status = NV_ERR_GENERIC;
-        goto fail;
+        goto done;
     }
 
-fail:
+done:
     return status;
 }
 
@@ -1229,14 +1204,6 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
     of_property_read_string(nvl->dev->of_node, "nvidia,backlight-name",
                             &nvl->backlight.device_name);
 
-    /*
-     * TODO bug 2100708: the fake domain is used to opt out of some RM paths
-     *                   that cause issues otherwise, see the bug for details.
-     */
-    nv->pci_info.domain    = 2;
-    nv->pci_info.bus       = 0;
-    nv->pci_info.slot      = 0;
-
     num_probed_nv_devices++;
 
     if (!nv_lock_init_locks(sp, nv))
@@ -1248,6 +1215,7 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
     nvl->safe_to_mmap = NV_TRUE;
     INIT_LIST_HEAD(&nvl->open_files);
     NV_SPIN_LOCK_INIT(&nvl->soc_isr_lock);
+    NV_SPIN_LOCK_INIT(&nvl->soc_isr_info_lock);
 
     if (!rm_init_private_state(sp, nv))
     {
@@ -1271,15 +1239,14 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
      * may discover a partially initialized nvl object in the list
      */
     LOCK_NV_LINUX_DEVICES();
-
-    if (nv_linux_add_device_locked(nvl) != 0)
+    if (nv_linux_assign_minor_locked(nvl) != 0)
     {
         UNLOCK_NV_LINUX_DEVICES();
-        nv_printf(NV_DBG_ERRORS, "NVRM: failed to add device\n");
+        nv_printf(NV_DBG_ERRORS, "NVRM: failed to assign minor\n");
         rc = -ENODEV;
         goto err_stop_open_q;
     }
-
+    nv_linux_add_device_locked(nvl);
     UNLOCK_NV_LINUX_DEVICES();
 
     rm_set_rm_firmware_requested(sp, nv);
@@ -1326,6 +1293,7 @@ static int nv_platform_device_display_probe(struct platform_device *plat_dev)
 
 err_remove_device:
     LOCK_NV_LINUX_DEVICES();
+    nv_linux_remove_minor_locked(nvl);
     nv_linux_remove_device_locked(nvl);
     UNLOCK_NV_LINUX_DEVICES();
 err_stop_open_q:
@@ -1405,6 +1373,7 @@ static void nv_platform_device_display_remove(struct platform_device *plat_dev)
 
     LOCK_NV_LINUX_DEVICES();
 
+    nv_linux_remove_minor_locked(nvl);
     nv_linux_remove_device_locked(nvl);
 
     /*
@@ -1420,7 +1389,7 @@ static void nv_platform_device_display_remove(struct platform_device *plat_dev)
 
     nv = NV_STATE_PTR(nvl);
 
-    if ((nv->flags & NV_FLAG_PERSISTENT_SW_STATE) || (nv->flags & NV_FLAG_OPEN))
+    if ((nv->flags & NV_FLAG_PERSISTENT_SW_STATE) || (nv->flags & NV_FLAG_INITIALIZED))
     {
         nv_acpi_unregister_notifier(nvl);
         if (nv->flags & NV_FLAG_PERSISTENT_SW_STATE)
@@ -1550,6 +1519,7 @@ struct platform_driver nv_platform_driver = {
 #if defined(CONFIG_PM)
         .pm = &nv_pm_ops,
 #endif
+        .probe_type = PROBE_FORCE_SYNCHRONOUS,
     },
     .probe     = nv_platform_device_probe,
     .remove    = nv_platform_device_remove_wrapper,

@@ -65,7 +65,6 @@ static void _nv04UnmapMemoryDmaWithSecInfo(NVOS47_PARAMETERS*, API_SECURITY_INFO
 static void _nv04DupObjectWithSecInfo(NVOS55_PARAMETERS*, API_SECURITY_INFO);
 static void _nv04ShareWithSecInfo(NVOS57_PARAMETERS*, API_SECURITY_INFO);
 
-
 //
 // RM API entry points
 //
@@ -160,7 +159,6 @@ void Nv04MapMemoryDmaWithSecInfo(NVOS46_PARAMETERS *pArgs, API_SECURITY_INFO sec
 void Nv04UnmapMemoryDmaWithSecInfo(NVOS47_PARAMETERS *pArgs, API_SECURITY_INFO secInfo)      { _nv04UnmapMemoryDmaWithSecInfo(pArgs, secInfo); }
 void Nv04DupObjectWithSecInfo(NVOS55_PARAMETERS *pArgs, API_SECURITY_INFO secInfo)           { _nv04DupObjectWithSecInfo(pArgs, secInfo); }
 void Nv04ShareWithSecInfo(NVOS57_PARAMETERS *pArgs, API_SECURITY_INFO secInfo)               { _nv04ShareWithSecInfo(pArgs, secInfo); }
-
 
 static void
 XlateUserModeArgsToSecInfo

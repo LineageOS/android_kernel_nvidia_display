@@ -83,6 +83,7 @@ static void nvidia_modeset_get_gpu_info(nv_gpu_info_t *gpu_info,
                                         const nv_linux_state_t *nvl)
 {
     nv_state_t *nv = NV_STATE_PTR(nvl);
+    int numa_status = nv_get_numa_status(nvl);
 
     gpu_info->gpu_id = nv->gpu_id;
 
@@ -91,7 +92,13 @@ static void nvidia_modeset_get_gpu_info(nv_gpu_info_t *gpu_info,
     gpu_info->pci_info.slot     = nv->pci_info.slot;
     gpu_info->pci_info.function = nv->pci_info.function;
 
+    gpu_info->needs_numa_setup =
+        numa_status != NV_IOCTL_NUMA_STATUS_DISABLED &&
+        numa_status != NV_IOCTL_NUMA_STATUS_ONLINE;
+
     gpu_info->os_device_ptr = nvl->dev;
+
+    gpu_info->is_soc_disp = NV_IS_SOC_DISPLAY_DEVICE(nv);
 }
 
 void nvidia_modeset_probe(const nv_linux_state_t *nvl)

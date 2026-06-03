@@ -24,6 +24,7 @@
 #include "dp/nvdp-device.h"
 #include "dp/nvdp-connector-event-sink.h"
 
+#include "nvkms-api-types.h"
 #include "nvkms-evo.h"
 #include "nvkms-dpy.h"
 #include "nvkms-dpy-override.h"
@@ -44,9 +45,14 @@
 #include "timing/dpsdp.h"
 
 #include "displayport/displayport.h"
+#include "timing/nvtiming.h"
 
 #include <ctrl/ctrl0073/ctrl0073dfp.h> // NV0073_CTRL_DFP_FLAGS_*
 #include <ctrl/ctrl0073/ctrl0073dp.h> // NV0073_CTRL_CMD_DP_GET_LINK_CONFIG_*
+
+
+
+#include "ctrl/ctrla083.h" // NVA083_CTRL_CMD_VIRTUAL_DISPLAY_GET_DEFAULT_EDID
 
 #define TMDS_SINGLE_LINK_PCLK_MAX 165000
 #define TMDS_DUAL_LINK_PCLK_MAX 330000
@@ -298,6 +304,10 @@ static void AssignIsVrHmd(NVDpyEvoRec *pDpyEvo)
     NvU32 ret;
 
     pDpyEvo->isVrHmd = FALSE;
+
+    if (pDevEvo->displaylessHw) {
+        return;
+    }
 
     if (!pDpyEvo->parsedEdid.valid) {
         return;
@@ -649,7 +659,7 @@ static void ReadAndApplyEdidEvo(
     if (pParams != NULL) {
         pParams->reply.edid.valid = readSuccess;
     }
-
+    
     if (EdidHasChanged(pDpyEvo, &edid, pParsedEdid)) {
         /*
          * Do not plumb pRequest into ApplyNewEdid().  This helps ensure that
@@ -663,7 +673,31 @@ static void ReadAndApplyEdidEvo(
                      &infoString);
     } else {
         nvFree(edid.buffer);
+
+        if (pDpyEvo->hotplugged) {
+            /*
+             * If the display has an unhandled hotplug, re-probe
+             * the maximum pixel clock. This can change even if the
+             * EDID remains the same if e.g. the display becomes FRL
+             * capable, a passive DP adapter is being used, etc. 
+             * Note that this also takes care of HDMI FRL link re-assessment
+             * on hotplugs.
+             */
+            nvDpyProbeMaxPixelClock(pDpyEvo);
+        } else if (nvDpyIsHdmiEvo(pDpyEvo) &&
+            nvHdmiDpySupportsFrl(pDpyEvo) &&
+            pDpyEvo->hdmi.reassessFrlLinkCaps) {
+            /*
+             * Although there’s no change in EDID and no hotplug, if there was 
+             * still a re-training request, reassess the FRL link.
+             */
+            nvHdmiFrlAssessLink(pDpyEvo);
+        }
     }
+
+    pDpyEvo->hdmi.reassessFrlLinkCaps = FALSE;
+    pDpyEvo->hotplugged = FALSE;
+
     nvFree(pParsedEdid);
 }
 
@@ -780,6 +814,12 @@ void nvDpyProbeMaxPixelClock(NVDpyEvoPtr pDpyEvo)
     NVEvoPassiveDpDongleType passiveDpDongleType;
     NV0073_CTRL_SPECIFIC_GET_PCLK_LIMIT_PARAMS params = { 0 };
     NvU32 passiveDpDongleMaxPclkKHz;
+
+    if (pDevEvo->displaylessHw) {
+        pDpyEvo->maxPixelClockKHz = pDpyEvo->parsedEdid.limits.max_pclk_10khz * 10;
+        pDpyEvo->maxSingleLinkPixelClockKHz = pDpyEvo->maxPixelClockKHz;
+        return;
+    }
 
     /* First, get the RM-reported value. */
 
@@ -1182,7 +1222,68 @@ static NvBool ReadEdidFromDP(const NVDpyEvoRec *pDpyEvo, NVEdidPtr pEdid)
 
 } // ReadEdidFromDP()
 
+static NvBool DisplaylessReadEdidFromResman(const NVDpyEvoRec *pDpyEvo, NVEdidPtr pEdid,
+                                            NvKmsEdidReadMode readMode)
+{
+    NVA083_CTRL_VIRTUAL_DISPLAY_GET_DEFAULT_EDID_PARAMS getDefaultEdidParams = { 0 };
+    NVDispEvoPtr pDispEvo = pDpyEvo->pDispEvo;
+    NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
+    NvBool success = FALSE;
+    NvU32 ret;
 
+    getDefaultEdidParams.pEdidBuffer = NULL;
+    getDefaultEdidParams.edidSize = 0;
+    getDefaultEdidParams.connectorType = 0;
+
+    ret = nvRmApiControl(nvEvoGlobal.clientHandle,
+                     pDevEvo->displaylessHandle,
+                     NVA083_CTRL_CMD_VIRTUAL_DISPLAY_GET_DEFAULT_EDID,
+                     &getDefaultEdidParams, sizeof(getDefaultEdidParams));
+
+    if (ret != NVOS_STATUS_SUCCESS) {
+        nvEvoLogDisp(pDispEvo, EVO_LOG_ERROR,
+            "Failed to fetch default displayless EDID, error %d", ret);
+        goto done;
+    }
+
+    getDefaultEdidParams.pEdidBuffer = nvCalloc(getDefaultEdidParams.edidSize, 1);
+    if (getDefaultEdidParams.pEdidBuffer == NULL) {
+        goto done;
+    }
+
+    ret = nvRmApiControl(nvEvoGlobal.clientHandle,
+                     pDevEvo->displaylessHandle,
+                     NVA083_CTRL_CMD_VIRTUAL_DISPLAY_GET_DEFAULT_EDID,
+                     &getDefaultEdidParams, sizeof(getDefaultEdidParams));
+
+    if (ret != NVOS_STATUS_SUCCESS) {
+        nvEvoLogDisp(pDispEvo, EVO_LOG_ERROR,
+            "Failed to fetch default displayless EDID, error %d", ret);
+        goto done;
+    }
+
+    pEdid->buffer = nvCalloc(getDefaultEdidParams.edidSize, 1);
+    if (pEdid->buffer == NULL) {
+        goto done;
+    }
+
+    nvkms_memcpy(pEdid->buffer, (NvU8 *)getDefaultEdidParams.pEdidBuffer,
+                 getDefaultEdidParams.edidSize);
+    pEdid->length = getDefaultEdidParams.edidSize;
+
+    success = TRUE;
+
+ done:
+
+    nvFree(getDefaultEdidParams.pEdidBuffer);
+
+    if (!success) {
+        nvEvoLogDisp(pDispEvo, EVO_LOG_WARN,
+                     "Unable to read EDID for display device %s",
+                     pDpyEvo->name);
+    }
+    return success;
+}
 
 /*
  * ReadEdidFromResman() - query the EDID for the specified display device
@@ -1197,6 +1298,10 @@ static NvBool ReadEdidFromResman(const NVDpyEvoRec *pDpyEvo, NVEdidPtr pEdid,
     NV0073_CTRL_SPECIFIC_GET_EDID_V2_PARAMS *getEdidParams;
     int retryEdidReadCount = 0;
     NvBool success = FALSE;
+
+    if (pDevEvo->displaylessHw) {
+        return DisplaylessReadEdidFromResman(pDpyEvo, pEdid, readMode);
+    }
 
     if (nvDpyEvoIsDPMST(pDpyEvo)) {
         // RM doesn't track this device, so leave the EDID alone.
@@ -2574,6 +2679,8 @@ void nvConstructDpVscSdp(const NVDispHeadInfoFrameStateEvoRec *pInfoFrame,
                     sdp->db.colorimetryFormat =
                         SDP_VSC_COLOR_FMT_RGB_COLORIMETRY_ITU_R_BT2020_RGB;
                     break;
+                case NVKMS_OUTPUT_COLORIMETRY_BT601:
+                case NVKMS_OUTPUT_COLORIMETRY_BT709:
                 case NVKMS_OUTPUT_COLORIMETRY_DEFAULT:
                     sdp->db.colorimetryFormat =
                         SDP_VSC_COLOR_FMT_RGB_COLORIMETRY_SRGB;
@@ -2602,6 +2709,14 @@ void nvConstructDpVscSdp(const NVDispHeadInfoFrameStateEvoRec *pInfoFrame,
                 case NVKMS_OUTPUT_COLORIMETRY_BT2100:
                     sdp->db.colorimetryFormat =
                         SDP_VSC_COLOR_FMT_YCBCR_COLORIMETRY_ITU_R_BT2020_YCBCR;
+                    break;
+                case NVKMS_OUTPUT_COLORIMETRY_BT601:
+                    sdp->db.colorimetryFormat =
+                        SDP_VSC_COLOR_FMT_YCBCR_COLORIMETRY_ITU_R_BT601;
+                    break;
+                case NVKMS_OUTPUT_COLORIMETRY_BT709:
+                    sdp->db.colorimetryFormat =
+                        SDP_VSC_COLOR_FMT_YCBCR_COLORIMETRY_ITU_R_BT709;
                     break;
                 case NVKMS_OUTPUT_COLORIMETRY_DEFAULT:
                     sdp->db.colorimetryFormat =
@@ -2655,36 +2770,29 @@ static void UpdateDpVscSdpInfoFrame(
                                 &pDispEvo->headState[head];
     NV0073_CTRL_SPECIFIC_SET_OD_PACKET_PARAMS params = { 0 };
     NVDevEvoPtr pDevEvo = pDispEvo->pDevEvo;
+    DPSDP_DP_VSC_SDP_DESCRIPTOR *sdp;
     NvU32 ret;
 
     params.subDeviceInstance = pDispEvo->displayOwner;
     params.displayId = pHeadState->activeRmId;
 
-    if ((pDpyColor->format == NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr420) ||
-        (pDpyColor->colorimetry == NVKMS_OUTPUT_COLORIMETRY_BT2100)) {
+    // DPSDP_DP_VSC_SDP_DESCRIPTOR has a (dataSize, hb, db) layout, while
+    // NV0073_CTRL_SPECIFIC_SET_OD_PACKET_PARAMS.aPacket needs to contain
+    // (hb, db) without dataSize, so this makes sdp->hb align with aPacket.
+    sdp = (DPSDP_DP_VSC_SDP_DESCRIPTOR *)(params.aPacket -
+        offsetof(DPSDP_DP_VSC_SDP_DESCRIPTOR, hb));
 
-        // DPSDP_DP_VSC_SDP_DESCRIPTOR has a (dataSize, hb, db) layout, while
-        // NV0073_CTRL_SPECIFIC_SET_OD_PACKET_PARAMS.aPacket needs to contain
-        // (hb, db) without dataSize, so this makes sdp->hb align with aPacket.
-        DPSDP_DP_VSC_SDP_DESCRIPTOR *sdp =
-            (DPSDP_DP_VSC_SDP_DESCRIPTOR *)(params.aPacket -
-            offsetof(DPSDP_DP_VSC_SDP_DESCRIPTOR, hb));
+    nvAssert((void *)&sdp->hb == (void *)params.aPacket);
 
-        nvAssert((void *)&sdp->hb == (void *)params.aPacket);
+    nvConstructDpVscSdp(pInfoFrame, pDpyColor, sdp);
 
-        nvConstructDpVscSdp(pInfoFrame, pDpyColor, sdp);
+    params.packetSize = sizeof(sdp->hb) + sdp->hb.numValidDataBytes;
 
-        params.packetSize = sizeof(sdp->hb) + sdp->hb.numValidDataBytes;
-
-        params.transmitControl =
-            DRF_DEF(0073_CTRL_SPECIFIC, _SET_OD_PACKET_TRANSMIT_CONTROL, _ENABLE, _YES) |
-            DRF_DEF(0073_CTRL_SPECIFIC, _SET_OD_PACKET_TRANSMIT_CONTROL, _OTHER_FRAME, _DISABLE) |
-            DRF_DEF(0073_CTRL_SPECIFIC, _SET_OD_PACKET_TRANSMIT_CONTROL, _SINGLE_FRAME, _DISABLE) |
-            DRF_DEF(0073_CTRL_SPECIFIC, _SET_OD_PACKET_TRANSMIT_CONTROL, _ON_HBLANK, _DISABLE);
-    } else {
-        params.transmitControl =
-            DRF_DEF(0073_CTRL_SPECIFIC, _SET_OD_PACKET_TRANSMIT_CONTROL, _ENABLE, _NO);
-    }
+    params.transmitControl =
+        DRF_DEF(0073_CTRL_SPECIFIC, _SET_OD_PACKET_TRANSMIT_CONTROL, _ENABLE, _YES) |
+        DRF_DEF(0073_CTRL_SPECIFIC, _SET_OD_PACKET_TRANSMIT_CONTROL, _OTHER_FRAME, _DISABLE) |
+        DRF_DEF(0073_CTRL_SPECIFIC, _SET_OD_PACKET_TRANSMIT_CONTROL, _SINGLE_FRAME, _DISABLE) |
+        DRF_DEF(0073_CTRL_SPECIFIC, _SET_OD_PACKET_TRANSMIT_CONTROL, _ON_HBLANK, _DISABLE);
 
     ret = nvRmApiControl(nvEvoGlobal.clientHandle,
                          pDevEvo->displayCommonHandle,
@@ -3092,6 +3200,9 @@ NvBool nvDpyGetDynamicData(
      */
     pReply->maxPixelClockKHz = pDpyEvo->maxPixelClockKHz;
 
+    pReply->maxWidthInPixels  = pDispEvo->pDevEvo->caps.maxWidthInPixels;
+    pReply->maxHeightInPixels = pDispEvo->pDevEvo->caps.maxHeight;
+
     pReply->connected =
         nvDpyIdIsInDpyIdList(pDpyEvo->id, pDispEvo->connectedDisplays);
 
@@ -3186,14 +3297,6 @@ void nvDpyUpdateCurrentAttributes(NVDpyEvoRec *pDpyEvo)
             pDpyEvo,
             NV_KMS_DPY_ATTRIBUTE_CURRENT_DITHERING_MODE,
             newAttributes.dithering.mode);
-    }
-
-    if (newAttributes.imageSharpening.available !=
-        pDpyEvo->currentAttributes.imageSharpening.available) {
-        nvSendDpyAttributeChangedEventEvo(
-            pDpyEvo,
-            NV_KMS_DPY_ATTRIBUTE_IMAGE_SHARPENING_AVAILABLE,
-            newAttributes.imageSharpening.available);
     }
 
     if (newAttributes.digitalSignal !=
@@ -3333,10 +3436,10 @@ NvKmsDpyOutputColorFormatInfo nvDpyGetOutputColorFormatInfo(
                     NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8;
             }
         } else if (nvConnectorUsesDPLib(pDpyEvo->pConnectorEvo)) {
+            const NVT_EDID_INFO *info = &pDpyEvo->parsedEdid.info;
 
             if (pDpyEvo->parsedEdid.valid &&
-                pDpyEvo->parsedEdid.info.input.isDigital &&
-                pDpyEvo->parsedEdid.info.version >= NVT_EDID_VER_1_4) {
+                info->input.isDigital && info->version >= NVT_EDID_VER_1_4) {
                 if (pDpyEvo->parsedEdid.info.input.u.digital.bpc >= 10) {
                     colorFormatsInfo.rgb444.maxBpc =
                         NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_10;
@@ -3379,6 +3482,39 @@ NvKmsDpyOutputColorFormatInfo nvDpyGetOutputColorFormatInfo(
                     NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8;
                 colorFormatsInfo.rgb444.minBpc =
                     NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8;
+            }
+
+            if (pDpyEvo->parsedEdid.valid && info->input.isDigital &&
+                (info->input.u.digital.video_interface ==
+                 NVT_EDID_DIGITAL_VIDEO_INTERFACE_STANDARD_HDMI_A_SUPPORTED ||
+                 info->input.u.digital.video_interface ==
+                 NVT_EDID_DIGITAL_VIDEO_INTERFACE_STANDARD_HDMI_B_SUPPORTED)) {
+
+                /*
+                 * Prevent RGB 444 @ 6 BPC on active DP-to-HDMI adapters since
+                 * HDMI does not support RGB 444 @ 6 BPC.
+                 */
+                if (colorFormatsInfo.rgb444.minBpc ==
+                    NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_6) {
+                    colorFormatsInfo.rgb444.minBpc =
+                        NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8;
+                }
+
+                // Prevent >=10 BPC on active DP-to-HDMI adapters, if the dc_30_bit is not set
+                if ((info->version < NVT_EDID_VER_1_4 ||
+                     !info->hdmiLlcInfo.dc_30_bit) &&
+                    colorFormatsInfo.rgb444.maxBpc !=
+                    NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_UNKNOWN) {
+                    colorFormatsInfo.rgb444.maxBpc =
+                        NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8;
+                }
+                if ((info->version < NVT_EDID_VER_1_4 ||
+                     !info->hdmiLlcInfo.dc_30_bit) &&
+                    colorFormatsInfo.yuv444.maxBpc !=
+                    NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_UNKNOWN) {
+                    colorFormatsInfo.yuv444.maxBpc =
+                        NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8;
+                }
             }
         } else {
             colorFormatsInfo.rgb444.maxBpc =
@@ -3474,9 +3610,6 @@ NvU32 nvDpyGetPossibleApiHeadsMask(const NVDpyEvoRec *pDpyEvo)
 
 NvBool nvDpyIsHDRCapable(const NVDpyEvoRec *pDpyEvo)
 {
-    const NVDispEvoRec *pDispEvo = pDpyEvo->pDispEvo;
-    const NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
-
     const NVT_EDID_INFO *pInfo = &pDpyEvo->parsedEdid.info;
     const NVT_HDR_STATIC_METADATA *pHdrInfo =
         &pInfo->hdr_static_metadata_info;
@@ -3486,15 +3619,16 @@ NvBool nvDpyIsHDRCapable(const NVDpyEvoRec *pDpyEvo)
         unsigned int major;
         unsigned int minor;
 
-        if(!pDevEvo->caps.supportsDP13) {
-            return FALSE;
-        }
-
         if (!nvDPDpyGetDpcdRevision(pDpyEvo, &major, &minor)) {
             return FALSE;
         }
 
-        nvAssert(major >= 1);
+        if (major == 0) {
+            nvEvoLogDisp(pDpyEvo->pDispEvo, EVO_LOG_WARN,
+                         "Got unknown DPCD revision %d.%d for %s, HDR may not work",
+                         major, minor, pDpyEvo->name);
+        }
+
         if ((major == 1) && (minor < 3)) {
             return FALSE;
         }

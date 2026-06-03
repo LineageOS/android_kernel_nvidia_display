@@ -403,6 +403,7 @@ RS_ENTRY(
     /* Required Access Right  */ RS_ACCESS_NONE
 )
     /* Classes allocated under channel: */
+
 RS_ENTRY(
     /* External Class         */ NV01_CONTEXT_DMA,
     /* Internal Class         */ ContextDma,
@@ -415,7 +416,7 @@ RS_ENTRY(
 )
 RS_ENTRY(
     /* External Class         */ NV01_EVENT,
-    /* Internal Class         */ Event,
+    /* Internal Class         */ EventApi,
     /* Multi-Instance         */ NV_TRUE,
     /* Parents                */ RS_ANY_PARENT,
     /* Alloc Param Info       */ RS_REQUIRED(NV0005_ALLOC_PARAMETERS),
@@ -427,7 +428,7 @@ RS_ENTRY(
 )
 RS_ENTRY(
     /* External Class         */ NV01_EVENT_OS_EVENT,
-    /* Internal Class         */ Event,
+    /* Internal Class         */ EventApi,
     /* Multi-Instance         */ NV_TRUE,
     /* Parents                */ RS_ANY_PARENT,
     /* Alloc Param Info       */ RS_REQUIRED(NV0005_ALLOC_PARAMETERS),
@@ -439,7 +440,7 @@ RS_ENTRY(
 )
 RS_ENTRY(
     /* External Class         */ NV01_EVENT_KERNEL_CALLBACK,
-    /* Internal Class         */ Event,
+    /* Internal Class         */ EventApi,
     /* Multi-Instance         */ NV_TRUE,
     /* Parents                */ RS_ANY_PARENT,
     /* Alloc Param Info       */ RS_REQUIRED(NV0005_ALLOC_PARAMETERS),
@@ -450,7 +451,7 @@ RS_ENTRY(
 )
 RS_ENTRY(
     /* External Class         */ NV01_EVENT_KERNEL_CALLBACK_EX,
-    /* Internal Class         */ Event,
+    /* Internal Class         */ EventApi,
     /* Multi-Instance         */ NV_TRUE,
     /* Parents                */ RS_ANY_PARENT,
     /* Alloc Param Info       */ RS_REQUIRED(NV0005_ALLOC_PARAMETERS),
@@ -480,7 +481,7 @@ RS_ENTRY(
     /* Resource Free Priority */ RS_FREE_PRIORITY_DEFAULT,
     /* Flags                  */ RS_FLAGS_ALLOC_NON_PRIVILEGED | RS_FLAGS_ACQUIRE_RELAXED_GPUS_LOCK_ON_DUP |
                                  RS_FLAGS_ACQUIRE_RO_API_LOCK_ON_ALLOC | RS_FLAGS_ACQUIRE_GPU_GROUP_LOCK_ON_ALLOC |
-                                 RS_FLAGS_ACQUIRE_GPU_GROUP_LOCK_ON_FREE,
+                                 RS_FLAGS_ACQUIRE_GPUS_LOCK_ON_FREE,
     /* Required Access Rights */ RS_ACCESS_NONE
 )
 

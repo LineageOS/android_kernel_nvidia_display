@@ -388,6 +388,7 @@ typedef enum
 {
     UVM_LINK_TYPE_NONE,
     UVM_LINK_TYPE_PCIE,
+    UVM_LINK_TYPE_PCIE_BAR1,
     UVM_LINK_TYPE_NVLINK_1,
     UVM_LINK_TYPE_NVLINK_2,
     UVM_LINK_TYPE_NVLINK_3,
@@ -696,6 +697,16 @@ typedef struct UvmGpuInfo_tag
 
     // GPU supports Non-PASID ATS capability
     NvBool nonPasidAtsSupport;
+
+    // GPU setup in CDMM mode
+    NvBool cdmmEnabled;
+
+    // If nvlinkDirectConnect is NV_TRUE,
+    // nvlDirectConnectMemoryWindowStart is the GPA base address for the GPU's vidmem over
+    // direct-connect NVLink. It is used when creating PTEs of GPU memory mappings
+    // to direct NVLink peers.
+    NvBool nvlDirectConnect;
+    NvU64 nvlDirectConnectMemoryWindowStart;
 } UvmGpuInfo;
 
 typedef struct UvmGpuFbInfo_tag
@@ -1044,6 +1055,22 @@ typedef struct UvmGpuAccessCntrConfig_tag
     NvU32 threshold;
 } UvmGpuAccessCntrConfig;
 
+typedef enum
+{
+    UVM_ACCESS_BITS_DUMP_MODE_AGGREGATE = 0,
+    UVM_ACCESS_BITS_DUMP_MODE_DIFF = 1,
+    UVM_ACCESS_BITS_DUMP_MODE_CURRENT = 2,
+} UVM_ACCESS_BITS_DUMP_MODE;
+
+typedef struct UvmGpuAccessBitsBufferAlloc_tag
+{
+    NvHandle accessBitsBufferHandle;
+    NvBool bDirtyBits;
+    NvU32 granularity;
+    NV_DECLARE_ALIGNED(NvU64 enabledMask[64], 8);
+    NV_DECLARE_ALIGNED(NvU64 currentBits[64], 8);
+} UvmGpuAccessBitsBufferAlloc;
+
 //
 // When modifying this enum, make sure they are compatible with the mirrored
 // MEMORY_PROTECTION enum in phys_mem_allocator.h.
@@ -1081,6 +1108,7 @@ typedef UvmGpuPagingChannel *gpuPagingChannelHandle;
 typedef UvmGpuPagingChannelInfo gpuPagingChannelInfo;
 typedef UvmGpuPagingChannelAllocParams gpuPagingChannelAllocParams;
 typedef UvmPmaAllocationOptions gpuPmaAllocationOptions;
+typedef UvmGpuAccessBitsBufferAlloc gpuAccessBitsBufferAlloc;
 
 typedef struct UvmCslIv
 {

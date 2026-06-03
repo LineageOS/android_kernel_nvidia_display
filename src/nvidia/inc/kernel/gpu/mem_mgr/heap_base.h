@@ -83,9 +83,6 @@ typedef struct _def_fb_alloc_info
     NvU32    possAttr;          // AllocHint, BindCompr
     NvU32    ctagOffset;
 
-    // Special flag for kernel allocations
-    NvBool bIsKernelAlloc;
-
     //
     // Number of 4KB pages in the PTE array
     // For contiguous allocation, this will be set to '1'

@@ -67,15 +67,6 @@ memmgrGetMemTransferType
     }
     else if (flags & TRANSFER_FLAGS_PREFER_CE)
     {
-        if (IS_SIMULATION(pGpu) && pSrc != NULL)
-        {
-            //
-            // This is significantly faster on fmodel for S/R (5min vs. 5sec) because of the
-            // backdoor memory reads and writes.
-            // Memset is not currently supported
-            //
-            return TRANSFER_TYPE_BAR0;
-        }
 
         //
         // On Emulation we may lack CE support so preventing excessive debug spew.
@@ -836,7 +827,6 @@ void memUtilsInitFBAllocInfo
     pFbAllocInfo->comprCovg         = pAllocParams->comprCovg;
     pFbAllocInfo->zcullCovg         = 0;
     pFbAllocInfo->ctagOffset        = pAllocParams->ctagOffset;
-    pFbAllocInfo->bIsKernelAlloc    = NV_FALSE;
     pFbAllocInfo->internalflags     = 0;
     pFbAllocInfo->hClient           = hClient;
     pFbAllocInfo->hDevice           = hDevice;
@@ -1043,18 +1033,8 @@ memmgrMemReadOrWriteInBlocks
 
         if (bCreateSubMemDesc)
         {
-            //
-            // We need the submemdesc code to not align up because we may need to downgrade
-            // the page size on the submemdesc
-            //
-            NvBool prevAlignIgnore = memdescGetFlag(pMemDesc, MEMDESC_FLAGS_PAGE_SIZE_ALIGN_IGNORE);
-
-            memdescSetFlag(pMemDesc, MEMDESC_FLAGS_PAGE_SIZE_ALIGN_IGNORE, NV_TRUE);
-
             NV_ASSERT_OK_OR_RETURN(
                 memdescCreateSubMem(&pSubMemDesc, pMemDesc, pMemDesc->pGpu, offset + baseOffset, copySize));
-
-            memdescSetFlag(pMemDesc, MEMDESC_FLAGS_PAGE_SIZE_ALIGN_IGNORE, prevAlignIgnore);
 
             if (memdescGetPageSize(pSubMemDesc, AT_GPU) > RM_PAGE_SIZE_HUGE)
             {
@@ -1516,11 +1496,6 @@ memUtilsAllocMemDesc
     if (pAllocRequest->pMemDesc == NULL)
     {
         NvU64 memDescFlags = MEMDESC_FLAGS_SKIP_RESOURCE_COMPUTE;
-
-        if (FLD_TEST_DRF(OS32, _ATTR2, _USE_EGM, _TRUE, pFbAllocInfo->retAttr2))
-        {
-            memDescFlags |= MEMDESC_FLAGS_ALLOC_FROM_EGM;
-        }
 
         //
         // Allocate a contig vidmem descriptor now; if needed we'll

@@ -331,8 +331,11 @@ gpuresControl_IMPL
     NV_ASSERT_OR_RETURN(pGpuResource->pGpu != NULL, NV_ERR_INVALID_STATE);
     gpuresControlSetup(pParams, pGpuResource);
 
-    return resControl_IMPL(staticCast(pGpuResource, RsResource),
-                           pCallContext, pParams);
+    NvU32 prevGpuInst = gpumgrSetCurrentGpuInstance(pGpuResource->pGpu->gpuInstance);
+    NV_STATUS status = resControl_IMPL(staticCast(pGpuResource, RsResource), pCallContext, pParams);
+    gpumgrSetCurrentGpuInstance(prevGpuInst);
+
+    return status;
 }
 
 void

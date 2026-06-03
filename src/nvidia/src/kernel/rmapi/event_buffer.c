@@ -541,7 +541,7 @@ _allocAndMapMemory
         pGpu = GPU_RES_GET_GPU(pSubdevice);
 
     NV_ASSERT_OR_RETURN(pSubdevice != NULL && pGpu != NULL, NV_ERR_INVALID_STATE);
- 
+
     status = memdescCreate(ppMemDesc, pGpu, size, 0, NV_MEMORY_CONTIGUOUS,
             ADDR_SYSMEM, NV_MEMORY_WRITECOMBINED, MEMDESC_FLAGS_CPU_ONLY);
     if (status != NV_OK)
@@ -728,4 +728,9 @@ eventBufferAdd(EventBuffer* pEventBuffer, void *pEventData, NvU32 recordType, Nv
                 (eventBufferIsNotifyThresholdMet(&pEventBuffer->producerInfo));
     *pHandle  = pEventBuffer->producerInfo.notificationHandle;
     return NV_OK;
+}
+
+NvBool eventBufferIsEmpty(EventBuffer *pEventBuffer)
+{
+    return pEventBuffer->producerInfo.recordBuffer.pHeader->recordCount == 0;
 }

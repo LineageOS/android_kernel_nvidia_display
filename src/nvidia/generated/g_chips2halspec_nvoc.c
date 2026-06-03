@@ -19,17 +19,17 @@ void __nvoc_init_halspec_ChipHal(ChipHal *pChipHal, NvU32 arch, NvU32 impl, NvU3
     // T234D
     if(arch == 0x0 && impl == 0x0 && hidrev == 0x235)
     {
-        pChipHal->__nvoc_HalVarIdx = 108;
+        pChipHal->__nvoc_HalVarIdx = 109;
     }
     // T264D
     else if(arch == 0x0 && impl == 0x0 && hidrev == 0x265)
     {
-        pChipHal->__nvoc_HalVarIdx = 110;
+        pChipHal->__nvoc_HalVarIdx = 111;
     }
     // T256D
     else if(arch == 0x0 && impl == 0x0 && hidrev == 0x257)
     {
-        pChipHal->__nvoc_HalVarIdx = 111;
+        pChipHal->__nvoc_HalVarIdx = 112;
     }
 }
 

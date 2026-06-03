@@ -63,6 +63,16 @@ NV_STATUS nvGpuOpsDeviceCreate(struct gpuSession *session,
 
 NV_STATUS nvGpuOpsDeviceDestroy(struct gpuDevice *device);
 
+NV_STATUS nvGpuOpsAccessBitsBufAlloc(struct gpuDevice *device,
+                                     gpuAccessBitsBufferAlloc *pAccessBitsInfo);
+
+NV_STATUS nvGpuOpsAccessBitsBufFree(struct gpuDevice *device,
+                                    gpuAccessBitsBufferAlloc *pAccessBitsInfo);
+
+NV_STATUS nvGpuOpsAccessBitsDump(struct gpuDevice *device,
+                                 gpuAccessBitsBufferAlloc *pAccessBitsInfo,
+                                 UVM_ACCESS_BITS_DUMP_MODE mode);
+
 NV_STATUS nvGpuOpsAddressSpaceCreate(struct gpuDevice *device,
                                      NvU64 vaBase,
                                      NvU64 vaSize,

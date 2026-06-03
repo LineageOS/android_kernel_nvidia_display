@@ -73,31 +73,22 @@ extern NvBool nvos_is_chipset_io_coherent(void);
 
 #define NV_PGPROT_UNCACHED_DEVICE(old_prot)     pgprot_noncached(old_prot)
 #if defined(NVCPU_AARCH64)
-#define NV_PROT_WRITE_COMBINED_DEVICE   (PROT_DEFAULT | PTE_PXN | PTE_UXN |   \
-                                         PTE_ATTRINDX(MT_DEVICE_nGnRE))
-#define NV_PGPROT_WRITE_COMBINED_DEVICE(old_prot)                             \
-    __pgprot_modify(old_prot, PTE_ATTRINDX_MASK, NV_PROT_WRITE_COMBINED_DEVICE)
 #define NV_PGPROT_WRITE_COMBINED(old_prot)      NV_PGPROT_UNCACHED(old_prot)
 #define NV_PGPROT_READ_ONLY(old_prot)                                         \
             __pgprot_modify(old_prot, 0, PTE_RDONLY)
 #elif defined(NVCPU_X86_64)
 #define NV_PGPROT_UNCACHED_WEAK(old_prot)       pgprot_noncached_weak(old_prot)
-#define NV_PGPROT_WRITE_COMBINED_DEVICE(old_prot)                             \
-    pgprot_modify_writecombine(old_prot)
 #define NV_PGPROT_WRITE_COMBINED(old_prot)                                    \
-    NV_PGPROT_WRITE_COMBINED_DEVICE(old_prot)
+    pgprot_modify_writecombine(old_prot)
 #define NV_PGPROT_READ_ONLY(old_prot)                                         \
     __pgprot(pgprot_val((old_prot)) & ~_PAGE_RW)
 #elif defined(NVCPU_RISCV64)
-#define NV_PGPROT_WRITE_COMBINED_DEVICE(old_prot)                             \
+#define NV_PGPROT_WRITE_COMBINED(old_prot)                                    \
     pgprot_writecombine(old_prot)
-/* Don't attempt to mark sysmem pages as write combined on riscv */
-#define NV_PGPROT_WRITE_COMBINED(old_prot)     old_prot
 #define NV_PGPROT_READ_ONLY(old_prot)                                         \
             __pgprot(pgprot_val((old_prot)) & ~_PAGE_WRITE)
 #else
 /* Writecombine is not supported */
-#undef NV_PGPROT_WRITE_COMBINED_DEVICE(old_prot)
 #undef NV_PGPROT_WRITE_COMBINED(old_prot)
 #define NV_PGPROT_READ_ONLY(old_prot)
 #endif

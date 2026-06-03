@@ -30,6 +30,7 @@
 // Source file:      ctrl/ctrl2080/ctrl2080nvlink.finn
 //
 
+#include "nvlimits.h"
 #include "nvfixedtypes.h"
 #include "ctrl/ctrl2080/ctrl2080base.h"
 #include "ctrl/ctrl2080/ctrl2080nvlink_common.h"
@@ -43,7 +44,7 @@
  * This command returns the NVLink capabilities supported by the subdevice.
  *
  *   capsTbl
- *     This is bit field for getting different global caps. The individual bitfields are specified by NV2080_CTRL_NVLINK_CAPS_* 
+ *     This is bit field for getting different global caps. The individual bitfields are specified by NV2080_CTRL_NVLINK_CAPS_*
  *   lowestNvlinkVersion
  *     This field specifies the lowest supported NVLink version for this subdevice.
  *   highestNvlinkVersion
@@ -148,6 +149,7 @@ typedef struct NV2080_CTRL_CMD_NVLINK_GET_NVLINK_CAPS_PARAMS {
 #define NV2080_CTRL_NVLINK_CAPS_NVLINK_VERSION_3_1     (0x00000006U)
 #define NV2080_CTRL_NVLINK_CAPS_NVLINK_VERSION_4_0     (0x00000007U)
 #define NV2080_CTRL_NVLINK_CAPS_NVLINK_VERSION_5_0     (0x00000008U)
+#define NV2080_CTRL_NVLINK_CAPS_NVLINK_VERSION_6_0     (0x00000009U)
 #define NV2080_CTRL_NVLINK_CAPS_NCI_VERSION_INVALID    (0x00000000U)
 #define NV2080_CTRL_NVLINK_CAPS_NCI_VERSION_1_0        (0x00000001U)
 #define NV2080_CTRL_NVLINK_CAPS_NCI_VERSION_2_0        (0x00000002U)
@@ -156,6 +158,7 @@ typedef struct NV2080_CTRL_CMD_NVLINK_GET_NVLINK_CAPS_PARAMS {
 #define NV2080_CTRL_NVLINK_CAPS_NCI_VERSION_3_1        (0x00000006U)
 #define NV2080_CTRL_NVLINK_CAPS_NCI_VERSION_4_0        (0x00000007U)
 #define NV2080_CTRL_NVLINK_CAPS_NCI_VERSION_5_0        (0x00000008U)
+#define NV2080_CTRL_NVLINK_CAPS_NCI_VERSION_6_0        (0x00000009U)
 /*
  * NV2080_CTRL_CMD_NVLINK_GET_NVLINK_CAPS
  *
@@ -167,7 +170,7 @@ typedef struct NV2080_CTRL_CMD_NVLINK_GET_NVLINK_CAPS_PARAMS {
 
 #define NV2080_CTRL_CMD_NVLINK_GET_NVLINK_CAPS         (0x20803001U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_CMD_NVLINK_GET_NVLINK_CAPS_PARAMS_MESSAGE_ID" */
 
-/* 
+/*
  * NV2080_CTRL_NVLINK_DEVICE_INFO
  *
  * This structure stores information about the device to which this link is associated
@@ -208,7 +211,7 @@ typedef struct NV2080_CTRL_NVLINK_DEVICE_INFO {
     NvU32 fabricRecoveryStatusMask;
 } NV2080_CTRL_NVLINK_DEVICE_INFO;
 
-#define NV2080_CTRL_NVLINK_DEVICE_INFO_DEVICE_ID_FLAGS        31:0 
+#define NV2080_CTRL_NVLINK_DEVICE_INFO_DEVICE_ID_FLAGS        31:0
 #define NV2080_CTRL_NVLINK_DEVICE_INFO_DEVICE_ID_FLAGS_NONE                                            (0x00000000U)
 #define NV2080_CTRL_NVLINK_DEVICE_INFO_DEVICE_ID_FLAGS_PCI                                             (0x00000001U)
 #define NV2080_CTRL_NVLINK_DEVICE_INFO_DEVICE_ID_FLAGS_UUID                                            (0x00000002U)
@@ -279,7 +282,7 @@ typedef struct NV2080_CTRL_NVLINK_DEVICE_INFO {
  *   loopProperty
  *     This field specifies if the link is a loopback/loopout link. See NV2080_CTRL_NVLINK_STATUS_LOOP_PROPERTY_* for possible values.
  *   remoteDeviceLinkNumber
- *     This field specifies the link number on the remote end of the link 
+ *     This field specifies the link number on the remote end of the link
  *   remoteDeviceInfo
  *     This field stores the device information for the remote end of the link
  *   nvlinkMinL1Threshold
@@ -288,6 +291,8 @@ typedef struct NV2080_CTRL_NVLINK_DEVICE_INFO {
  *     This field stores the Max L1 Threshold of the link
  *   nvlinkL1ThresholdUnits
  *     This field stores the L1 Threshold Units of the link
+ *   nvlpwIdx
+ *     This field stores the nvlpw index in use
  *
  */
 typedef struct NV2080_CTRL_NVLINK_LINK_STATUS_INFO {
@@ -346,6 +351,8 @@ typedef struct NV2080_CTRL_NVLINK_LINK_STATUS_INFO {
 
     NV_DECLARE_ALIGNED(NV2080_CTRL_NVLINK_DEVICE_INFO remoteDeviceInfo, 8);
     NV_DECLARE_ALIGNED(NV2080_CTRL_NVLINK_DEVICE_INFO localDeviceInfo, 8);
+
+    NvU32  nvlpwIdx;
 } NV2080_CTRL_NVLINK_LINK_STATUS_INFO;
 
 // NVLink link states
@@ -396,6 +403,7 @@ typedef struct NV2080_CTRL_NVLINK_LINK_STATUS_INFO {
 #define NV2080_CTRL_NVLINK_STATUS_NVLINK_VERSION_3_1            (0x00000006U)
 #define NV2080_CTRL_NVLINK_STATUS_NVLINK_VERSION_4_0            (0x00000007U)
 #define NV2080_CTRL_NVLINK_STATUS_NVLINK_VERSION_5_0            (0x00000008U)
+#define NV2080_CTRL_NVLINK_STATUS_NVLINK_VERSION_6_0            (0x00000009U)
 #define NV2080_CTRL_NVLINK_STATUS_NVLINK_VERSION_INVALID        (0x000000FFU)
 
 #define NV2080_CTRL_NVLINK_STATUS_NCI_VERSION_1_0               (0x00000001U)
@@ -405,6 +413,7 @@ typedef struct NV2080_CTRL_NVLINK_LINK_STATUS_INFO {
 #define NV2080_CTRL_NVLINK_STATUS_NCI_VERSION_3_1               (0x00000006U)
 #define NV2080_CTRL_NVLINK_STATUS_NCI_VERSION_4_0               (0x00000007U)
 #define NV2080_CTRL_NVLINK_STATUS_NCI_VERSION_5_0               (0x00000008U)
+#define NV2080_CTRL_NVLINK_STATUS_NCI_VERSION_6_0               (0x00000009U)
 #define NV2080_CTRL_NVLINK_STATUS_NCI_VERSION_INVALID           (0x000000FFU)
 
 #define NV2080_CTRL_NVLINK_STATUS_NVHS_VERSION_1_0              (0x00000001U)
@@ -442,6 +451,7 @@ typedef struct NV2080_CTRL_CMD_NVLINK_GET_NVLINK_STATUS_PARAMS {
     NvBool bSublinkStateInst; // whether instantaneous sublink state is needed
     NvBool bNvleModeEnabled; // whether Nvlink Encryption is enabled or not
     NV_DECLARE_ALIGNED(NV2080_CTRL_NVLINK_LINK_STATUS_INFO linkInfo[NV2080_CTRL_NVLINK_MAX_ARR_SIZE], 8);
+    NV_DECLARE_ALIGNED(NvU64 enabledNvlpwMask, 8);
 } NV2080_CTRL_CMD_NVLINK_GET_NVLINK_STATUS_PARAMS;
 
 /*
@@ -453,6 +463,8 @@ typedef struct NV2080_CTRL_CMD_NVLINK_GET_NVLINK_STATUS_PARAMS {
  *     This field indicates if Nvlink Encryption is enabled or not.
  *   linkInfo
  *     This structure stores the per-link status of different NVLink parameters. The link is identified using an index.
+ *   enabledNvlpwMask
+ *     This field specifics mask of Nvlpw indices available
  *
  * Possible status values returned are:
  *   NV_OK
@@ -812,7 +824,7 @@ typedef struct NV2080_CTRL_NVLINK_GET_ERR_INFO_PARAMS {
  * [out] bRx1TlCounterOverflow
  *  This boolean is set to NV_TRUE if RX Counter 1 has rolled over.
  *
- * [out] value 
+ * [out] value
  *  This array contains the error counts for each error type as requested from
  *  the counterMask. The array indexes correspond to the mask bits one-to-one.
  */
@@ -841,11 +853,11 @@ typedef struct NV2080_CTRL_NVLINK_GET_COUNTERS_PARAMS {
  *  This command clears/resets the counters for the specified types.
  *
  * [in] linkMask (This field will be deprecated in the future, please use links)
- *  This parameter specifies for which links we want to clear the 
+ *  This parameter specifies for which links we want to clear the
  *  counters.
  *
  * [in] links
- *  This parameter specifies for which links we want to clear the 
+ *  This parameter specifies for which links we want to clear the
  *  counters.
  *
  * [in] counterMask
@@ -1668,7 +1680,7 @@ typedef struct NV2080_CTRL_NVLINK_SET_ERROR_INJECTION_MODE_PARAMS {
  * NV2080_CTRL_CMD_NVLINK_SETUP_EOM
  *
  * This command passes a packed 32bit params value to NV_PMINION_MISC_0_SCRATCH_SWRW_0
- * and then issues an EOM DLCMD to minion for the desired link. Only one DLCMD 
+ * and then issues an EOM DLCMD to minion for the desired link. Only one DLCMD
  * at a time can be issued to any given link.
  *
  * Params Packing is specified in Minion IAS
@@ -1880,9 +1892,9 @@ typedef struct NV2080_CTRL_NVLINK_SET_NVLINK_PEER_PARAMS {
  * NV2080_CTRL_CMD_NVLINK_READ_UPHY_PAD_LANE_REG
  *
  * This command packs the lane and addr values into NV_PMINION_MISC_0_SCRATCH_SWRW_0
- * and then issues a READPADLANEREG DLCMD to minion for the desired link. Only one DLCMD 
+ * and then issues a READPADLANEREG DLCMD to minion for the desired link. Only one DLCMD
  * at a time can be issued to any given link.
- * 
+ *
  * After this command completes it is necessary to read the appropriate
  * NV_PNVL_BR0_PAD_CTL_7_CFG_RDATA register to retrieve the results of the read
  * Only GV100 should read NV_PNVL_BR0_PAD_CTL_7_CFG_RDATA.
@@ -1962,7 +1974,7 @@ typedef struct NV2080_CTRL_NVLINK_LINK_ECC_ERROR {
  *      NVSWITCH_GET_INFO
  *    errorLink[] [OUT]
  *      Stores the ECC error related information for each link.
- *      errorLink array index corresponds to the link Number.   
+ *      errorLink array index corresponds to the link Number.
  */
 
 #define NV2080_CTRL_NVLINK_GET_NVLINK_ECC_ERRORS_PARAMS_MESSAGE_ID (0x14U)
@@ -2429,8 +2441,10 @@ typedef struct NV2080_CTRL_NVLINK_SET_L1_THRESHOLD_PARAMS {
 #define NV2080_CTRL_NVLINK_GET_L1_THRESHOLD_PARAMS_MESSAGE_ID (0x3fU)
 
 typedef struct NV2080_CTRL_NVLINK_GET_L1_THRESHOLD_PARAMS {
-    NvU32 l1Threshold;
-    NvU32 l1ExitThreshold;
+    NvU32  l1Threshold;
+    NvU32  l1ExitThreshold;
+    NvBool bL1Enabled;
+    NvBool bL1ThermThrottlingEnabled;
 } NV2080_CTRL_NVLINK_GET_L1_THRESHOLD_PARAMS;
 
 #define NV2080_CTRL_CMD_NVLINK_GET_L1_THRESHOLD (0x2080303fU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_GET_L1_THRESHOLD_PARAMS_MESSAGE_ID" */
@@ -2547,7 +2561,7 @@ typedef struct NV2080_CTRL_NVLINK_PORT_EVENT {
 *      On input: The index of the first port event at which to start reading out of the driver.
 *
 *      On output: The index of the first port event that wasn't reported through the 'port event' array
-*                 in this call to NV2080_CTRL_CMD_NVLINK_GET_PORT_EVENTS. 
+*                 in this call to NV2080_CTRL_CMD_NVLINK_GET_PORT_EVENTS.
 *
 *   nextPortEventIndex[OUT]
 *      The index that will be assigned to the next port event that occurs.
@@ -2619,598 +2633,12 @@ typedef struct NV2080_CTRL_NVLINK_PRM_DATA {
     NvU8 data[NV2080_CTRL_NVLINK_PRM_ACCESS_MAX_LENGTH];
 } NV2080_CTRL_NVLINK_PRM_DATA;
 
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PAOS (0x20803047U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PAOS_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PAOS_PARAMS_MESSAGE_ID (0x47U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PAOS_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        plane_ind;
-    NvU8                        admin_status;
-    NvU8                        lp_msb;
-    NvU8                        local_port;
-    NvU8                        swid;
-    NvU8                        e;
-    NvU8                        fd;
-    NvU8                        ps_e;
-    NvU8                        ls_e;
-    NvU8                        ee_ps;
-    NvU8                        ee_ls;
-    NvU8                        ee;
-    NvU8                        ase;
-    NvBool                      ee_nmxas;
-    NvU8                        nmxas_e;
-    NvU8                        ps_e_ext;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PAOS_PARAMS;
-
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PLTC (0x20803053U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PLTC_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PLTC_PARAMS_MESSAGE_ID (0x53U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PLTC_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        lane_mask;
-    NvU8                        lp_msb;
-    NvU8                        pnat;
-    NvU8                        local_port;
-    NvU8                        local_tx_precoding_admin;
-    NvU8                        local_rx_precoding_admin;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PLTC_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PPLM (0x20803054U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PPLM_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PPLM_PARAMS_MESSAGE_ID (0x54U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PPLM_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvBool                      test_mode;
-    NvBool                      plr_vld;
-    NvU8                        plane_ind;
-    NvU8                        port_type;
-    NvU8                        lp_msb;
-    NvU8                        pnat;
-    NvU8                        local_port;
-    NvBool                      plr_reject_mode_vld;
-    NvBool                      plr_margin_th_override_to_default;
-    NvU8                        plr_reject_mode;
-    NvU8                        tx_crc_plr;
-    NvU8                        plr_margin_th;
-    NvU8                        fec_override_admin_10g_40g;
-    NvU8                        fec_override_admin_25g;
-    NvU8                        fec_override_admin_50g;
-    NvU8                        fec_override_admin_100g;
-    NvU8                        fec_override_admin_56g;
-    NvU8                        rs_fec_correction_bypass_admin;
-    NvU16                       fec_override_admin_200g_4x;
-    NvU16                       fec_override_admin_400g_8x;
-    NvU16                       fec_override_admin_50g_1x;
-    NvU16                       fec_override_admin_100g_2x;
-    NvU16                       fec_override_admin_400g_4x;
-    NvU16                       fec_override_admin_800g_8x;
-    NvU16                       fec_override_admin_100g_1x;
-    NvU16                       fec_override_admin_200g_2x;
-    NvBool                      tx_crc_plr_vld;
-    NvBool                      tx_crc_plr_override_to_default;
-    NvBool                      plr_reject_mode_override_to_default;
-    NvU16                       nvlink_fec_override_admin_nvl_phy6;
-    NvU16                       fec_override_admin_800g_4x;
-    NvU16                       fec_override_admin_1600g_8x;
-    NvU16                       fec_override_admin_200g_1x;
-    NvU16                       fec_override_admin_400g_2x;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PPLM_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PPSLC (0x20803055U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PPSLC_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PPSLC_PARAMS_MESSAGE_ID (0x55U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PPSLC_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        lp_msb;
-    NvU8                        local_port;
-    NvBool                      l1_req_en;
-    NvBool                      l1_fw_req_en;
-    NvBool                      l1_cap_adv;
-    NvBool                      l1_fw_cap_adv;
-    NvU32                       hp_queues_bitmap;
-    NvU16                       l1_hw_active_time;
-    NvU16                       l1_hw_inactive_time;
-    NvU8                        qem[8];
-    NvBool                      l0_rx_cap_adv;
-    NvBool                      l0_rx_req_en;
-    NvBool                      l0_tx_cap_adv;
-    NvBool                      l0_tx_req_en;
-    NvBool                      l0_all_queues_are_import;
-    NvU16                       l0_hw_inactive_time;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PPSLC_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MCAM (0x20803056U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MCAM_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MCAM_PARAMS_MESSAGE_ID (0x56U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MCAM_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        access_reg_group;
-    NvU8                        feature_group;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MCAM_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MTECR (0x2080305cU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MTECR_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MTECR_PARAMS_MESSAGE_ID (0x5cU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MTECR_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        slot_index;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MTECR_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MTEWE (0x2080305eU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MTEWE_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MTEWE_PARAMS_MESSAGE_ID (0x5eU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MTEWE_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        slot_index;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MTEWE_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MTSDE (0x2080305fU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MTSDE_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MTSDE_PARAMS_MESSAGE_ID (0x5fU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MTSDE_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        slot_index;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MTSDE_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MTCAP (0x20803061U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MTCAP_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MTCAP_PARAMS_MESSAGE_ID (0x61U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MTCAP_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        slot_index;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MTCAP_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PMTU (0x20803062U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PMTU_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PMTU_PARAMS_MESSAGE_ID (0x62U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PMTU_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvBool                      itre;
-    NvU8                        i_e;
-    NvU8                        lp_msb;
-    NvU8                        local_port;
-    NvU8                        protocol;
-    NvU16                       admin_mtu;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PMTU_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PMLP (0x20803064U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PMLP_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PMLP_PARAMS_MESSAGE_ID (0x64U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PMLP_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        width;
-    NvU8                        plane_ind;
-    NvU8                        lp_msb;
-    NvU8                        local_port;
-    NvBool                      m_lane_m;
-    NvBool                      rxtx;
-    NvBool                      mod_lab_map;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PMLP_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_GHPKT (0x20803065U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_GHPKT_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_GHPKT_PARAMS_MESSAGE_ID (0x65U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_GHPKT_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU16                       trap_id;
-    NvU8                        action;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_GHPKT_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PDDR (0x20803066U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PDDR_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PDDR_PARAMS_MESSAGE_ID (0x66U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PDDR_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        port_type;
-    NvU8                        plane_ind;
-    NvU8                        lp_msb;
-    NvU8                        pnat;
-    NvU8                        local_port;
-    NvU8                        page_select;
-    NvU8                        module_info_ext;
-    NvU8                        module_ind_type;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PDDR_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PPTT (0x20803068U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PPTT_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PPTT_PARAMS_MESSAGE_ID (0x68U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PPTT_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvBool                      le;
-    NvU8                        port_type;
-    NvU8                        lane;
-    NvU8                        lp_msb;
-    NvU8                        pnat;
-    NvU8                        local_port;
-    NvBool                      sw;
-    NvBool                      dm_ig;
-    NvBool                      p;
-    NvBool                      e;
-    NvU8                        modulation;
-    NvU8                        prbs_mode_admin;
-    NvBool                      prbs_fec_admin;
-    NvU16                       lane_rate_admin;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PPTT_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PPCNT (0x20803069U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PPCNT_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PPCNT_PARAMS_MESSAGE_ID (0x69U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PPCNT_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        grp;
-    NvU8                        port_type;
-    NvU8                        lp_msb;
-    NvU8                        pnat;
-    NvU8                        local_port;
-    NvU8                        swid;
-    NvU8                        prio_tc;
-    NvU8                        grp_profile;
-    NvU8                        plane_ind;
-    NvBool                      counters_cap;
-    NvBool                      lp_gl;
-    NvBool                      clr;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PPCNT_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MGIR (0x2080306aU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MGIR_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MGIR_PARAMS_MESSAGE_ID (0x6aU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MGIR_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MGIR_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PPAOS (0x2080306bU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PPAOS_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PPAOS_PARAMS_MESSAGE_ID (0x6bU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PPAOS_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        port_type;
-    NvU8                        phy_test_mode_admin;
-    NvU8                        lp_msb;
-    NvU8                        local_port;
-    NvU8                        swid;
-    NvU8                        plane_ind;
-    NvU8                        phy_status_admin;
-    NvBool                      ee_nmxas;
-    NvU8                        nmxas_e;
-    NvU8                        ps_e_ext;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PPAOS_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PPHCR (0x2080306cU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PPHCR_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PPHCR_PARAMS_MESSAGE_ID (0x6cU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PPHCR_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        plane_ind;
-    NvU8                        port_type;
-    NvU8                        lp_msb;
-    NvU8                        pnat;
-    NvU8                        local_port;
-    NvU8                        hist_type;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PPHCR_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_SLTP (0x2080306dU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_SLTP_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_SLTP_PARAMS_MESSAGE_ID (0x6dU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_SLTP_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvBool                      c_db;
-    NvU8                        port_type;
-    NvU8                        lane_speed;
-    NvU8                        lane;
-    NvBool                      tx_policy;
-    NvU8                        pnat;
-    NvU8                        local_port;
-    NvU8                        lp_msb;
-    NvBool                      conf_mod;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_SLTP_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PGUID (0x2080306eU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PGUID_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PGUID_PARAMS_MESSAGE_ID (0x6eU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PGUID_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        lp_msb;
-    NvU8                        pnat;
-    NvU8                        local_port;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PGUID_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PPRT (0x2080306fU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PPRT_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PPRT_PARAMS_MESSAGE_ID (0x6fU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PPRT_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvBool                      le;
-    NvU8                        port_type;
-    NvU8                        lane;
-    NvU8                        lp_msb;
-    NvU8                        pnat;
-    NvU8                        local_port;
-    NvBool                      sw;
-    NvBool                      dm_ig;
-    NvBool                      p;
-    NvBool                      s;
-    NvBool                      e;
-    NvU8                        modulation;
-    NvU8                        prbs_mode_admin;
-    NvU16                       lane_rate_oper;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PPRT_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PTYS (0x20803070U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PTYS_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PTYS_PARAMS_MESSAGE_ID (0x70U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PTYS_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        proto_mask;
-    NvBool                      transmit_allowed;
-    NvU8                        plane_ind;
-    NvU8                        port_type;
-    NvU8                        lp_msb;
-    NvU8                        local_port;
-    NvU8                        tx_ready_e;
-    NvBool                      ee_tx_ready;
-    NvBool                      an_disable_admin;
-    NvU32                       ext_eth_proto_admin;
-    NvU32                       eth_proto_admin;
-    NvU16                       ib_proto_admin;
-    NvU16                       ib_link_width_admin;
-    NvBool                      xdr_2x_slow_admin;
-    NvU8                        force_lt_frames_admin;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PTYS_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_SLRG (0x20803071U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_SLRG_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_SLRG_PARAMS_MESSAGE_ID (0x71U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_SLRG_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        port_type;
-    NvU8                        lane;
-    NvU8                        lp_msb;
-    NvU8                        pnat;
-    NvU8                        local_port;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_SLRG_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PMAOS (0x20803072U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PMAOS_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PMAOS_PARAMS_MESSAGE_ID (0x72U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PMAOS_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        admin_status;
-    NvU8                        module;
-    NvU8                        slot_index;
-    NvBool                      rst;
-    NvU8                        e;
-    NvBool                      ee;
-    NvBool                      ase;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PMAOS_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PPLR (0x20803073U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PPLR_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PPLR_PARAMS_MESSAGE_ID (0x73U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PPLR_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        plane_ind;
-    NvU8                        port_type;
-    NvBool                      op_mod;
-    NvBool                      apply_im;
-    NvU8                        lp_msb;
-    NvU8                        local_port;
-    NvU16                       lb_en;
-    NvBool                      lb_cap_mode_idx;
-    NvBool                      lb_link_mode_idx;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PPLR_PARAMS;
-
 #define NV2080_CTRL_CMD_NVLINK_GET_SUPPORTED_COUNTERS (0x20803074U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_GET_SUPPORTED_COUNTERS_PARAMS_MESSAGE_ID" */
 #define NV2080_CTRL_NVLINK_GET_SUPPORTED_COUNTERS_PARAMS_MESSAGE_ID (0x74U)
 
 typedef struct NV2080_CTRL_NVLINK_GET_SUPPORTED_COUNTERS_PARAMS {
     NV_DECLARE_ALIGNED(NvU64 counterMask[NV2080_CTRL_NVLINK_COUNTER_MAX_GROUPS], 8);
 } NV2080_CTRL_NVLINK_GET_SUPPORTED_COUNTERS_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MORD (0x20803075U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MORD_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MORD_PARAMS_MESSAGE_ID (0x75U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MORD_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU16                       segment_type;
-    NvU8                        seq_num;
-    NvBool                      vhca_id_valid;
-    NvBool                      inline_dump;
-    NvU16                       vhca_id;
-    NvU32                       index1;
-    NvU32                       index2;
-    NvU16                       num_of_obj2;
-    NvU16                       num_of_obj1;
-    NV_DECLARE_ALIGNED(NvU64 device_opaque, 8);
-    NvU32                       mkey;
-    NV_DECLARE_ALIGNED(NvU64 address, 8);
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MORD_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MTRC_CAP (0x20803076U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MTRC_CAP_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MTRC_CAP_PARAMS_MESSAGE_ID (0x76U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MTRC_CAP_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvBool                      trace_owner;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MTRC_CAP_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MTRC_CONF (0x20803077U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MTRC_CONF_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MTRC_CONF_PARAMS_MESSAGE_ID (0x77U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MTRC_CONF_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        trace_mode;
-    NvU8                        log_trace_buffer_size;
-    NvU8                        trace_mkey;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MTRC_CONF_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MTRC_CTRL (0x20803078U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MTRC_CTRL_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MTRC_CTRL_PARAMS_MESSAGE_ID (0x78U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MTRC_CTRL_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU16                       modify_field_select;
-    NvBool                      arm_event;
-    NvU8                        trace_status;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MTRC_CTRL_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MTEIM (0x20803079U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MTEIM_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MTEIM_PARAMS_MESSAGE_ID (0x79U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MTEIM_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MTEIM_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MTIE (0x2080307aU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MTIE_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MTIE_PARAMS_MESSAGE_ID (0x7aU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MTIE_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        enable_all;
-    NvU8                        log_delay;
-    NvU32                       source_id_bitmask[8];
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MTIE_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MTIM (0x2080307bU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MTIM_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MTIM_PARAMS_MESSAGE_ID (0x7bU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MTIM_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        log_level;
-    NvU32                       log_bit_mask;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MTIM_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MPSCR (0x2080307cU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MPSCR_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MPSCR_PARAMS_MESSAGE_ID (0x7cU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MPSCR_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        warning_inactive_time;
-    NvU8                        warning_active_time;
-    NvU8                        critical_inactive_time;
-    NvU8                        critical_active_time;
-    NvBool                      cc;
-    NvBool                      l0_all_queues_are_import;
-    NvBool                      ge;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MPSCR_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MTSR (0x2080307dU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MTSR_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MTSR_PARAMS_MESSAGE_ID (0x7dU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MTSR_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MTSR_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PPSLS (0x2080307eU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PPSLS_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PPSLS_PARAMS_MESSAGE_ID (0x7eU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PPSLS_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        lp_msb;
-    NvU8                        local_port;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PPSLS_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MLPC (0x2080307fU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MLPC_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MLPC_PARAMS_MESSAGE_ID (0x7fU)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MLPC_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        lp_msb;
-    NvU8                        local_port;
-    NvU8                        cnt_64bit;
-    NvBool                      stop_at_ff;
-    NvBool                      counter_rst;
-    NvBool                      counter_en;
-    NvU8                        force_count_mask;
-    NvU8                        cnt_type[8];
-    NvU8                        cnt_val[8];
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MLPC_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PLIB (0x20803080U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PLIB_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PLIB_PARAMS_MESSAGE_ID (0x80U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PLIB_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU16                       ib_port;
-    NvU8                        lp_msb;
-    NvU8                        local_port;
-    NvU8                        split_num;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PLIB_PARAMS;
-
 /*
  * NV2080_CTRL_NVLINK_GET_PLATFORM_INFO_PARAMS
  *
@@ -3230,6 +2658,8 @@ typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PLIB_PARAMS {
  *     Platform indicated NVLink-peer type (e.g. switch present or not)
  *   moduleId
  *     ID of this GPU within the node
+ *   nvlinkSignalingProtocol  // Deprecated
+ *     signaling protocol used for this platform
  */
 
 #define NV2080_CTRL_CMD_NVLINK_GET_PLATFORM_INFO (0x20803083U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_GET_PLATFORM_INFO_PARAMS_MESSAGE_ID" */
@@ -3245,9 +2675,8 @@ typedef struct NV2080_CTRL_NVLINK_GET_PLATFORM_INFO_PARAMS {
     NvU8 peerType;
     NvU8 moduleId;
     NvU8 nvlinkSignalingProtocol;
+    NvU8 linksPerSpigot;
 } NV2080_CTRL_NVLINK_GET_PLATFORM_INFO_PARAMS;
-
-
 
 /*
  * Structure to store UPHY cmd data.
@@ -3272,7 +2701,7 @@ typedef struct NV2080_CTRL_NVLINK_UPHY_CLN_CMD {
  * [in] links
  *     Mask of links whose uphy should be read
  * [in] uphyCmd
- *     Array of input data (pll index and address) for each link, 
+ *     Array of input data (pll index and address) for each link,
  *      where index 0 represents link 0's pll index
  *      and index 16 represents link 16's pll index.
  * [out] data
@@ -3326,8 +2755,8 @@ typedef struct NV2080_CTRL_NVLINK_READ_UPHY_CLN_REG_PARAMS {
 #define NV2080_CTRL_NVLINK_GET_SUPPORTED_BW_MODE_PARAMS_MESSAGE_ID (0x85U)
 
 typedef struct NV2080_CTRL_NVLINK_GET_SUPPORTED_BW_MODE_PARAMS {
-    NvU8 rbmModesList[NV2080_CTRL_NVLINK_SUPPORTED_MAX_BW_MODE_COUNT];
-    NvU8 rbmTotalModes;
+    NvU16 rbmModesList[NV2080_CTRL_NVLINK_SUPPORTED_MAX_BW_MODE_COUNT];
+    NvU8  rbmTotalModes;
 } NV2080_CTRL_NVLINK_GET_SUPPORTED_BW_MODE_PARAMS;
 
 /*
@@ -3353,7 +2782,7 @@ typedef struct NV2080_CTRL_NVLINK_GET_SUPPORTED_BW_MODE_PARAMS {
 #define NV2080_CTRL_NVLINK_SET_BW_MODE_PARAMS_MESSAGE_ID (0x86U)
 
 typedef struct NV2080_CTRL_NVLINK_SET_BW_MODE_PARAMS {
-    NvU8 rbmMode;
+    NvU16 rbmMode;
 } NV2080_CTRL_NVLINK_SET_BW_MODE_PARAMS;
 
 /*
@@ -3378,7 +2807,7 @@ typedef struct NV2080_CTRL_NVLINK_SET_BW_MODE_PARAMS {
 #define NV2080_CTRL_NVLINK_GET_BW_MODE_PARAMS_MESSAGE_ID (0x87U)
 
 typedef struct NV2080_CTRL_NVLINK_GET_BW_MODE_PARAMS {
-    NvU8 rbmMode;
+    NvU16 rbmMode;
 } NV2080_CTRL_NVLINK_GET_BW_MODE_PARAMS;
 
 /*
@@ -3441,6 +2870,10 @@ typedef enum NV2080_CTRL_NVLINK_INJECT_SW_ERROR_SEVERITY {
     NV2080_CTRL_NVLINK_INJECT_SW_ERROR_SEVERITY_MSE_ECC_INJECT_TLW_FATAL = 20,
     NV2080_CTRL_NVLINK_INJECT_SW_ERROR_SEVERITY_MSE_GIN_SAW_MVB_FATAL = 21,
     NV2080_CTRL_NVLINK_INJECT_SW_ERROR_SEVERITY_MAX = 22,
+    NV2080_CTRL_NVLINK_INJECT_SW_ERROR_SEVERITY_MSE_GIN_MVB_NON_FATAL = 23,
+    NV2080_CTRL_NVLINK_INJECT_SW_ERROR_SEVERITY_MSE_GIN_MVB_FATAL = 24,
+    NV2080_CTRL_NVLINK_INJECT_SW_ERROR_SEVERITY_MSE_ECC_INJECT_MVB_NON_FATAL = 25,
+    NV2080_CTRL_NVLINK_INJECT_SW_ERROR_SEVERITY_MSE_ECC_INJECT_MVB_FATAL = 26,
 } NV2080_CTRL_NVLINK_INJECT_SW_ERROR_SEVERITY;
 
 #define NV2080_CTRL_NVLINK_INJECT_SW_ERROR_PARAMS_MESSAGE_ID (0x89U)
@@ -3476,25 +2909,62 @@ typedef struct NV2080_CTRL_NVLINK_UPDATE_NVLE_TOPOLOGY_PARAMS {
 } NV2080_CTRL_NVLINK_UPDATE_NVLE_TOPOLOGY_PARAMS;
 
 /*
- * NV2080_CTRL_NVLINK_GET_NVLE_LIDS
+ * Structure to store the NVLE ALID and the corresponding mapped CLID
  *
- *  This command is used to get the alid and clid of a GPU from the remap table.
- *
- *  [in] probeClid
- *      CLID from probe response
- *  [out] clid
- *      CLID of GPU from remap table
- *  [out] alid
- *      ALID of gpu
+ *  [in] alid
+ *      Represents the ALID
+ *  [in] clid
+ *      Represents the corresponding CLID
  */
-#define NV2080_CTRL_NVLINK_GET_NVLE_LIDS (0x2080308dU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_GET_NVLE_LIDS_PARAMS_MESSAGE_ID" */
-#define NV2080_CTRL_NVLINK_GET_NVLE_LIDS_PARAMS_MESSAGE_ID (0x8dU)
-
-typedef struct NV2080_CTRL_NVLINK_GET_NVLE_LIDS_PARAMS {
-    NvU32 probeClid;
-    NvU32 clid;
+typedef struct NV2080_CTRL_NVLINK_NVLE_ALID_CLID_MAP {
     NvU32 alid;
-} NV2080_CTRL_NVLINK_GET_NVLE_LIDS_PARAMS;
+    NvU32 clid;
+} NV2080_CTRL_NVLINK_NVLE_ALID_CLID_MAP;
+
+#define NV2080_CTRL_NVLINK_MAX_REMAP_TABLE_ENTRIES 32U
+
+/*
+ * Structure to store the NVLE ALID-CLID maps
+ *
+ *  [in] alidClidMap
+ *      Array of NV2080_CTRL_NVLINK_NVLE_ALID_CLID_MAP
+ *  [in] numEntries
+ *      Represents the number of entries in the ALID-CLID table
+ */
+typedef struct NV2080_CTRL_NVLINK_NVLE_ALID_CLID_TABLE {
+    NV2080_CTRL_NVLINK_NVLE_ALID_CLID_MAP alidClidMap[NV2080_CTRL_NVLINK_MAX_REMAP_TABLE_ENTRIES];
+    NvU32                                 numEntries;
+} NV2080_CTRL_NVLINK_NVLE_ALID_CLID_TABLE;
+
+/*
+ * NV2080_CTRL_NVLINK_GET_UPDATE_NVLE_LIDS
+ *
+ *  This command is used for the following operations.
+ *    If getting the LID information, the command gets the ALID and CLID of the GPU.
+ *    If setting the LID information, the command passes the complete ALID-CLID map.
+ *    The also command returns the status of whether the CLIDs are updated in the remap tables.
+ *
+ *  [in] bGet
+ *      Whether to get the ALIDs or set the CLIDs in the remap table or update the LIDs in the remap tables
+ *  [out] alid
+ *      ALID of the given GPU
+ *  [out] clid
+ *      CLID of the given GPU
+ *  [in] alidClidTable
+ *      Table with the ALIDs and corresponding mapped CLIDs
+ *  [out] bClidUpdated
+ *      Whether CLIDs have been updated in the FLA and GPA remap tables
+ */
+#define NV2080_CTRL_NVLINK_GET_UPDATE_NVLE_LIDS (0x2080308dU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_GET_UPDATE_NVLE_LIDS_PARAMS_MESSAGE_ID" */
+#define NV2080_CTRL_NVLINK_GET_UPDATE_NVLE_LIDS_PARAMS_MESSAGE_ID (0x8dU)
+
+typedef struct NV2080_CTRL_NVLINK_GET_UPDATE_NVLE_LIDS_PARAMS {
+    NvBool                                  bGet;
+    NvU32                                   alid;
+    NvU32                                   clid;
+    NV2080_CTRL_NVLINK_NVLE_ALID_CLID_TABLE alidClidTable;
+    NvBool                                  bClidUpdated;
+} NV2080_CTRL_NVLINK_GET_UPDATE_NVLE_LIDS_PARAMS;
 
 /*
  * NV2080_CTRL_CMD_NVLINK_POST_LAZY_ERROR_RECOVERY
@@ -3558,8 +3028,10 @@ typedef struct NV2080_CTRL_NVLINK_GET_L1_TOGGLE_PARAMS {
  *
  *  This command is used to get the ENCRYPT_EN register info
  *
- *  [out] bEncyptEnSet
- *      Boolean that shows if ENCRYPT_EN is enabled or not.
+ *  [out] bMmuNvlinkEncryptEn
+ *      Boolean that shows if ENCRYPTION_ENABLED bit in MMU is enabled or not.
+ *  [out] bNvlinkTlwEncryptEn
+ *      Boolean that shows if ENCRYPT_EN bit in NVLPLW TLW is enabled or not.
  */
 
 #define NV2080_CTRL_CMD_NVLINK_GET_NVLE_ENCRYPT_EN_INFO (0x2080308bU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_GET_NVLE_ENCRYPT_EN_INFO_PARAMS_MESSAGE_ID" */
@@ -3567,23 +3039,9 @@ typedef struct NV2080_CTRL_NVLINK_GET_L1_TOGGLE_PARAMS {
 #define NV2080_CTRL_NVLINK_GET_NVLE_ENCRYPT_EN_INFO_PARAMS_MESSAGE_ID (0x8bU)
 
 typedef struct NV2080_CTRL_NVLINK_GET_NVLE_ENCRYPT_EN_INFO_PARAMS {
-    NvBool bEncryptEnSet;
+    NvBool bMmuNvlinkEncryptEn;
+    NvBool bNvlinkTlwEncryptEn;
 } NV2080_CTRL_NVLINK_GET_NVLE_ENCRYPT_EN_INFO_PARAMS;
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MCSR_DATA_SIZE (0x10U)
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_MCSR       (0x20803090U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_MCSR_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_MCSR_PARAMS_MESSAGE_ID (0x90U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_MCSR_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU32                       base_address;
-    NvU16                       num_addresses;
-    NvU32                       data[NV2080_CTRL_NVLINK_PRM_ACCESS_MCSR_DATA_SIZE];
-} NV2080_CTRL_NVLINK_PRM_ACCESS_MCSR_PARAMS;
-
 
 /*
  * NV2080_CTRL_NVLINK_GET_FIRMWARE_VERSION_INFO
@@ -3639,47 +3097,6 @@ typedef struct NV2080_CTRL_NVLINK_SET_NVLE_ENABLED_STATE_PARAMS {
     NvBool bIsNvleEnabled;
 } NV2080_CTRL_NVLINK_SET_NVLE_ENABLED_STATE_PARAMS;
 
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PTASV2 (0x20803093U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PTASV2_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PTASV2_PARAMS_MESSAGE_ID (0x93U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PTASV2_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        lp_msb;
-    NvU8                        pnat;
-    NvU8                        local_port;
-    NvU8                        xdr_lt_c2c_en;
-    NvU8                        xdr_lt_c2m_en;
-    NvU8                        kr_ext_req;
-    NvU8                        lt_ext_neg_type;
-    NvU8                        lt_ext_timeout_admin;
-    NvU8                        prbs_type_admin;
-    NvBool                      ber_cnt_mlsd_dis;
-    NvU8                        num_of_iter_admin;
-    NvU16                       iter_time_admin;
-    NvU8                        ber_target_coef_admin;
-    NvU8                        ber_target_magnitude_admin;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PTASV2_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_SLLM_5NM (0x20803094U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_SLLM_5NM_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_SLLM_5NM_PARAMS_MESSAGE_ID (0x94U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_SLLM_5NM_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvBool                      c_db;
-    NvBool                      br_lanes;
-    NvU8                        port_type;
-    NvU8                        lane;
-    NvU8                        lp_msb;
-    NvU8                        pnat;
-    NvU8                        local_port;
-    NvBool                      peq_cap;
-    NvU16                       peq_interval_period;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_SLLM_5NM_PARAMS;
-
 #define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS (0x20803095U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PARAMS_MESSAGE_ID" */
 
 #define NV2080_CTRL_NVLINK_PRM_ACCESS_PARAMS_MESSAGE_ID (0x95U)
@@ -3687,32 +3104,6 @@ typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_SLLM_5NM_PARAMS {
 typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PARAMS {
     NV2080_CTRL_NVLINK_PRM_DATA prm;
 } NV2080_CTRL_NVLINK_PRM_ACCESS_PARAMS;
-
-#define NV2080_CTRL_CMD_NVLINK_PRM_ACCESS_PPRM (0x20803096U) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_PRM_ACCESS_PPRM_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_NVLINK_PRM_ACCESS_PPRM_PARAMS_MESSAGE_ID (0x96U)
-
-typedef struct NV2080_CTRL_NVLINK_PRM_ACCESS_PPRM_PARAMS {
-    NvBool                      bWrite;
-    NV2080_CTRL_NVLINK_PRM_DATA prm;
-    NvU8                        ovrd_no_neg_bhvr;
-    NvU8                        plane_ind;
-    NvU8                        lp_msb;
-    NvU8                        pnat;
-    NvU8                        local_port;
-    NvU8                        no_neg_bhvr;
-    NvU8                        wd_logic_re_lock_res;
-    NvU8                        module_datapath_full_toggle;
-    NvU8                        module_tx_disable;
-    NvU8                        host_serdes_feq;
-    NvU8                        host_logic_re_lock;
-    NvU16                       link_down_timeout;
-    NvU8                        draining_timeout;
-    NvU8                        wd_module_full_toggle;
-    NvU8                        wd_module_tx_disable;
-    NvU8                        wd_host_serdes_feq;
-    NvU8                        wd_host_logic_re_lock;
-} NV2080_CTRL_NVLINK_PRM_ACCESS_PPRM_PARAMS;
 
 #define NV2080_CTRL_NVLINK_FIXED_POINT_HISTOGRAM_MAX_SIZE 32U
 
@@ -3814,6 +3205,92 @@ typedef struct NV2080_CTRL_NVLINK_GET_LINK_RECORD_METRIC_DATA_PARAMS {
 typedef struct NV2080_CTRL_NVLINK_GET_DEVICE_RECORD_METRIC_DATA_PARAMS {
     NV2080_CTRL_NVLINK_PRM_DATA MFDE;
 } NV2080_CTRL_NVLINK_GET_DEVICE_RECORD_METRIC_DATA_PARAMS;
+
+
+/*
+ * NV2080_CTRL_NVLINK_SAVE_NODE_HOSTNAME
+ * NV2080_CTRL_NVLINK_GET_SAVED_NODE_HOSTNAME
+ *
+ * These commands store/retrieve a 64 char null-terminated ASCII string which is
+ * treated by the NVLINK firmware as the node's hostname for fabric reporting
+ * purposes.
+ */
+typedef struct NV2080_CTRL_NVLINK_NODE_HOSTNAME {
+    NvU8 name[64];
+} NV2080_CTRL_NVLINK_NODE_HOSTNAME;
+
+#define NV2080_CTRL_NVLINK_SAVE_NODE_HOSTNAME_PARAMS_MESSAGE_ID (0x9AU)
+
+typedef struct NV2080_CTRL_NVLINK_SAVE_NODE_HOSTNAME_PARAMS {
+    NV2080_CTRL_NVLINK_NODE_HOSTNAME hostname;
+} NV2080_CTRL_NVLINK_SAVE_NODE_HOSTNAME_PARAMS;
+#define NV2080_CTRL_CMD_NVLINK_SAVE_NODE_HOSTNAME (0x2080309aU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_SAVE_NODE_HOSTNAME_PARAMS_MESSAGE_ID" */
+
+#define NV2080_CTRL_NVLINK_GET_SAVED_NODE_HOSTNAME_PARAMS_MESSAGE_ID (0x9BU)
+
+typedef struct NV2080_CTRL_NVLINK_GET_SAVED_NODE_HOSTNAME_PARAMS {
+    NV2080_CTRL_NVLINK_NODE_HOSTNAME hostname;
+} NV2080_CTRL_NVLINK_GET_SAVED_NODE_HOSTNAME_PARAMS;
+#define NV2080_CTRL_CMD_NVLINK_GET_SAVED_NODE_HOSTNAME (0x2080309bU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_GET_SAVED_NODE_HOSTNAME_PARAMS_MESSAGE_ID" */
+
+/*
+ * NV2080_CTRL_CMD_NVLINK_UPDATE_CLID
+ *
+ * Update the NVLE CLID
+ */
+#define NV2080_CTRL_NVLINK_UPDATE_CLID_PARAMS_MESSAGE_ID (0x9CU)
+
+typedef struct NV2080_CTRL_NVLINK_UPDATE_CLID_PARAMS {
+    NvU32 clid;
+} NV2080_CTRL_NVLINK_UPDATE_CLID_PARAMS;
+
+#define NV2080_CTRL_CMD_NVLINK_UPDATE_CLID (0x2080309cU) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_UPDATE_CLID_PARAMS_MESSAGE_ID" */
+
+/*
+ * NV2080_CTRL_CMD_NVLINK_LOCK_REMAP_TABLE_AND_MSE
+ *
+ * Request to lock the remap table to prevent MSE from making any further updates to the remap table for the given links
+ *
+ *  linkMask [IN]
+ *      NVLINK mask
+ *
+ *  bRemapTableMseLocked [OUT]
+ *      Whether remap table of the GPU is locked
+ *
+ *  bRemapTableLockDisabled [OUT]
+ *      Whether locking of remap table is disabled
+ */
+#define NV2080_CTRL_NVLINK_LOCK_REMAP_TABLE_AND_MSE_PARAMS_MESSAGE_ID (0x9DU)
+
+typedef struct NV2080_CTRL_NVLINK_LOCK_REMAP_TABLE_AND_MSE_PARAMS {
+    NV_DECLARE_ALIGNED(NvU64 linkMask, 8);
+    NvBool bRemapTableMseLocked;
+    NvBool bRemapTableLockDisabled;
+} NV2080_CTRL_NVLINK_LOCK_REMAP_TABLE_AND_MSE_PARAMS;
+
+#define NV2080_CTRL_CMD_NVLINK_LOCK_REMAP_TABLE_AND_MSE (0x2080309d) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_LOCK_REMAP_TABLE_AND_MSE_PARAMS_MESSAGE_ID" */
+
+/*
+ * NV2080_CTRL_CMD_NVLINK_GET_REMAP_TABLE_INFO
+ *
+ * Return the remap table addrs for all the entries in the FLA and SPA/GPA rempa tables
+ *
+ *  [out] flaRemapTabAddr
+ *      FLA remap table addrs for all the remap table entries
+ *  [out] gpaRemapTabAddr
+ *      SPA/GPA remap table addrs for all the remap table entries
+ *  [out] remapTabSize
+ *      Number of entries in the remap tables 
+ */
+#define NV2080_CTRL_NVLINK_GET_REMAP_TABLE_INFO_PARAMS_MESSAGE_ID (0x9EU)
+
+typedef struct NV2080_CTRL_NVLINK_GET_REMAP_TABLE_INFO_PARAMS {
+    NvU32 flaRemapTabAddr[NV_MAX_DEVICES];
+    NvU32 gpaRemapTabAddr[NV_MAX_DEVICES];
+    NvU32 remapTabSize;
+} NV2080_CTRL_NVLINK_GET_REMAP_TABLE_INFO_PARAMS;
+
+#define NV2080_CTRL_CMD_NVLINK_GET_REMAP_TABLE_INFO (0x2080309e) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_NVLINK_INTERFACE_ID << 8) | NV2080_CTRL_NVLINK_GET_REMAP_TABLE_INFO_PARAMS_MESSAGE_ID" */
 
 
 /* _ctrl2080nvlink_h_ */

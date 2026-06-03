@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -234,7 +234,3 @@ stdmemQueryPageSize
                                    pAllocData->format, pAllocData->flags, &retAttr, &retAttr2);
 }
 
-NvU64 stdmemGetSysmemPageSize_IMPL(OBJGPU * pGpu, StandardMemory *pStdMemory)
-{
-    return GPU_GET_MEMORY_MANAGER(pGpu)->sysmemPageSize;
-}

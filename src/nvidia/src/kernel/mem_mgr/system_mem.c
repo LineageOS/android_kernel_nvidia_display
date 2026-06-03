@@ -24,7 +24,6 @@
 #include "mem_mgr/system_mem.h"
 #include "vgpu/rpc.h"
 #include "gpu/mem_mgr/mem_desc.h"
-#include "gpu/disp/kern_disp.h"
 #include "gpu/mem_mgr/mem_mgr.h"
 #include "core/locks.h"
 #include "os/os.h"
@@ -37,14 +36,14 @@
 #include "class/cl003e.h" // NV01_MEMORY_SYSTEM
 
 static NvU64
-_sysmemGetNextSmallerPageSize
+_sysmemGetNextSmallestPageSize
 (
     OBJGPU *pGpu,
     NvU32  *pAttr,
     NvU32  *pAttr2
 )
 {
-    NvU64 pageSize = 0ULL;
+    NvU64 pageSize;
     NvU64 nextPageSize;
 
     switch (DRF_VAL(OS32, _ATTR, _PAGE_SIZE, *pAttr))
@@ -67,6 +66,9 @@ _sysmemGetNextSmallerPageSize
                     break;
                 case NVOS32_ATTR2_PAGE_SIZE_HUGE_256GB:
                     pageSize = RM_PAGE_SIZE_256G;
+                    break;
+                default:
+                    NV_ASSERT_OR_RETURN(0, 0);
             }
             break;
         default:
@@ -154,13 +156,11 @@ sysmemConstruct_IMPL
     MEMORY_DESCRIPTOR *pMemDesc;
     NvU32 flags;
     RM_ATTR_PAGE_SIZE pageSizeAttr;
-    NvBool bLastAttempt = NV_TRUE;
-
-    pGpu->bAPageSizeAllocRetryEnabled = NV_FALSE;
+    NvBool bRetry = NV_FALSE;
 
     NV_ASSERT_OR_RETURN(pRmClient != NULL, NV_ERR_INVALID_CLIENT);
 
-    if (RMCFG_FEATURE_PLATFORM_GSP && !pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB))
+    if (RMCFG_FEATURE_PLATFORM_GSP && !pGpu->pGpuArch->bGpuArchIsZeroFb)
     {
         NV_ASSERT_FAILED("System memory can't be allocated on GSP without 0FB");
         return NV_ERR_NOT_SUPPORTED;
@@ -192,7 +192,6 @@ sysmemConstruct_IMPL
 
     // Unsure if we need to keep separate copies, but keeping old behavior for now.
     sizeOut = pAllocData->size;
-    offsetOut = pAllocData->offset;
 
     {
     }
@@ -205,12 +204,12 @@ sysmemConstruct_IMPL
     if (FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _DEFAULT, pAllocData->attr) &&
         (GPU_GET_MEMORY_MANAGER(pGpu)->bSysmemPageSizeDefaultAllowLargePages))
     {
-        pGpu->bAPageSizeAllocRetryEnabled = NV_TRUE;
-        bLastAttempt = NV_FALSE;
+        bRetry = NV_TRUE;
     }
 
     do
     {
+
         NV_CHECK_OK_OR_RETURN(LEVEL_INFO,
             sysmemInitAllocRequest(pGpu, pSystemMemory, pAllocRequest));
 
@@ -250,8 +249,6 @@ sysmemConstruct_IMPL
         if (FLD_TEST_DRF(OS32, _ATTR2, _NISO_DISPLAY, _YES, pAllocData->attr2))
             memdescSetFlag(pMemDesc, MEMDESC_FLAGS_MEMORY_TYPE_DISPLAY_NISO, NV_TRUE);
 
-        memdescSetFlag(pMemDesc, MEMDESC_FLAGS_ALLOC_NO_RECLAIM, !bLastAttempt);
-
         memdescSetFlag(pMemDesc, MEMDESC_FLAGS_SYSMEM_OWNED_BY_CLIENT, NV_TRUE);
 
         if (FLD_TEST_DRF(OS32, _ATTR2, _FIXED_NUMA_NODE_ID, _YES, pAllocData->attr2))
@@ -278,28 +275,19 @@ sysmemConstruct_IMPL
         memdescTagAlloc(rmStatus, NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_132, pMemDesc);
         if (rmStatus != NV_OK)
         {
-            if (pGpu->bAPageSizeAllocRetryEnabled)
+            if (bRetry)
             {
                 NvU64 pageSize;
-                pageSize = _sysmemGetNextSmallerPageSize(pGpu, &pAllocData->attr, &pAllocData->attr2);
+                pageSize = _sysmemGetNextSmallestPageSize(pGpu, &pAllocData->attr, &pAllocData->attr2);
                 if (pageSize == 0)
                 {
-                    NV_CHECK_OR_GOTO(LEVEL_ERROR, !bLastAttempt, failed_destroy_memdesc);
-                    bLastAttempt = NV_TRUE;
-                    NV_PRINTF(LEVEL_INFO,
-                        "Sysmem alloc failed at 4K page size, retrying with reclamation enabled.\n");
-                }
-                else
-                {
-                    NV_PRINTF(LEVEL_INFO,
-                        "Sysmem alloc failed, retrying with page size 0x%llx.\n", pageSize);
+                    NV_CHECK_OK_OR_GOTO(rmStatus, LEVEL_ERROR, rmStatus, failed_destroy_memdesc);
                 }
                 NV_PRINTF(LEVEL_INFO, "Sysmem alloc failed, retrying with page size 0x%llx.\n", pageSize);
 
                 // Freeing memdescs to avoid leaks on retry.
                 memdescFree(pMemDesc);
                 memdescDestroy(pMemDesc);
-
                 pAllocRequest->pMemDesc = pMemDesc = NULL;
             }
             else
@@ -310,10 +298,12 @@ sysmemConstruct_IMPL
         else
         {
             // Got a valid allocation, set retry to false.
-            pGpu->bAPageSizeAllocRetryEnabled = NV_FALSE;
+            bRetry = NV_FALSE;
         }
-    } while (pGpu->bAPageSizeAllocRetryEnabled);
-    pGpu->bAPageSizeAllocRetryEnabled = NV_FALSE;
+    } while (bRetry);
+
+    offsetOut = 0;
+
 
     // ClientDB can set the pagesize for memdesc.
     // With GPU SMMU mapping, this needs to be set on the SMMU memdesc.
@@ -348,9 +338,7 @@ sysmemConstruct_IMPL
         }
         else if (RMCFG_FEATURE_MODS_FEATURES)
         {
-            StandardMemory *pStdMemory = staticCast(pSystemMemory, StandardMemory);
-
-            if (stdmemGetSysmemPageSize_HAL(pGpu, pStdMemory) > RM_PAGE_SIZE)
+            if (osGetPageSize() > RM_PAGE_SIZE)
             {
                 bLargePageNonContigAllocSupported = NV_TRUE;
             }
@@ -605,6 +593,10 @@ sysmemInitAllocRequest_HMM
     FB_ALLOC_INFO               *pFbAllocInfo       = NULL;
     FB_ALLOC_PAGE_FORMAT        *pFbAllocPageFormat = NULL;
     NV_STATUS                    status             = NV_OK;
+    RsResourceRef               *pDeviceRef;
+
+    NV_ASSERT_OK_OR_RETURN(
+        refFindAncestorOfType(RES_GET_REF(pSystemMemory), classId(Device), &pDeviceRef));
 
     pFbAllocInfo = portMemAllocNonPaged(sizeof(FB_ALLOC_INFO));
     NV_ASSERT_TRUE_OR_GOTO(status, pFbAllocInfo != NULL, NV_ERR_NO_MEMORY, done);
@@ -616,13 +608,13 @@ sysmemInitAllocRequest_HMM
     portMemSet(pFbAllocPageFormat, 0, sizeof(FB_ALLOC_PAGE_FORMAT));
     pFbAllocInfo->pageFormat = pFbAllocPageFormat;
 
-    memUtilsInitFBAllocInfo(pAllocRequest->pUserParams, pFbAllocInfo, pAllocRequest->hClient, pAllocRequest->hParent);
+    memUtilsInitFBAllocInfo(pAllocRequest->pUserParams, pFbAllocInfo, pAllocRequest->hClient, pDeviceRef->hResource);
 
-    NV_ASSERT_OK_OR_GOTO(status,
+    NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
         memmgrAllocResources(pGpu, pMemoryManager, pAllocRequest, pFbAllocInfo),
         done);
 
-    NV_ASSERT_OK_OR_GOTO(status,
+    NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
         sysmemAllocResources(pGpu, pMemoryManager, pAllocRequest, pFbAllocInfo, pSystemMemory),
         done);
 
@@ -659,7 +651,7 @@ sysmemAllocResources
     {
         if ((FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _BIG, pVidHeapAlloc->attr) ||
              FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _HUGE, pVidHeapAlloc->attr)) &&
-            (stdmemGetSysmemPageSize_HAL(pGpu, staticCast(pSystemMemory, StandardMemory)) == RM_PAGE_SIZE))
+            (osGetPageSize() == RM_PAGE_SIZE))
         {
             bContig = NV_TRUE;
         }
@@ -746,30 +738,3 @@ failed:
     return status;
 }
 
-void sysmemDestruct_IMPL(SystemMemory *pSystemMemory)
-{
-    Memory             *pMemory  = staticCast(pSystemMemory, Memory);
-    NvHandle            hClient  = RES_GET_CLIENT_HANDLE(pMemory);
-    NvHandle            hParent  = RES_GET_PARENT_HANDLE(pMemory);
-    NvHandle            hMemory  = RES_GET_HANDLE(pMemory);
-    MEMORY_DESCRIPTOR  *pMemDesc = pMemory->pMemDesc;
-    OBJGPU             *pGpu     = pMemDesc->pGpu;
-
-    if (pMemDesc == NULL || pMemDesc->DupCount > 1)
-        return;
-
-    memDestructCommon(pMemory);
-
-    memdescFree(pMemDesc);
-
-    memdescDestroy(pMemDesc);
-
-    // if the allocation is RPC-ed, free using RPC
-    if (pMemory->bRpcAlloc && (IS_VIRTUAL(pGpu) || IS_FW_CLIENT(pGpu)))
-    {
-        NV_STATUS status = NV_OK;
-
-        NV_RM_RPC_FREE(pGpu, hClient, hParent, hMemory, status);
-        NV_ASSERT((status == NV_OK) || (status == NV_ERR_GPU_IN_FULLCHIP_RESET));
-    }
-}

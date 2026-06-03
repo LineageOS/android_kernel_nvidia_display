@@ -113,10 +113,10 @@ typedef rpc_display_modeset_v01_00 rpc_display_modeset_v;
 typedef struct rpc_dce_rm_init_v01_00
 {
     NvBool     bInit;
+    NvU32      hInternalClient;
     NvU32      maxDispClkRateDisppll;
     NvU32      maxDispClkRateSppllClkouta;
     NvU32      maxHubClkRateSppllClkoutb;
-    NvU32      hInternalClient;
 } rpc_dce_rm_init_v01_00;
 
 typedef rpc_dce_rm_init_v01_00 rpc_dce_rm_init_v;

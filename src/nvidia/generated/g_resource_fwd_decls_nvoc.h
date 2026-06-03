@@ -50,252 +50,157 @@ extern "C" {
 #include "rmconfig.h"
 
 // Base classes
-
 struct ChannelDescendant;
 
-#ifndef __NVOC_CLASS_ChannelDescendant_TYPEDEF__
-#define __NVOC_CLASS_ChannelDescendant_TYPEDEF__
-typedef struct ChannelDescendant ChannelDescendant;
-#endif /* __NVOC_CLASS_ChannelDescendant_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_ChannelDescendant
-#define __nvoc_class_id_ChannelDescendant 0x43d7c4
+#define __nvoc_class_id_ChannelDescendant 0x43d7c4u
+typedef struct ChannelDescendant ChannelDescendant;
 #endif /* __nvoc_class_id_ChannelDescendant */
-
 
 
 struct DispChannel;
 
-#ifndef __NVOC_CLASS_DispChannel_TYPEDEF__
-#define __NVOC_CLASS_DispChannel_TYPEDEF__
-typedef struct DispChannel DispChannel;
-#endif /* __NVOC_CLASS_DispChannel_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_DispChannel
-#define __nvoc_class_id_DispChannel 0xbd2ff3
+#define __nvoc_class_id_DispChannel 0xbd2ff3u
+typedef struct DispChannel DispChannel;
 #endif /* __nvoc_class_id_DispChannel */
-
 
 
 struct GpuResource;
 
-#ifndef __NVOC_CLASS_GpuResource_TYPEDEF__
-#define __NVOC_CLASS_GpuResource_TYPEDEF__
-typedef struct GpuResource GpuResource;
-#endif /* __NVOC_CLASS_GpuResource_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_GpuResource
-#define __nvoc_class_id_GpuResource 0x5d5d9f
+#define __nvoc_class_id_GpuResource 0x5d5d9fu
+typedef struct GpuResource GpuResource;
 #endif /* __nvoc_class_id_GpuResource */
-
 
 
 struct INotifier;
 
-#ifndef __NVOC_CLASS_INotifier_TYPEDEF__
-#define __NVOC_CLASS_INotifier_TYPEDEF__
-typedef struct INotifier INotifier;
-#endif /* __NVOC_CLASS_INotifier_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_INotifier
-#define __nvoc_class_id_INotifier 0xf8f965
+#define __nvoc_class_id_INotifier 0xf8f965u
+typedef struct INotifier INotifier;
 #endif /* __nvoc_class_id_INotifier */
-
 
 
 struct Memory;
 
-#ifndef __NVOC_CLASS_Memory_TYPEDEF__
-#define __NVOC_CLASS_Memory_TYPEDEF__
-typedef struct Memory Memory;
-#endif /* __NVOC_CLASS_Memory_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_Memory
-#define __nvoc_class_id_Memory 0x4789f2
+#define __nvoc_class_id_Memory 0x4789f2u
+typedef struct Memory Memory;
 #endif /* __nvoc_class_id_Memory */
-
 
 
 struct Notifier;
 
-#ifndef __NVOC_CLASS_Notifier_TYPEDEF__
-#define __NVOC_CLASS_Notifier_TYPEDEF__
-typedef struct Notifier Notifier;
-#endif /* __NVOC_CLASS_Notifier_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_Notifier
-#define __nvoc_class_id_Notifier 0xa8683b
+#define __nvoc_class_id_Notifier 0xa8683bu
+typedef struct Notifier Notifier;
 #endif /* __nvoc_class_id_Notifier */
-
 
 
 struct NotifShare;
 
-#ifndef __NVOC_CLASS_NotifShare_TYPEDEF__
-#define __NVOC_CLASS_NotifShare_TYPEDEF__
-typedef struct NotifShare NotifShare;
-#endif /* __NVOC_CLASS_NotifShare_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_NotifShare
-#define __nvoc_class_id_NotifShare 0xd5f150
+#define __nvoc_class_id_NotifShare 0xd5f150u
+typedef struct NotifShare NotifShare;
 #endif /* __nvoc_class_id_NotifShare */
-
 
 
 struct Resource;
 
-#ifndef __NVOC_CLASS_Resource_TYPEDEF__
-#define __NVOC_CLASS_Resource_TYPEDEF__
-typedef struct Resource Resource;
-#endif /* __NVOC_CLASS_Resource_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_Resource
-#define __nvoc_class_id_Resource 0xbe8545
+#define __nvoc_class_id_Resource 0xbe8545u
+typedef struct Resource Resource;
 #endif /* __nvoc_class_id_Resource */
-
 
 
 struct RmResource;
 
-#ifndef __NVOC_CLASS_RmResource_TYPEDEF__
-#define __NVOC_CLASS_RmResource_TYPEDEF__
-typedef struct RmResource RmResource;
-#endif /* __NVOC_CLASS_RmResource_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_RmResource
-#define __nvoc_class_id_RmResource 0x03610d
+#define __nvoc_class_id_RmResource 0x03610du
+typedef struct RmResource RmResource;
 #endif /* __nvoc_class_id_RmResource */
-
 
 
 struct RmResourceCommon;
 
-#ifndef __NVOC_CLASS_RmResourceCommon_TYPEDEF__
-#define __NVOC_CLASS_RmResourceCommon_TYPEDEF__
-typedef struct RmResourceCommon RmResourceCommon;
-#endif /* __NVOC_CLASS_RmResourceCommon_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_RmResourceCommon
-#define __nvoc_class_id_RmResourceCommon 0x8ef259
+#define __nvoc_class_id_RmResourceCommon 0x8ef259u
+typedef struct RmResourceCommon RmResourceCommon;
 #endif /* __nvoc_class_id_RmResourceCommon */
-
 
 
 struct RsResource;
 
-#ifndef __NVOC_CLASS_RsResource_TYPEDEF__
-#define __NVOC_CLASS_RsResource_TYPEDEF__
-typedef struct RsResource RsResource;
-#endif /* __NVOC_CLASS_RsResource_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_RsResource
-#define __nvoc_class_id_RsResource 0xd551cb
+#define __nvoc_class_id_RsResource 0xd551cbu
+typedef struct RsResource RsResource;
 #endif /* __nvoc_class_id_RsResource */
-
 
 
 struct RsShared;
 
-#ifndef __NVOC_CLASS_RsShared_TYPEDEF__
-#define __NVOC_CLASS_RsShared_TYPEDEF__
-typedef struct RsShared RsShared;
-#endif /* __NVOC_CLASS_RsShared_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_RsShared
-#define __nvoc_class_id_RsShared 0x830542
+#define __nvoc_class_id_RsShared 0x830542u
+typedef struct RsShared RsShared;
 #endif /* __nvoc_class_id_RsShared */
 
 
 
 // Classes disabled in orin but required forward declarations to build.
-
 struct HostVgpuDeviceApi;
 
-#ifndef __NVOC_CLASS_HostVgpuDeviceApi_TYPEDEF__
-#define __NVOC_CLASS_HostVgpuDeviceApi_TYPEDEF__
-typedef struct HostVgpuDeviceApi HostVgpuDeviceApi;
-#endif /* __NVOC_CLASS_HostVgpuDeviceApi_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_HostVgpuDeviceApi
-#define __nvoc_class_id_HostVgpuDeviceApi 0x4c4173
+#define __nvoc_class_id_HostVgpuDeviceApi 0x4c4173u
+typedef struct HostVgpuDeviceApi HostVgpuDeviceApi;
 #endif /* __nvoc_class_id_HostVgpuDeviceApi */
 
  // also used by open rm
-
 struct MpsApi;
 
-#ifndef __NVOC_CLASS_MpsApi_TYPEDEF__
-#define __NVOC_CLASS_MpsApi_TYPEDEF__
-typedef struct MpsApi MpsApi;
-#endif /* __NVOC_CLASS_MpsApi_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_MpsApi
-#define __nvoc_class_id_MpsApi 0x22ce42
+#define __nvoc_class_id_MpsApi 0x22ce42u
+typedef struct MpsApi MpsApi;
 #endif /* __nvoc_class_id_MpsApi */
-
 
 
 struct MIGConfigSession;
 
-#ifndef __NVOC_CLASS_MIGConfigSession_TYPEDEF__
-#define __NVOC_CLASS_MIGConfigSession_TYPEDEF__
-typedef struct MIGConfigSession MIGConfigSession;
-#endif /* __NVOC_CLASS_MIGConfigSession_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_MIGConfigSession
-#define __nvoc_class_id_MIGConfigSession 0x36a941
+#define __nvoc_class_id_MIGConfigSession 0x36a941u
+typedef struct MIGConfigSession MIGConfigSession;
 #endif /* __nvoc_class_id_MIGConfigSession */
-
 
 
 struct FmSessionApi;
 
-#ifndef __NVOC_CLASS_FmSessionApi_TYPEDEF__
-#define __NVOC_CLASS_FmSessionApi_TYPEDEF__
-typedef struct FmSessionApi FmSessionApi;
-#endif /* __NVOC_CLASS_FmSessionApi_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_FmSessionApi
-#define __nvoc_class_id_FmSessionApi 0xdfbd08
+#define __nvoc_class_id_FmSessionApi 0xdfbd08u
+typedef struct FmSessionApi FmSessionApi;
 #endif /* __nvoc_class_id_FmSessionApi */
-
 
 
 struct MIGMonitorSession;
 
-#ifndef __NVOC_CLASS_MIGMonitorSession_TYPEDEF__
-#define __NVOC_CLASS_MIGMonitorSession_TYPEDEF__
-typedef struct MIGMonitorSession MIGMonitorSession;
-#endif /* __NVOC_CLASS_MIGMonitorSession_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_MIGMonitorSession
-#define __nvoc_class_id_MIGMonitorSession 0x29e15c
+#define __nvoc_class_id_MIGMonitorSession 0x29e15cu
+typedef struct MIGMonitorSession MIGMonitorSession;
 #endif /* __nvoc_class_id_MIGMonitorSession */
-
 
 
 struct TimerApi;
 
-#ifndef __NVOC_CLASS_TimerApi_TYPEDEF__
-#define __NVOC_CLASS_TimerApi_TYPEDEF__
-typedef struct TimerApi TimerApi;
-#endif /* __NVOC_CLASS_TimerApi_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_TimerApi
-#define __nvoc_class_id_TimerApi 0xb13ac4
+#define __nvoc_class_id_TimerApi 0xb13ac4u
+typedef struct TimerApi TimerApi;
 #endif /* __nvoc_class_id_TimerApi */
-
 
 
 struct KernelSMDebuggerSession;
 
-#ifndef __NVOC_CLASS_KernelSMDebuggerSession_TYPEDEF__
-#define __NVOC_CLASS_KernelSMDebuggerSession_TYPEDEF__
-typedef struct KernelSMDebuggerSession KernelSMDebuggerSession;
-#endif /* __NVOC_CLASS_KernelSMDebuggerSession_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_KernelSMDebuggerSession
-#define __nvoc_class_id_KernelSMDebuggerSession 0x4adc81
+#define __nvoc_class_id_KernelSMDebuggerSession 0x4adc81u
+typedef struct KernelSMDebuggerSession KernelSMDebuggerSession;
 #endif /* __nvoc_class_id_KernelSMDebuggerSession */
 
 
@@ -317,200 +222,128 @@ struct NVOC_METADATA__NVOCFwdDeclHack;
 
 struct RmClientResource;
 
-#ifndef __NVOC_CLASS_RmClientResource_TYPEDEF__
-#define __NVOC_CLASS_RmClientResource_TYPEDEF__
-typedef struct RmClientResource RmClientResource;
-#endif /* __NVOC_CLASS_RmClientResource_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_RmClientResource
-#define __nvoc_class_id_RmClientResource 0x37a701
+#define __nvoc_class_id_RmClientResource 0x37a701u
+typedef struct RmClientResource RmClientResource;
 #endif /* __nvoc_class_id_RmClientResource */
 
 struct Device;
 
-#ifndef __NVOC_CLASS_Device_TYPEDEF__
-#define __NVOC_CLASS_Device_TYPEDEF__
-typedef struct Device Device;
-#endif /* __NVOC_CLASS_Device_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_Device
-#define __nvoc_class_id_Device 0xe0ac20
+#define __nvoc_class_id_Device 0xe0ac20u
+typedef struct Device Device;
 #endif /* __nvoc_class_id_Device */
 
 struct Hdacodec;
 
-#ifndef __NVOC_CLASS_Hdacodec_TYPEDEF__
-#define __NVOC_CLASS_Hdacodec_TYPEDEF__
-typedef struct Hdacodec Hdacodec;
-#endif /* __NVOC_CLASS_Hdacodec_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_Hdacodec
-#define __nvoc_class_id_Hdacodec 0xf59a20
+#define __nvoc_class_id_Hdacodec 0xf59a20u
+typedef struct Hdacodec Hdacodec;
 #endif /* __nvoc_class_id_Hdacodec */
 
 struct Subdevice;
 
-#ifndef __NVOC_CLASS_Subdevice_TYPEDEF__
-#define __NVOC_CLASS_Subdevice_TYPEDEF__
-typedef struct Subdevice Subdevice;
-#endif /* __NVOC_CLASS_Subdevice_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_Subdevice
-#define __nvoc_class_id_Subdevice 0x4b01b3
+#define __nvoc_class_id_Subdevice 0x4b01b3u
+typedef struct Subdevice Subdevice;
 #endif /* __nvoc_class_id_Subdevice */
 
 struct SystemMemory;
 
-#ifndef __NVOC_CLASS_SystemMemory_TYPEDEF__
-#define __NVOC_CLASS_SystemMemory_TYPEDEF__
-typedef struct SystemMemory SystemMemory;
-#endif /* __NVOC_CLASS_SystemMemory_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_SystemMemory
-#define __nvoc_class_id_SystemMemory 0x007a98
+#define __nvoc_class_id_SystemMemory 0x007a98u
+typedef struct SystemMemory SystemMemory;
 #endif /* __nvoc_class_id_SystemMemory */
 
 struct OsDescMemory;
 
-#ifndef __NVOC_CLASS_OsDescMemory_TYPEDEF__
-#define __NVOC_CLASS_OsDescMemory_TYPEDEF__
-typedef struct OsDescMemory OsDescMemory;
-#endif /* __NVOC_CLASS_OsDescMemory_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_OsDescMemory
-#define __nvoc_class_id_OsDescMemory 0xb3dacd
+#define __nvoc_class_id_OsDescMemory 0xb3dacdu
+typedef struct OsDescMemory OsDescMemory;
 #endif /* __nvoc_class_id_OsDescMemory */
 
 struct SyncpointMemory;
 
-#ifndef __NVOC_CLASS_SyncpointMemory_TYPEDEF__
-#define __NVOC_CLASS_SyncpointMemory_TYPEDEF__
-typedef struct SyncpointMemory SyncpointMemory;
-#endif /* __NVOC_CLASS_SyncpointMemory_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_SyncpointMemory
-#define __nvoc_class_id_SyncpointMemory 0x529def
+#define __nvoc_class_id_SyncpointMemory 0x529defu
+typedef struct SyncpointMemory SyncpointMemory;
 #endif /* __nvoc_class_id_SyncpointMemory */
 
 struct DispSfUser;
 
-#ifndef __NVOC_CLASS_DispSfUser_TYPEDEF__
-#define __NVOC_CLASS_DispSfUser_TYPEDEF__
-typedef struct DispSfUser DispSfUser;
-#endif /* __NVOC_CLASS_DispSfUser_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_DispSfUser
-#define __nvoc_class_id_DispSfUser 0xba7439
+#define __nvoc_class_id_DispSfUser 0xba7439u
+typedef struct DispSfUser DispSfUser;
 #endif /* __nvoc_class_id_DispSfUser */
 
 struct NvDispApi;
 
-#ifndef __NVOC_CLASS_NvDispApi_TYPEDEF__
-#define __NVOC_CLASS_NvDispApi_TYPEDEF__
-typedef struct NvDispApi NvDispApi;
-#endif /* __NVOC_CLASS_NvDispApi_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_NvDispApi
-#define __nvoc_class_id_NvDispApi 0x36aa0b
+#define __nvoc_class_id_NvDispApi 0x36aa0bu
+typedef struct NvDispApi NvDispApi;
 #endif /* __nvoc_class_id_NvDispApi */
 
 struct DispSwObj;
 
-#ifndef __NVOC_CLASS_DispSwObj_TYPEDEF__
-#define __NVOC_CLASS_DispSwObj_TYPEDEF__
-typedef struct DispSwObj DispSwObj;
-#endif /* __NVOC_CLASS_DispSwObj_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_DispSwObj
-#define __nvoc_class_id_DispSwObj 0x6aa5e2
+#define __nvoc_class_id_DispSwObj 0x6aa5e2u
+typedef struct DispSwObj DispSwObj;
 #endif /* __nvoc_class_id_DispSwObj */
 
 struct DispCommon;
 
-#ifndef __NVOC_CLASS_DispCommon_TYPEDEF__
-#define __NVOC_CLASS_DispCommon_TYPEDEF__
-typedef struct DispCommon DispCommon;
-#endif /* __NVOC_CLASS_DispCommon_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_DispCommon
-#define __nvoc_class_id_DispCommon 0x41f4f2
+#define __nvoc_class_id_DispCommon 0x41f4f2u
+typedef struct DispCommon DispCommon;
 #endif /* __nvoc_class_id_DispCommon */
 
 struct DispChannelPio;
 
-#ifndef __NVOC_CLASS_DispChannelPio_TYPEDEF__
-#define __NVOC_CLASS_DispChannelPio_TYPEDEF__
-typedef struct DispChannelPio DispChannelPio;
-#endif /* __NVOC_CLASS_DispChannelPio_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_DispChannelPio
-#define __nvoc_class_id_DispChannelPio 0x10dec3
+#define __nvoc_class_id_DispChannelPio 0x10dec3u
+typedef struct DispChannelPio DispChannelPio;
 #endif /* __nvoc_class_id_DispChannelPio */
 
 struct DispChannelDma;
 
-#ifndef __NVOC_CLASS_DispChannelDma_TYPEDEF__
-#define __NVOC_CLASS_DispChannelDma_TYPEDEF__
-typedef struct DispChannelDma DispChannelDma;
-#endif /* __NVOC_CLASS_DispChannelDma_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_DispChannelDma
-#define __nvoc_class_id_DispChannelDma 0xfe3d2e
+#define __nvoc_class_id_DispChannelDma 0xfe3d2eu
+typedef struct DispChannelDma DispChannelDma;
 #endif /* __nvoc_class_id_DispChannelDma */
 
 struct DispCapabilities;
 
-#ifndef __NVOC_CLASS_DispCapabilities_TYPEDEF__
-#define __NVOC_CLASS_DispCapabilities_TYPEDEF__
-typedef struct DispCapabilities DispCapabilities;
-#endif /* __NVOC_CLASS_DispCapabilities_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_DispCapabilities
-#define __nvoc_class_id_DispCapabilities 0x99db3e
+#define __nvoc_class_id_DispCapabilities 0x99db3eu
+typedef struct DispCapabilities DispCapabilities;
 #endif /* __nvoc_class_id_DispCapabilities */
 
 struct ContextDma;
 
-#ifndef __NVOC_CLASS_ContextDma_TYPEDEF__
-#define __NVOC_CLASS_ContextDma_TYPEDEF__
-typedef struct ContextDma ContextDma;
-#endif /* __NVOC_CLASS_ContextDma_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_ContextDma
-#define __nvoc_class_id_ContextDma 0x88441b
+#define __nvoc_class_id_ContextDma 0x88441bu
+typedef struct ContextDma ContextDma;
 #endif /* __nvoc_class_id_ContextDma */
 
-struct Event;
+struct EventApi;
 
-#ifndef __NVOC_CLASS_Event_TYPEDEF__
-#define __NVOC_CLASS_Event_TYPEDEF__
-typedef struct Event Event;
-#endif /* __NVOC_CLASS_Event_TYPEDEF__ */
-
-#ifndef __nvoc_class_id_Event
-#define __nvoc_class_id_Event 0xa4ecfc
-#endif /* __nvoc_class_id_Event */
+#ifndef __nvoc_class_id_EventApi
+#define __nvoc_class_id_EventApi 0x854293u
+typedef struct EventApi EventApi;
+#endif /* __nvoc_class_id_EventApi */
 
 struct LockStressObject;
 
-#ifndef __NVOC_CLASS_LockStressObject_TYPEDEF__
-#define __NVOC_CLASS_LockStressObject_TYPEDEF__
-typedef struct LockStressObject LockStressObject;
-#endif /* __NVOC_CLASS_LockStressObject_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_LockStressObject
-#define __nvoc_class_id_LockStressObject 0xecce10
+#define __nvoc_class_id_LockStressObject 0xecce10u
+typedef struct LockStressObject LockStressObject;
 #endif /* __nvoc_class_id_LockStressObject */
 
 struct LockTestRelaxedDupObject;
 
-#ifndef __NVOC_CLASS_LockTestRelaxedDupObject_TYPEDEF__
-#define __NVOC_CLASS_LockTestRelaxedDupObject_TYPEDEF__
-typedef struct LockTestRelaxedDupObject LockTestRelaxedDupObject;
-#endif /* __NVOC_CLASS_LockTestRelaxedDupObject_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_LockTestRelaxedDupObject
-#define __nvoc_class_id_LockTestRelaxedDupObject 0x19e861
+#define __nvoc_class_id_LockTestRelaxedDupObject 0x19e861u
+typedef struct LockTestRelaxedDupObject LockTestRelaxedDupObject;
 #endif /* __nvoc_class_id_LockTestRelaxedDupObject */
 
 
@@ -561,10 +394,10 @@ struct NVOCFwdDeclHack {
     struct DispChannelDma *PRIVATE_FIELD(DispChannelDma_NVCC7D_CORE_CHANNEL_DMA);
     struct DispChannelDma *PRIVATE_FIELD(DispChannelDma_NVCC7E_WINDOW_CHANNEL_DMA);
     struct ContextDma *PRIVATE_FIELD(ContextDma_NV01_CONTEXT_DMA);
-    struct Event *PRIVATE_FIELD(Event_NV01_EVENT);
-    struct Event *PRIVATE_FIELD(Event_NV01_EVENT_OS_EVENT);
-    struct Event *PRIVATE_FIELD(Event_NV01_EVENT_KERNEL_CALLBACK);
-    struct Event *PRIVATE_FIELD(Event_NV01_EVENT_KERNEL_CALLBACK_EX);
+    struct EventApi *PRIVATE_FIELD(EventApi_NV01_EVENT);
+    struct EventApi *PRIVATE_FIELD(EventApi_NV01_EVENT_OS_EVENT);
+    struct EventApi *PRIVATE_FIELD(EventApi_NV01_EVENT_KERNEL_CALLBACK);
+    struct EventApi *PRIVATE_FIELD(EventApi_NV01_EVENT_KERNEL_CALLBACK_EX);
     struct LockStressObject *PRIVATE_FIELD(LockStressObject_LOCK_STRESS_OBJECT);
     struct LockTestRelaxedDupObject *PRIVATE_FIELD(LockTestRelaxedDupObject_LOCK_TEST_RELAXED_DUP_OBJECT);
 };
@@ -575,13 +408,9 @@ struct NVOC_METADATA__NVOCFwdDeclHack {
     const struct NVOC_RTTI rtti;
 };
 
-#ifndef __NVOC_CLASS_NVOCFwdDeclHack_TYPEDEF__
-#define __NVOC_CLASS_NVOCFwdDeclHack_TYPEDEF__
-typedef struct NVOCFwdDeclHack NVOCFwdDeclHack;
-#endif /* __NVOC_CLASS_NVOCFwdDeclHack_TYPEDEF__ */
-
 #ifndef __nvoc_class_id_NVOCFwdDeclHack
-#define __nvoc_class_id_NVOCFwdDeclHack 0x0d01f5
+#define __nvoc_class_id_NVOCFwdDeclHack 0x0d01f5u
+typedef struct NVOCFwdDeclHack NVOCFwdDeclHack;
 #endif /* __nvoc_class_id_NVOCFwdDeclHack */
 
 // Casting support
@@ -600,9 +429,15 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_NVOCFwdDeclHack;
 NV_STATUS __nvoc_objCreateDynamic_NVOCFwdDeclHack(NVOCFwdDeclHack**, Dynamic*, NvU32, va_list);
 
 NV_STATUS __nvoc_objCreate_NVOCFwdDeclHack(NVOCFwdDeclHack**, Dynamic*, NvU32);
-#define __objCreate_NVOCFwdDeclHack(ppNewObj, pParent, createFlags) \
-    __nvoc_objCreate_NVOCFwdDeclHack((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
+#define __objCreate_NVOCFwdDeclHack(__nvoc_ppNewObj, __nvoc_pParent, __nvoc_createFlags) \
+    __nvoc_objCreate_NVOCFwdDeclHack((__nvoc_ppNewObj), staticCast((__nvoc_pParent), Dynamic), (__nvoc_createFlags))
 
+// Virtual method declarations and/or inline definitions
+// Exported method declarations and/or inline definitions
+// HAL method declarations without bodies
+// Inline HAL method definitions
+// Static dispatch method declarations
+// Static inline method definitions
 #undef PRIVATE_FIELD
 
 

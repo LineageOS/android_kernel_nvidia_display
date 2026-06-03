@@ -234,6 +234,9 @@
 #if GPU_CHILD_MODULE(LPWR)
     GPU_CHILD_SINGLE_INST( Lpwr,              GPU_GET_LPWR,                        1,                NV_FALSE,           pLpwr            )
 #endif
+#if GPU_CHILD_MODULE(LPSEC)
+    GPU_CHILD_MULTI_INST( Lpsec,              GPU_GET_LPSEC,                        GPU_MAX_LPSECS,                NV_FALSE,           pLsec            )
+#endif
 #if GPU_CHILD_MODULE(KERNEL_FIFO)
     GPU_CHILD_SINGLE_INST( KernelFifo,           GPU_GET_KERNEL_FIFO_UC,              1,                NV_FALSE,        pKernelFifo      )
 #endif
@@ -297,7 +300,6 @@
 #if GPU_CHILD_MODULE(KERNEL_FSP)
     GPU_CHILD_SINGLE_INST( KernelFsp,            GPU_GET_KERNEL_FSP,                  1,                NV_TRUE,        pKernelFsp       )
 #endif
-
 #if GPU_CHILD_MODULE(GSP)
     GPU_CHILD_SINGLE_INST( Gsp,                  GPU_GET_GSP,                         1,                NV_FALSE,        pGsp             )
 #endif

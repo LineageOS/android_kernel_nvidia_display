@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -85,6 +85,98 @@
 // the duration of rescheduling.
 //
 #define TIMER_RESCHED_TIME_DURING_PM_RESUME_NS      (100 * 1000 * 1000)
+
+static void RmInflatePageArray(
+    RmPhysAddr *pteArray, 
+    NvU64 pageCountFrom,
+    NvU64 pageSizeFrom,
+    NvU64 pageCountTo,
+    NvU64 pageSizeTo);
+static void RmDeflatePageArray(
+    RmPhysAddr *pteArray, 
+    NvU64 pageCountFrom,
+    NvU64 pageSizeFrom,
+    NvU64 pageCountTo,
+    NvU64 pageSizeTo);
+
+static void RmInflatePageArray(
+    RmPhysAddr *pteArray, 
+    NvU64 pageCountFrom,
+    NvU64 pageSizeFrom,
+    NvU64 pageCountTo,
+    NvU64 pageSizeTo)
+{
+    NV_ASSERT(pageCountFrom <= pageCountTo);
+    NV_ASSERT(pageSizeFrom >= pageSizeTo);
+    NvUPtr dstPageIdx, dstPageOffset;
+    NvU64 i;
+    // convert the idx from pageCount_to to pageCount_from.
+    NvU64 dstPageShift = NV_SRC_TO_DST_PAGE_SHIFT(pageSizeTo, pageSizeFrom);
+
+    //
+    // We can do the translation in place by moving backwards, since there
+    // will always be more RM pages than OS pages
+    //
+    for (i = pageCountTo - 1; i != NV_U64_MAX; i--)
+    {
+        dstPageIdx = i >> dstPageShift;
+        dstPageOffset = (i & ((1 << dstPageShift) - 1)) *
+                pageSizeTo;
+        pteArray[i] = pteArray[dstPageIdx] + dstPageOffset;
+    }
+}
+
+static void RmDeflatePageArray(
+    RmPhysAddr *pteArray, 
+    NvU64 pageCountFrom,
+    NvU64 pageSizeFrom,
+    NvU64 pageCountTo,
+    NvU64 pageSizeTo)
+{
+    NV_ASSERT(pageCountFrom >= pageCountTo);
+    NV_ASSERT(pageSizeFrom <= pageSizeTo);
+    NvU64 i;
+
+    for (i = 0; i < pageCountTo; i++)
+    {
+        pteArray[i] = pteArray[(i << NV_SRC_TO_DST_PAGE_SHIFT(pageSizeFrom, pageSizeTo))];
+    }
+
+    // Zero out the rest of the addresses, which are now invalid
+    portMemSet(pteArray + i, 0, sizeof(*pteArray) * (pageCountFrom - i));
+}
+
+void convertPageArrayBetweenOsAndRm(
+    RmPhysAddr *pteArray, 
+    NvU64 pageCountFrom,
+    NvU64 pageSizeFrom,
+    NvU64 pageCountTo,
+    NvU64 pageSizeTo,
+    NvU64 *newPageCountTo)
+{
+    if (pageSizeFrom < pageSizeTo)
+    {
+        RmDeflatePageArray(pteArray, 
+            pageCountFrom,
+            pageSizeFrom, 
+            pageCountTo, 
+            pageSizeTo
+        );
+        if (newPageCountTo)
+        {
+            *newPageCountTo = pageCountTo;
+        }
+    }
+    else if (pageSizeFrom > pageSizeTo)
+    {
+        RmInflatePageArray(pteArray, 
+            pageCountFrom, 
+            pageSizeFrom,
+            pageCountTo,
+            pageSizeTo
+        );
+    }
+}
 
 //
 // Helper function which can be called before doing any RM control
@@ -320,7 +412,7 @@ RmLogGpuCrash(OBJGPU *pGpu)
 
 static void free_os_event_under_lock(nv_event_t *event)
 {
-    event->active = NV_FALSE;
+    portAtomicSetS32(&event->active, 0);
 
     // If refcount > 0, event will be freed by osDereferenceObjectCount
     // when the last associated RM event is freed.
@@ -472,7 +564,7 @@ static NV_STATUS allocate_os_event(
     new_event->hParent  = hParent;
     new_event->nvfp     = nvfp;
     new_event->fd       = fd;
-    new_event->active   = NV_TRUE;
+    portAtomicSetS32(&new_event->active, 1);
     new_event->refcount = 0;
 
     portSyncSpinlockAcquire(nv->event_spinlock);
@@ -565,13 +657,13 @@ static void RmExecuteWorkItem(
 {
     nv_work_item_t *pWi = (nv_work_item_t *)pWorkItem;
     NvU32 gpuMask = 0;
-    NvU32 releaseLocks = 0;
+    OsQueueWorkItemFlags releaseLocks = {0};
 
-    if (!(pWi->flags & NV_WORK_ITEM_FLAGS_REQUIRES_GPU) &&
-        ((pWi->flags & OS_QUEUE_WORKITEM_FLAGS_LOCK_GPUS) ||
-         (pWi->flags & OS_QUEUE_WORKITEM_FLAGS_LOCK_GPU_GROUP_DEVICE) ||
-         (pWi->flags & OS_QUEUE_WORKITEM_FLAGS_LOCK_GPU_GROUP_SUBDEVICE) ||
-         (pWi->flags & OS_QUEUE_WORKITEM_FLAGS_FULL_GPU_SANITY)))
+    if (!(pWi->flags.bRequiresGpu) &&
+        (pWi->flags.bLockGpus ||
+         pWi->flags.bLockGpuGroupDevice ||
+         pWi->flags.bLockGpuGroupSubdevice ||
+         pWi->flags.bFullGpuSanity))
     {
         // Requesting one of the GPU locks without providing a GPU instance
         NV_ASSERT(0);
@@ -586,7 +678,7 @@ static void RmExecuteWorkItem(
     }
 
     // Some work items may not require a valid GPU instance
-    if (pWi->flags & NV_WORK_ITEM_FLAGS_REQUIRES_GPU)
+    if (pWi->flags.bRequiresGpu)
     {
         // Make sure that pGpu is present
         OBJGPU *pGpu = gpumgrGetGpu(pWi->gpuInstance);
@@ -596,10 +688,14 @@ static void RmExecuteWorkItem(
 
             NV_ASSERT_OR_GOTO(nv != NULL, done);
 
-            if (!((pWi->flags & OS_QUEUE_WORKITEM_FLAGS_DROP_ON_UNLOAD_QUEUE_FLUSH) && os_is_queue_flush_ongoing(nv->queue)))
+            NvU32 prevGpuInst = gpumgrSetCurrentGpuInstance(pGpu->gpuInstance);
+
+            if (!(pWi->flags.bDropOnUnloadQueueFlush && os_is_queue_flush_ongoing(nv->queue)))
             {
                 pWi->func.pGpuFunction(pWi->gpuInstance, pWi->pData);
             }
+
+            gpumgrSetCurrentGpuInstance(prevGpuInst);
         }
         else
         {
@@ -608,7 +704,7 @@ static void RmExecuteWorkItem(
     }
     else
     {
-        if (!((pWi->flags & OS_QUEUE_WORKITEM_FLAGS_DROP_ON_UNLOAD_QUEUE_FLUSH) && os_is_queue_flush_ongoing(NULL)))
+        if (!(pWi->flags.bDropOnUnloadQueueFlush && os_is_queue_flush_ongoing(NULL)))
         {
             pWi->func.pSystemFunction(pWi->pData);
         }
@@ -618,8 +714,7 @@ done:
     // Release any locks taken
     workItemLocksRelease(releaseLocks, gpuMask);
 
-    if ((pWi->pData != NULL) &&
-        !(pWi->flags & NV_WORK_ITEM_FLAGS_DONT_FREE_DATA))
+    if ((pWi->pData != NULL) && !(pWi->flags.bDontFreeParams))
     {
         portMemFree(pWi->pData);
     }
@@ -1231,7 +1326,7 @@ RmDmabufVerifyMemHandle(
     pMemDesc = pSrcMemory->pMemDesc;
 
     // Check if hMemory belongs to the same pGpu
-    if ((pMemDesc->pGpu != pGpu) &&
+    if ((pMemDesc->pGpu != pGpu) ||
         (pSrcMemory->pGpu != pGpu))
     {
         return NV_ERR_INVALID_OBJECT_PARENT;
@@ -1246,7 +1341,7 @@ RmDmabufVerifyMemHandle(
 
     // Only supported for vidmem and sysmem(only for 0FB) handles
     if ((memdescGetAddressSpace(pMemDesc) != ADDR_FBMEM) &&
-        (!pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB)))
+        (!pGpu->pGpuArch->bGpuArchIsZeroFb))
     {
         return NV_ERR_INVALID_ARGUMENT;
     }
@@ -1365,6 +1460,21 @@ NvBool NV_API_CALL rm_init_adapter(
     NV_ENTER_RM_RUNTIME(sp,fp);
     threadStateInit(&threadState, THREAD_STATE_FLAGS_DEVICE_INIT);
 
+    //
+    // If GPU is driving any frame buffer console(vesafb, efifb etc)
+    // mark the console as client driven
+    //
+    pNv->client_managed_console = rm_get_uefi_console_status(pNv);
+
+    //
+    // For GPU driving console, disable console access here, to ensure no console
+    // writes through BAR1 can interfere with physical RM's setup of BAR1
+    //
+    if (pNv->client_managed_console && !pNv->sysmem_mapped_console)
+    {
+        os_disable_console_access();
+    }
+
     // LOCK: acquire API lock
     if (rmapiLockAcquire(API_LOCK_FLAGS_NONE, RM_LOCK_MODULES_INIT) == NV_OK)
     {
@@ -1383,6 +1493,11 @@ NvBool NV_API_CALL rm_init_adapter(
 
         // UNLOCK: release API lock
         rmapiLockRelease();
+    }
+
+    if (pNv->client_managed_console && !pNv->sysmem_mapped_console)
+    {
+        os_enable_console_access();
     }
 
     threadStateFree(&threadState, THREAD_STATE_FLAGS_NONE);
@@ -1404,6 +1519,11 @@ void NV_API_CALL rm_disable_adapter(
 
     NV_ASSERT_OK(os_flush_work_queue(pNv->queue, NV_TRUE));
 
+    if (pNv->client_managed_console && !pNv->sysmem_mapped_console)
+    {
+        os_disable_console_access();
+    }
+
     // LOCK: acquire API lock
     if (rmapiLockAcquire(API_LOCK_FLAGS_NONE, RM_LOCK_MODULES_DESTROY) == NV_OK)
     {
@@ -1418,6 +1538,11 @@ void NV_API_CALL rm_disable_adapter(
 
         // UNLOCK: release API lock
         rmapiLockRelease();
+    }
+
+    if (pNv->client_managed_console && !pNv->sysmem_mapped_console)
+    {
+        os_enable_console_access();
     }
 
     NV_ASSERT_OK(os_flush_work_queue(pNv->queue, NV_TRUE));
@@ -1436,6 +1561,11 @@ void NV_API_CALL rm_shutdown_adapter(
     NV_ENTER_RM_RUNTIME(sp,fp);
     threadStateInit(&threadState, THREAD_STATE_FLAGS_NONE);
 
+    if (pNv->client_managed_console && !pNv->sysmem_mapped_console)
+    {
+        os_disable_console_access();
+    }
+
     // LOCK: acquire API lock
     if (rmapiLockAcquire(API_LOCK_FLAGS_NONE, RM_LOCK_MODULES_DESTROY) == NV_OK)
     {
@@ -1443,6 +1573,11 @@ void NV_API_CALL rm_shutdown_adapter(
 
         // UNLOCK: release API lock
         rmapiLockRelease();
+    }
+
+    if (pNv->client_managed_console && !pNv->sysmem_mapped_console)
+    {
+        os_enable_console_access();
     }
 
     threadStateFree(&threadState, THREAD_STATE_FLAGS_NONE);
@@ -1921,7 +2056,6 @@ static NV_STATUS RmGetAllocPrivate(
     switch (memdescGetAddressSpace(pMemDesc))
     {
         case ADDR_SYSMEM:
-        case ADDR_EGM:
             break;
         default:
             rmStatus = NV_ERR_OBJECT_NOT_FOUND;
@@ -1954,7 +2088,11 @@ static NV_STATUS RmGetAllocPrivate(
         goto done;
     }
 
-    if (pageCount > NV_RM_PAGES_TO_OS_PAGES(pMemDesc->PageCount))
+    if (IS_DISCONTIG_AND_DYNGRAN_ENABLED(pMemDesc))
+    {
+        NV_ASSERT_OR_ELSE(pageCount <= pMemDesc->PageCount, rmStatus = NV_ERR_INVALID_ARGUMENT; goto done);
+    }
+    else if (pageCount > NV_RM_PAGES_TO_OS_PAGES(pMemDesc->PageCount))
     {
         rmStatus = NV_ERR_INVALID_ARGUMENT;
         goto done;
@@ -2069,15 +2207,6 @@ void NV_API_CALL rm_destroy_event_locks(
     NV_EXIT_RM_RUNTIME(sp,fp);
 }
 
-void NV_API_CALL rm_get_vbios_version(
-    nvidia_stack_t *sp,
-    nv_state_t *pNv,
-    char *vbiosString
-)
-{
-    *vbiosString = '\0';
-}
-
 NV_STATUS NV_API_CALL rm_stop_user_channels(
     nvidia_stack_t *sp,
     nv_state_t *pNv
@@ -2092,6 +2221,51 @@ NV_STATUS NV_API_CALL rm_restart_user_channels(
 )
 {
     return NV_ERR_NOT_SUPPORTED;
+}
+
+NV_STATUS NV_API_CALL rm_validate_ioctls(
+    NvU32               command,
+    NvU32               dataSize
+)
+{
+    size_t arg_size = dataSize;
+    int arg_cmd = (command & 0xFF);
+    int i;
+    NV_STATUS status;
+    static const struct {
+        unsigned int cmdKey;
+        size_t paramSize;
+    } rm_ioctls_table[] = {
+    #define _RM_IOCTL_ENTRY(_cmd, _type) \
+        { .cmdKey = ((_cmd) & 0xFF), .paramSize = sizeof(_type),}
+        /*rm_ioctls */
+        _RM_IOCTL_ENTRY(NV_ESC_ALLOC_OS_EVENT, nv_ioctl_alloc_os_event_t),
+        _RM_IOCTL_ENTRY(NV_ESC_FREE_OS_EVENT, nv_ioctl_free_os_event_t),
+        _RM_IOCTL_ENTRY(NV_ESC_RM_GET_EVENT_DATA, NVOS41_PARAMETERS),
+    };
+
+    status = RmValidateIoctl(command, dataSize);
+    if (status != NV_ERR_INVALID_COMMAND)
+    {
+        return status; 
+    }
+
+    for (i = 0; i < NV_ARRAY_ELEMENTS(rm_ioctls_table); ++i)
+    {
+        if (arg_cmd == rm_ioctls_table[i].cmdKey)
+        {
+            if (arg_size == rm_ioctls_table[i].paramSize)
+            {
+                return NV_OK;
+            }
+            nv_printf(NV_DBG_ERRORS, "NVRM: invalid %d structure size, expected %d, got %d!\n",
+                      rm_ioctls_table[i].cmdKey, rm_ioctls_table[i].paramSize, arg_size);
+
+            return NV_ERR_INVALID_ARGUMENT;
+        }
+    }
+    // Unknown IOCTL case. Not found in any rm and RM Tables.
+    return NV_ERR_INVALID_COMMAND;
 }
 
 NV_STATUS NV_API_CALL rm_ioctl(
@@ -2647,8 +2821,9 @@ static NV_STATUS RmRunNanoTimerCallback(
     status = osQueueWorkItem(pGpu,
                              _tmrEventServiceTimerWorkItem,
                              pTmrEvent,
-                             (OS_QUEUE_WORKITEM_FLAGS_LOCK_GPU_GROUP_DEVICE |
-                              OS_QUEUE_WORKITEM_FLAGS_DONT_FREE_PARAMS));
+                             (OsQueueWorkItemFlags){
+                               .bLockGpuGroupDevice = NV_TRUE,
+                               .bDontFreeParams = NV_TRUE});
     if (status != NV_OK)
     {
         NV_PRINTF(LEVEL_ERROR,"Queuing workitem for timer event failed with status :0x%x\n", status);
@@ -3617,9 +3792,24 @@ void NV_API_CALL rm_power_source_change_event(
 )
 {
     THREAD_STATE_NODE threadState;
-    void       *fp;
-    nv_state_t *nv;
-    NV_STATUS rmStatus = NV_OK;
+    void           *fp;
+    nv_state_t     *nv;
+    static NvBool   first_event_seen = NV_FALSE;
+    static NvU32    last_event_val = 0;
+    NV_STATUS       rmStatus = NV_OK;
+
+    // Some systems generate spurious power source changed ACPI events.
+    // Before entering the PM runtime and waking the GPU, see if the power
+    // state has actually changed. If not, return without waking the GPU.
+    if ((first_event_seen != NV_FALSE) && (last_event_val == event_val))
+    {
+        return;
+    }
+    else
+    {
+        first_event_seen = NV_TRUE;
+        last_event_val = event_val;
+    }
 
     NV_ENTER_RM_RUNTIME(sp,fp);
     threadStateInit(&threadState, THREAD_STATE_FLAGS_NONE);
@@ -3899,68 +4089,6 @@ void NV_API_CALL rm_set_rm_firmware_requested(
 }
 
 //
-// This function will be called by nv_procfs_read_gpu_info().
-// nv_procfs_read_gpu_info() will not print the 'GPU Firmware:' field at
-// all if the 'version' string is empty.
-//
-// If GSP is enabled (firmware was requested), this function needs to return
-// the firmware version or "NA" in case of any errors.
-//
-// If GSP is not enabled (firmware was not requested), this function needs to
-// return the empty string, regardless of error cases.
-//
-void NV_API_CALL rm_get_firmware_version(
-    nvidia_stack_t *sp,
-    nv_state_t *nv,
-    char *version,
-    NvLength version_length
-)
-{
-    NV2080_CTRL_GSP_GET_FEATURES_PARAMS params = { 0 };
-    RM_API            *pRmApi;
-    THREAD_STATE_NODE  threadState;
-    NV_STATUS          rmStatus = NV_OK;
-    void              *fp;
-
-    NV_ENTER_RM_RUNTIME(sp,fp);
-
-    pRmApi = RmUnixRmApiPrologue(nv, &threadState, RM_LOCK_MODULES_GPU);
-    if (pRmApi != NULL)
-    {
-        rmStatus = pRmApi->Control(pRmApi,
-                                   nv->rmapi.hClient,
-                                   nv->rmapi.hSubDevice,
-                                   NV2080_CTRL_CMD_GSP_GET_FEATURES,
-                                   &params,
-                                   sizeof(params));
-
-        RmUnixRmApiEpilogue(nv, &threadState);
-    }
-    else
-    {
-        rmStatus = NV_ERR_INVALID_STATE;
-    }
-
-    if (rmStatus != NV_OK)
-    {
-        if (RMCFG_FEATURE_GSP_CLIENT_RM && nv->request_firmware)
-        {
-            const char *pTmpString = "N/A";
-            portStringCopy(version, version_length, pTmpString, portStringLength(pTmpString) + 1);
-        }
-        NV_PRINTF(LEVEL_INFO,
-                  "%s: Failed to query gpu build versions, status=0x%x\n",
-                  __FUNCTION__,
-                  rmStatus);
-        goto finish;
-    }
-    portMemCopy(version, version_length, params.firmwareVersion, sizeof(params.firmwareVersion));
-
-finish:
-    NV_EXIT_RM_RUNTIME(sp,fp);
-}
-
-//
 // disable GPU SW state persistence
 //
 
@@ -4096,33 +4224,24 @@ void RmUnInitAcpiMethods(OBJSYS *pSys)
 //
 void RmInflateOsToRmPageArray(RmPhysAddr *pteArray, NvU64 pageCount)
 {
-    NvUPtr osPageIdx, osPageOffset;
-    NvU64 i;
-
-    //
-    // We can do the translation in place by moving backwards, since there
-    // will always be more RM pages than OS pages
-    //
-    for (i = pageCount - 1; i != NV_U64_MAX; i--)
-    {
-        osPageIdx = i >> NV_RM_TO_OS_PAGE_SHIFT;
-        osPageOffset = (i & ((1 << NV_RM_TO_OS_PAGE_SHIFT) - 1)) *
-                NV_RM_PAGE_SIZE;
-        pteArray[i] = pteArray[osPageIdx] + osPageOffset;
-    }
+    RmInflatePageArray(
+        pteArray, 
+        NV_RM_PAGES_TO_OS_PAGES(pageCount),
+        os_page_size, 
+        pageCount, 
+        NV_RM_PAGE_SIZE
+    );
 }
 
 void RmDeflateRmToOsPageArray(RmPhysAddr *pteArray, NvU64 pageCount)
 {
-    NvU64 i;
-
-    for (i = 0; i < NV_RM_PAGES_TO_OS_PAGES(pageCount); i++)
-    {
-        pteArray[i] = pteArray[(i << NV_RM_TO_OS_PAGE_SHIFT)];
-    }
-
-    // Zero out the rest of the addresses, which are now invalid
-    portMemSet(pteArray + i, 0, sizeof(*pteArray) * (pageCount - i));
+    RmDeflatePageArray(
+        pteArray, 
+        pageCount, 
+        NV_RM_PAGE_SIZE,
+        NV_RM_PAGES_TO_OS_PAGES(pageCount),
+        os_page_size
+    );
 }
 
 NvBool NV_API_CALL
@@ -4147,17 +4266,6 @@ rm_get_device_remove_flag
     threadStateFree(&threadState, THREAD_STATE_FLAGS_NONE);
     NV_EXIT_RM_RUNTIME(sp,fp);
     return bRemove;
-}
-
-NvBool NV_API_CALL
-rm_gpu_need_4k_page_isolation
-(
-    nv_state_t *nv
-)
-{
-    nv_priv_t *nvp = NV_GET_NV_PRIV(nv);
-
-    return nvp->b_4k_page_isolation_required;
 }
 
 //
@@ -4254,7 +4362,7 @@ void NV_API_CALL rm_check_for_gpu_surprise_removal(
 
         if ((rmStatus = rmDeviceGpuLocksAcquire(pGpu, GPUS_LOCK_FLAGS_NONE, RM_LOCK_MODULES_GPU)) == NV_OK)
         {
-            osHandleGpuLost(pGpu);
+            osHandleGpuLost(pGpu, NV_TRUE);
             rmDeviceGpuLocksRelease(pGpu, GPUS_LOCK_FLAGS_NONE, NULL);
         }
 
@@ -4433,7 +4541,7 @@ NV_STATUS NV_API_CALL rm_dma_buf_dup_mem_handle(
         }
 
         // mmap is allowed only for 0FB chips (iGPU)
-        *pbCanMmap = pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB);
+        *pbCanMmap = pGpu->pGpuArch->bGpuArchIsZeroFb;
     }
 
     threadStateFree(&threadState, THREAD_STATE_FLAGS_NONE);
@@ -4552,7 +4660,7 @@ NV_STATUS NV_API_CALL rm_dma_buf_get_client_and_device(
                 *pbStaticPhysAddrs = NV_FALSE;
             }
 
-            *pbAcquireReleaseAllGpuLockOnDup = pGpu->getProperty(pGpu, PDB_PROP_GPU_ZERO_FB);
+            *pbAcquireReleaseAllGpuLockOnDup = pGpu->pGpuArch->bGpuArchIsZeroFb;
 
             rmDeviceGpuLocksRelease(pGpu, GPUS_LOCK_FLAGS_NONE, NULL);
         }
@@ -4784,8 +4892,8 @@ NV_STATUS NV_API_CALL rm_pmu_perfmon_get_load(
         return NV_ERR_INVALID_ARGUMENT;
     }
 
-    if (nvp->dynamic_power.state != NV_DYNAMIC_POWER_STATE_IN_USE &&
-        nvp->dynamic_power.state != NV_DYNAMIC_POWER_STATE_IDLE_INSTANT)
+    if (nvp->dynamic_power.state == NV_DYNAMIC_POWER_STATE_IDLE_INDICATED ||
+        nvp->dynamic_power.state == NV_DYNAMIC_POWER_STATE_IDLE_SUSTAINED)
     {
         *load = 0;
         return NV_OK;

@@ -48,24 +48,6 @@
 //
 // CHIPS - enabled or disabled
 //
-#define RMCFG_CHIP_GM107     0
-#define RMCFG_CHIP_GM108     0
-
-#define RMCFG_CHIP_GM200     0
-#define RMCFG_CHIP_GM204     0
-#define RMCFG_CHIP_GM206     0
-
-#define RMCFG_CHIP_GP100     0
-#define RMCFG_CHIP_GP102     0
-#define RMCFG_CHIP_GP104     0
-#define RMCFG_CHIP_GP106     0
-#define RMCFG_CHIP_GP107     0
-#define RMCFG_CHIP_GP108     0
-
-#define RMCFG_CHIP_GV100     0
-
-#define RMCFG_CHIP_GV11B     0
-
 #define RMCFG_CHIP_TU102     0
 #define RMCFG_CHIP_TU104     0
 #define RMCFG_CHIP_TU106     0
@@ -100,8 +82,6 @@
 #define RMCFG_CHIP_GB205     0
 #define RMCFG_CHIP_GB206     0
 #define RMCFG_CHIP_GB207     0
-
-#define RMCFG_CHIP_T194      0
 
 #define RMCFG_CHIP_T234      0
 
@@ -140,11 +120,25 @@
 #define RMCFG_CHIP_GK110C    0
 #define RMCFG_CHIP_GK208     0
 #define RMCFG_CHIP_GK208S    0
+#define RMCFG_CHIP_GM107     0
+#define RMCFG_CHIP_GM108     0
+#define RMCFG_CHIP_GM200     0
+#define RMCFG_CHIP_GM204     0
+#define RMCFG_CHIP_GM206     0
+#define RMCFG_CHIP_GP100     0
+#define RMCFG_CHIP_GP102     0
+#define RMCFG_CHIP_GP104     0
+#define RMCFG_CHIP_GP106     0
+#define RMCFG_CHIP_GP107     0
+#define RMCFG_CHIP_GP108     0
+#define RMCFG_CHIP_GV100     0
+#define RMCFG_CHIP_GV11B     0
 #define RMCFG_CHIP_T001_FERMI_NOT_EXIST 0
 #define RMCFG_CHIP_T124      0
 #define RMCFG_CHIP_T132      0
 #define RMCFG_CHIP_T210      0
 #define RMCFG_CHIP_T186      0
+#define RMCFG_CHIP_T194      0
 #define RMCFG_CHIP_T002_TURING_NOT_EXIST 0
 #define RMCFG_CHIP_T003_ADA_NOT_EXIST 0
 #define RMCFG_CHIP_T004_HOPPER_NOT_EXIST 0
@@ -174,9 +168,9 @@
 #define RMCFG_CHIP_MAXWELL_CLASSIC_GPUS 0
 #define RMCFG_CHIP_dPASCAL   0
 #define RMCFG_CHIP_DPASCAL   0
-#define RMCFG_CHIP_COMPUTE   0
 #define RMCFG_CHIP_PASCAL    0
 #define RMCFG_CHIP_PASCAL_CLASSIC_GPUS 0
+#define RMCFG_CHIP_COMPUTE   0
 #define RMCFG_CHIP_dVOLTA    0
 #define RMCFG_CHIP_DVOLTA    0
 #define RMCFG_CHIP_VOLTA     0
@@ -220,10 +214,10 @@
 #define RMCFG_CHIP_tPASCAL   0
 #define RMCFG_CHIP_TPASCAL   0
 #define RMCFG_CHIP_PASCAL_TEGRA_BIG_GPUS 0
-#define RMCFG_CHIP_DISPLAYLESS_TEGRA_BIG_GPUS 0
 #define RMCFG_CHIP_tVOLTA    0
 #define RMCFG_CHIP_TVOLTA    0
 #define RMCFG_CHIP_VOLTA_TEGRA_BIG_GPUS 0
+#define RMCFG_CHIP_DISPLAYLESS_TEGRA_BIG_GPUS 0
 #define RMCFG_CHIP_TURING_TEGRA_BIG_GPUS 0
 #define RMCFG_CHIP_T23X      1
 #define RMCFG_CHIP_T23X_TEGRA_BIG_GPUS 0
@@ -361,6 +355,9 @@
 #define RMCFG_CLASS_NV01_MEMORY_LIST_FBMEM        0
 #define RMCFG_CLASS_NV01_MEMORY_LIST_OBJECT       0
 #define RMCFG_CLASS_NV_IMEX_SESSION               0
+#define RMCFG_CLASS_PROFILER_DEVICE_EVENT         0
+#define RMCFG_CLASS_PROFILER_CONTEXT_EVENT        0
+#define RMCFG_CLASS_TRACE_DEVICE_EVENT            0
 #define RMCFG_CLASS_NV_MEMORY_EXPORT              0
 #define RMCFG_CLASS_NV_CE_UTILS                   0
 #define RMCFG_CLASS_NV_MEMORY_FABRIC              0
@@ -484,22 +481,11 @@
 #define RMCFG_CLASS_FERMI_TWOD_A                  0  // FERMI Graphics 2D
 #define RMCFG_CLASS_FERMI_VASPACE_A               0  // FERMI virtual address space
 #define RMCFG_CLASS_GF100_HDACODEC                1
-#define RMCFG_CLASS_NVA0B0_VIDEO_DECODER          0  // Combined MSVLD, MSPPP, MSPDEC (Maxwell)
-#define RMCFG_CLASS_NVB0B0_VIDEO_DECODER          0  // Decoder Class for GM20X
-#define RMCFG_CLASS_NVB6B0_VIDEO_DECODER          0  // Decoder Class for GM206
 #define RMCFG_CLASS_NVB8B0_VIDEO_DECODER          0  // Decoder Class for Hopper
-#define RMCFG_CLASS_NVC1B0_VIDEO_DECODER          0  // Decoder Class for Pascal
-#define RMCFG_CLASS_NVC2B0_VIDEO_DECODER          0  // Decoder Class for Pascal
-#define RMCFG_CLASS_NVC3B0_VIDEO_DECODER          0  // Decoder Class for Volta
 #define RMCFG_CLASS_NVC4B0_VIDEO_DECODER          0  // Decoder Class for Turing
 #define RMCFG_CLASS_NVC6B0_VIDEO_DECODER          0  // Decoder Class for Ampere
 #define RMCFG_CLASS_NVC7B0_VIDEO_DECODER          0  // Decoder Class for Ampere
 #define RMCFG_CLASS_NVC9B0_VIDEO_DECODER          0  // Decoder Class for Ada
-#define RMCFG_CLASS_NVC0B7_VIDEO_ENCODER          0
-#define RMCFG_CLASS_NVD0B7_VIDEO_ENCODER          0
-#define RMCFG_CLASS_NVC1B7_VIDEO_ENCODER          0
-#define RMCFG_CLASS_NVC2B7_VIDEO_ENCODER          0
-#define RMCFG_CLASS_NVC3B7_VIDEO_ENCODER          0
 #define RMCFG_CLASS_NVC4B7_VIDEO_ENCODER          0
 #define RMCFG_CLASS_NVB4B7_VIDEO_ENCODER          0
 #define RMCFG_CLASS_NVC7B7_VIDEO_ENCODER          0
@@ -559,6 +545,7 @@
 #define RMCFG_CLASS_KEPLER_DEVICE_VGPU            0  // KEPLER virtual gpu
 #define RMCFG_CLASS_NVA081_VGPU_CONFIG            0  // virtual gpu configuration
 #define RMCFG_CLASS_NVA084_KERNEL_HOST_VGPU_DEVICE  0  // Kernel component of the host virtual gpu device
+#define RMCFG_CLASS_NVA083_GRID_DISPLAYLESS       0  // virtual display for GRID Displayless stack
 #define RMCFG_CLASS_NV0060_SYNC_GPU_BOOST         0  // Synchronized GPU Boost Class. Defines a set of GPUs for Synchronized Boost
 #define RMCFG_CLASS_GP100_UVM_SW                  0  // UVM SW class to support SW methods for fault cancel
 #define RMCFG_CLASS_NVENC_SW_SESSION              0  // GPU NVENC Software Session
@@ -674,10 +661,12 @@
 #define RMCFG_MODULE_HDA                          0  // High Definition Audio (HDA) Engine
 #define RMCFG_MODULE_HDACODEC                     0  // High Definition Audio (HDA) Codec Engine
 #define RMCFG_MODULE_INFOROM                      0  // InfoROM Engine
+#define RMCFG_MODULE_ECC                          0
 #define RMCFG_MODULE_KERNEL_INFOROM               0  // Kernel controls for InfoROM Engine
 #define RMCFG_MODULE_LPWR                         0  // Low Power Object. This objects manages all power saving features.
 #define RMCFG_MODULE_KERNEL_LPWR                  0  // Low Power Object. This objects manages all power saving features.
 #define RMCFG_MODULE_PGCTRL                       0  // Power Gating Controller (PGCTRL) Engine
+#define RMCFG_MODULE_LPSEC                        0  // Low Power Sequencer
 #define RMCFG_MODULE_LPWRFSM                      1  // LPWR FSM Object Engine
 
 #define RMCFG_MODULE_PGISLAND                     0  // Power Gating Island (PGISLAND)
@@ -738,6 +727,7 @@
 #define RMCFG_MODULE_GPUGRP                       1  // Group of GPU(s) that may or may not be in SLI
 #define RMCFG_MODULE_KERNEL_HWPM                  0  // Hardware Performance Monitor on Kernel(CPU) RM
 #define RMCFG_MODULE_HWPM                         0  // Hardware Performance Monitor
+#define RMCFG_MODULE_NOISE                        0  // Noise mitigation features as part of wider DVFS/power management
 #define RMCFG_MODULE_NVLINK                       0  // NVLINK High-speed GPU interconnect
 #define RMCFG_MODULE_KERNEL_NVLINK                0  // Nvlink on Kernel(CPU) RM
 #define RMCFG_MODULE_IOCTRL                       0  // NVLINK Ioctrl

@@ -14,7 +14,7 @@ OUTPUT=$4
 XEN_PRESENT=1
 PREEMPT_RT_PRESENT=0
 
-NVIDIA_OOT_PATH="/usr/src/nvidia/nvidia-oot"
+NVIDIA_OOT_PATH="/usr/src/nvidia/nvidia-public"
 MODULE_SYMVERS_PATHS="$OUTPUT/Module.symvers"
 
 # Also search in out-of-tree Module.symvers on Tegra
@@ -363,7 +363,8 @@ check_symbol_exists() {
         for KMOD in linuxkpi.ko linuxkpi_gplv2.ko drm.ko dmabuf.ko ; do
             for KMODPATH in $KMODPATHS; do
                 if [ -e "$KMODPATH/$KMOD" ] ; then
-                    if nm "$KMODPATH/$KMOD" | grep "$SYMBOL" >/dev/null 2>&1 ; then
+                    # Search if this symbol is a global text symbol in nm output
+                    if nm "$KMODPATH/$KMOD" | grep "T.*$SYMBOL" >/dev/null 2>&1 ; then
                         return 0
                     fi
                 fi
@@ -507,6 +508,7 @@ compile_test() {
             #include <asm/pgtable_types.h>
             #endif
             #include <asm/page.h>
+            #include <linux/percpu.h>
             #include <asm/set_memory.h>
             #else
             #include <asm/cacheflush.h>
@@ -530,6 +532,7 @@ compile_test() {
             #include <asm/pgtable_types.h>
             #endif
             #include <asm/page.h>
+            #include <linux/percpu.h>
             #include <asm/set_memory.h>
             #else
             #include <asm/cacheflush.h>
@@ -588,6 +591,7 @@ compile_test() {
             #include <asm/pgtable_types.h>
             #endif
             #include <asm/page.h>
+            #include <linux/percpu.h>
             #include <asm/set_memory.h>
             #else
             #include <asm/cacheflush.h>
@@ -614,6 +618,7 @@ compile_test() {
             #include <asm/pgtable_types.h>
             #endif
             #include <asm/page.h>
+            #include <linux/percpu.h>
             #include <asm/set_memory.h>
             #else
             #include <asm/cacheflush.h>
@@ -669,50 +674,6 @@ compile_test() {
             compile_check_conftest "$CODE" "NV_IOREMAP_WC_PRESENT" "" "functions"
         ;;
 
-        ioremap_driver_hardened)
-            #
-            # Determine if the ioremap_driver_hardened() function is present.
-            # It does not exist on all architectures.
-            # TODO: Update the commit ID once the API is upstreamed.
-            #
-            CODE="
-            #include <asm/io.h>
-            void conftest_ioremap_driver_hardened(void) {
-                ioremap_driver_hardened();
-            }"
-
-            compile_check_conftest "$CODE" "NV_IOREMAP_DRIVER_HARDENED_PRESENT" "" "functions"
-        ;;
-
-        ioremap_driver_hardened_wc)
-            #
-            # Determine if the ioremap_driver_hardened_wc() function is present.
-            # It does not exist on all architectures.
-            # TODO: Update the commit ID once the API is upstreamed.
-            #
-            CODE="
-            #include <asm/io.h>
-            void conftest_ioremap_driver_hardened_wc(void) {
-                ioremap_driver_hardened_wc();
-            }"
-
-            compile_check_conftest "$CODE" "NV_IOREMAP_DRIVER_HARDENED_WC_PRESENT" "" "functions"
-        ;;
-
-        ioremap_cache_shared)
-            #
-            # Determine if the ioremap_cache_shared() function is present.
-            # It does not exist on all architectures.
-            # TODO: Update the commit ID once the API is upstreamed.
-            #
-            CODE="
-            #include <asm/io.h>
-            void conftest_ioremap_cache_shared(void) {
-                ioremap_cache_shared();
-            }"
-
-            compile_check_conftest "$CODE" "NV_IOREMAP_CACHE_SHARED_PRESENT" "" "functions"
-        ;;
         dom0_kernel_present)
             # Add config parameter if running on DOM0.
             if [ -n "$VGX_BUILD" ]; then
@@ -1126,30 +1087,99 @@ compile_test() {
             compile_check_conftest "$CODE" "NV_VFIO_DEVICE_OPS_HAS_DETACH_IOAS" "" "types"
         ;;
 
+        vfio_device_ops_has_get_region_info_caps)
+            #
+            # Determine if 'struct vfio_device_ops' has 'get_region_info_caps' 
+            # callback.
+            #
+            # Added by commit 775f726a742a ("vfio: Add get_region_info_caps op") 
+            # in v6.19
+            #
+            CODE="
+            #include <linux/pci.h>
+            #include <linux/vfio.h>
+            int conftest_vfio_device_ops_has_get_region_info_caps(void) {
+                return offsetof(struct vfio_device_ops, get_region_info_caps);
+            }"
+
+            compile_check_conftest "$CODE" "NV_VFIO_DEVICE_OPS_HAS_GET_REGION_INFO_CAPS" "" "types"
+        ;;
+
         pfn_address_space)
             #
             # Determine if 'struct pfn_address_space' structure is present or not.
+            #
+            # Added by commit 2ec41967189c ("mm: handle poisoning of pfn without
+            # struct pages") in v6.19
+            # Added by commit e6dbcb7c0e7b ("mm: fixup pfnmap memory failure
+            # handling to use pgoff in v6.19
             #
             CODE="
             #include <linux/memory-failure.h>
             void conftest_pfn_address_space() {
                 struct pfn_address_space pfn_address_space;
+                pfn_address_space.pfn_to_vma_pgoff = NULL;
+                register_pfn_address_space(&pfn_address_space);
+                unregister_pfn_address_space(&pfn_address_space);
+            }"
+            compile_check_conftest "$CODE" "NV_PFN_ADDRESS_SPACE_STRUCT_PRESENT" "" "types"
+        ;;
+	
+        irq_bypass_producer_has_token)
+            #
+            # Determine if 'struct irq_bypass_producer' has 'token' field
+            #
+            # Added by commit 2b521d86ee80 ("irqbypass: Take ownership of 
+            # producer/consumer token tracking") in v6.17
+            #
+            CODE="
+            #include <linux/irqbypass.h>
+            int conftest_irq_bypass_producer_has_token(void) {
+                return offsetof(struct irq_bypass_producer, token);
             }"
 
-            compile_check_conftest "$CODE" "NV_PFN_ADDRESS_SPACE_STRUCT_PRESENT" "" "types"
+            compile_check_conftest "$CODE" "NV_IRQ_BYPASS_PRODUCER_HAS_TOKEN" "" "types"
+        ;;
+
+        irq_bypass_register_producer_has_eventfd_and_irq_args)
+            #
+            # Determine if irq_bypass_register_producer() function has 
+            # additional 'eventfd' and 'irq' arguments.
+            #
+            # Added by commits 2b521d86ee80 ("irqbypass: Take ownership of
+            # producer/consumer token tracking") and 23b54381cee2 
+            # ("irqbypass: Require producers to pass in Linux IRQ number 
+            # during registration") in v6.17
+            #
+            CODE="
+            #include <linux/irqbypass.h>
+            #include <linux/eventfd.h>
+            void conftest_irq_bypass_register_producer_has_eventfd_and_irq_args(void) {
+                struct irq_bypass_producer *prod = NULL;
+                struct eventfd_ctx *eventfd = NULL;
+                int irq = 0;
+                irq_bypass_register_producer(prod, eventfd, irq);
+            }"
+
+            compile_check_conftest "$CODE" "NV_IRQ_BYPASS_REGISTER_PRODUCER_HAS_EVENTFD_AND_IRQ_ARGS" "" "types"
         ;;
 
         egm_module_helper_api_present)
             #
             # Determine if egm management api are present or not.
             #
+            # unregister_egm_node() function signature changed by commit 
+            # 9863aeed3a2d ("NVIDIA: SAUCE: vfio/nvgrace-egm: Update EGM 
+            # unregistration API") to use PCI device as its parameter
+            # https://github.com/NVIDIA/NV-Kernels.git
+            #
             CODE="
             #include <linux/pci.h>
             #include <linux/nvgrace-egm.h>
             void conftest_egm_module_helper_api_present() {
-                struct pci_dev *pdev;
+                struct pci_dev *pdev = NULL;
                 register_egm_node(pdev);
-                unregister_egm_node(0);
+                unregister_egm_node(pdev);
             }
             "
             compile_check_conftest "$CODE" "NV_EGM_MODULE_HELPER_API_PRESENT" "" "types"
@@ -1330,33 +1360,70 @@ compile_test() {
             compile_check_conftest "$CODE" "NV_EVENTFD_SIGNAL_HAS_COUNTER_ARG" "" "types"
         ;;
 
-        drm_available)
-            # Determine if the DRM subsystem is usable
+        get_dev_pagemap_has_pgmap_arg)
+            #
+            # Determine if the get_dev_pagemap() function has an additional
+            # 'pgmap' argument.
+            #
+            # This argument was removed by commit dd57f5feb19a
+            # (mm/memremap: remove unused get_dev_pagemap() parameter)
+            # in linux-next, expected in v6.18.
+            #
             CODE="
-            #if defined(NV_DRM_DRMP_H_PRESENT)
-            #include <drm/drmP.h>
-            #endif
+            #include <linux/memremap.h>
 
-            #include <drm/drm_drv.h>
+            struct dev_pagemap *get_dev_pagemap_has_pgmap_arg(void) {
+                struct dev_pagemap *pgmap;
 
-            #if !defined(CONFIG_DRM) && !defined(CONFIG_DRM_MODULE) && !defined(__FreeBSD__)
-            #error DRM not enabled
-            #endif
-
-            void conftest_drm_available(void) {
-                struct drm_driver drv;
-
-                /* 2013-10-02 1bb72532ac260a2d3982b40bdd4c936d779d0d16 */
-                (void)drm_dev_alloc;
-
-                /* 2013-10-02 c22f0ace1926da399d9a16dfaf09174c1b03594c */
-                (void)drm_dev_register;
-
-                /* 2013-10-02 c3a49737ef7db0bdd4fcf6cf0b7140a883e32b2a */
-                (void)drm_dev_unregister;
+                get_dev_pagemap(0, pgmap);
             }"
 
-            compile_check_conftest "$CODE" "NV_DRM_AVAILABLE" "" "generic"
+            compile_check_conftest "$CODE" "NV_GET_DEV_PAGEMAP_HAS_PGMAP_ARG" "" "types"
+        ;;
+
+        zone_device_page_init_has_pgmap_and_order_args)
+            #
+            # Determine if the zone_device_page_init() has two additional
+            # arguments
+            #
+            # This change was introduced by d245f9b4ab80
+            # ("mm/zone_device: support large zone device private folios")
+            #
+            # It was further amended in 9387a71ec62c
+            # (mm/zone_device: reinitialize large zone device private folios)
+            #
+            # both commits are in linux-next, expected in v6.19.
+            #
+            CODE="
+            #include <linux/memremap.h>
+            void init_page(void) {
+                struct page *page;
+                struct dev_pagemap *pgmap;
+
+                zone_device_page_init(page, pgmap, 0);
+            }"
+            compile_check_conftest "$CODE" "NV_ZONE_DEVICE_PAGE_INIT_HAS_PGMAP_AND_ORDER_ARGS" "" "types"
+        ;;
+
+        dev_pagemap_ops_has_folio_free)
+            #
+            # Determine if the zone device now uses a folio_free() as the callback
+            # function instead of page_free()
+            #
+            # This change was introduced by 3a5a06554566
+            # (mm/zone_device: rename page_free callback to folio_free)
+            #
+            # in linux-next, expected in v6.19.
+            #
+            CODE="
+            #include <linux/memremap.h>
+            void test_folio_free(struct folio *folio) {
+            }
+            void set_folio_free_ops(void) {
+                struct dev_pagemap_ops ops;
+                ops.folio_free = test_folio_free;
+            }"
+            compile_check_conftest "$CODE" "NV_PAGEMAP_OPS_HAS_FOLIO_FREE" "" "types"
         ;;
 
         drm_sysfs_connector_property_event)
@@ -1434,34 +1501,6 @@ compile_test() {
             compile_check_conftest "$CODE" "NV_PHYS_TO_DMA_PRESENT" "" "functions"
         ;;
 
-        dma_attr_macros)
-           #
-           # Determine if the NV_DMA_ATTR_SKIP_CPU_SYNC_PRESENT macro present.
-           # It does not exist on all architectures.
-           #
-           CODE="
-           #include <linux/dma-mapping.h>
-           void conftest_dma_attr_macros(void) {
-               int ret;
-               ret = DMA_ATTR_SKIP_CPU_SYNC();
-           }"
-           compile_check_conftest "$CODE" "NV_DMA_ATTR_SKIP_CPU_SYNC_PRESENT" "" "functions"
-        ;;
-
-       dma_map_page_attrs)
-           #
-           # Determine if the dma_map_page_attrs function is present.
-           # It does not exist on all architectures.
-           #
-           CODE="
-           #include <linux/dma-mapping.h>
-           void conftest_dma_map_page_attrs(void) {
-               dma_map_page_attrs();
-           }"
-
-           compile_check_conftest "$CODE" "NV_DMA_MAP_PAGE_ATTRS_PRESENT" "" "functions"
-        ;;
-
        nvhost_dma_fence_unpack)
            #
            # Determine if the nvhost_dma_fence_unpack function is present.
@@ -1492,71 +1531,6 @@ compile_test() {
             }"
 
             compile_check_conftest "$CODE" "NV_VMF_INSERT_PFN_PROT_PRESENT" "" "functions"
-        ;;
-
-        drm_atomic_available)
-            #
-            # Determine if the DRM atomic modesetting subsystem is usable
-            #
-            # Added by commit 036ef5733ba4
-            # ("drm/atomic: Allow drivers to subclass drm_atomic_state, v3") in
-            # v4.2 (2018-05-18).
-            #
-            # Make conftest more robust by adding test for
-            # drm_atomic_set_mode_prop_for_crtc(), this function added by
-            # commit 955f3c334f0f ("drm/atomic: Add MODE_ID property") in v4.2
-            # (2015-05-25). If the DRM atomic modesetting subsystem is
-            # back ported to Linux kernel older than v4.2, then commit
-            # 955f3c334f0f must be back ported in order to get NVIDIA-DRM KMS
-            # support.
-            # Commit 72fdb40c1a4b ("drm: extract drm_atomic_uapi.c") in v4.20
-            # (2018-09-05), moved drm_atomic_set_mode_prop_for_crtc() function
-            # prototype from drm/drm_atomic.h to drm/drm_atomic_uapi.h.
-            #
-            echo "$CONFTEST_PREAMBLE
-            #if defined(NV_DRM_DRMP_H_PRESENT)
-            #include <drm/drmP.h>
-            #endif
-            #include <drm/drm_atomic.h>
-            #if !defined(CONFIG_DRM) && !defined(CONFIG_DRM_MODULE) && !defined(__FreeBSD__)
-            #error DRM not enabled
-            #endif
-            void conftest_drm_atomic_modeset_available(void) {
-                size_t a;
-
-                a = offsetof(struct drm_mode_config_funcs, atomic_state_alloc);
-            }" > conftest$$.c;
-
-            $CC $CFLAGS -c conftest$$.c > /dev/null 2>&1
-            rm -f conftest$$.c
-
-            if [ -f conftest$$.o ]; then
-                rm -f conftest$$.o
-
-                echo "$CONFTEST_PREAMBLE
-                #if defined(NV_DRM_DRMP_H_PRESENT)
-                #include <drm/drmP.h>
-                #endif
-                #include <drm/drm_atomic.h>
-                #if defined(NV_DRM_DRM_ATOMIC_UAPI_H_PRESENT)
-                #include <drm/drm_atomic_uapi.h>
-                #endif
-                void conftest_drm_atomic_set_mode_prop_for_crtc(void) {
-                    drm_atomic_set_mode_prop_for_crtc();
-                }" > conftest$$.c;
-
-                $CC $CFLAGS -c conftest$$.c > /dev/null 2>&1
-                rm -f conftest$$.c
-
-                if [ -f conftest$$.o ]; then
-                    rm -f conftest$$.o
-                    echo "#undef NV_DRM_ATOMIC_MODESET_AVAILABLE" | append_conftest "generic"
-                else
-                    echo "#define NV_DRM_ATOMIC_MODESET_AVAILABLE" | append_conftest "generic"
-                fi
-            else
-                echo "#undef NV_DRM_ATOMIC_MODESET_AVAILABLE" | append_conftest "generic"
-            fi
         ;;
 
         drm_driver_has_legacy_dev_list)
@@ -2090,24 +2064,6 @@ compile_test() {
             fi
         ;;
 
-        enable_apicv)
-            #
-            # Determine if enable_apicv boolean is exported by kernel.
-            #
-            # Added by commit fdf513e37a3b ("KVM: x86: Use common
-            # 'enable_apicv' variable for both APICv and AVIC") in v5.14.
-            #
-            CODE="
-            $CONFTEST_PREAMBLE
-            #include <asm/kvm_host.h>
-
-            bool is_enable_apicv_present() {
-                return enable_apicv;
-            }"
-
-            compile_check_conftest "$CODE" "NV_ENABLE_APICV_PRESENT" "" "types"
-        ;;
-
         pci_driver_has_driver_managed_dma)
             #
             # Determine if "struct pci_driver" has .driver_managed_dma member.
@@ -2259,6 +2215,35 @@ compile_test() {
             compile_check_conftest "$CODE" "NV_GET_BACKLIGHT_DEVICE_BY_NAME_PRESENT" "" "functions"
         ;;
 
+        dma_map_ops_has_map_phys)
+            #
+            # Determine if .map_phys exists in struct dma_map_ops.
+            #
+            # Commit 14cb413af00c ("dma-mapping: remove unused mapping resource callbacks")
+            # removed .map_resource operation and replaced it with .map_phys.
+            #
+            echo "$CONFTEST_PREAMBLE
+            #include <linux/dma-map-ops.h>
+            int conftest_dma_map_ops_has_map_phys(void) {
+                return offsetof(struct dma_map_ops, map_phys);
+            }
+            int conftest_dma_map_ops_has_unmap_phys(void) {
+                return offsetof(struct dma_map_ops, unmap_phys);
+            }" > conftest$$.c
+
+            $CC $CFLAGS -c conftest$$.c > /dev/null 2>&1
+            rm -f conftest$$.c
+
+            if [ -f conftest$$.o ]; then
+                echo "#define NV_DMA_MAP_OPS_HAS_MAP_PHYS" | append_conftest "types"
+                rm -f conftest$$.o
+                return
+            else
+                echo "#undef NV_DMA_MAP_OPS_HAS_MAP_PHYS" | append_conftest "types"
+                return
+            fi
+        ;;
+
         dma_buf_ops_has_map)
             #
             # Determine if .map exists in dma_buf_ops.
@@ -2357,6 +2342,44 @@ compile_test() {
                 echo "#undef NV_DMA_BUF_ATTACHMENT_HAS_PEER2PEER" | append_conftest "types"
                 return
             fi
+        ;;
+
+        drm_fb_create_takes_format_info)
+            #
+            # Determine if a `struct drm_format_info *` is passed into
+            # the .fb_create callback. If so, it will have 4 arguments.
+            # This parameter was added in commit 81112eaac559 ("drm:
+            # Pass the format info to .fb_create") in linux-next
+            # (2025-07-16)
+            CODE="
+            #include <drm/drm_mode_config.h>
+            #include <drm/drm_framebuffer.h>
+
+            static const struct drm_mode_config_funcs funcs;
+            void conftest_drm_fb_create_takes_format_info(void) {
+                funcs.fb_create(NULL, NULL, NULL, NULL); 
+            }"
+
+            compile_check_conftest "$CODE" "NV_DRM_FB_CREATE_TAKES_FORMAT_INFO" "" "types"
+        ;;
+
+        drm_fill_fb_struct_takes_format_info)
+            #
+            # Determine if a `struct drm_format_info *` is passed into
+            # drm_helper_mode_fill_fb_struct(). If so, it will have 4 arguments.
+            # This parameter was added in commit a34cc7bf1034 ("drm:
+            # Allow the caller to pass in the format info to
+            # drm_helper_mode_fill_fb_struct()") in linux-next
+            # (2025-07-16)
+            CODE="
+            #include <linux/stddef.h>
+            #include <drm/drm_modeset_helper.h>
+
+            void conftest_drm_fill_fb_struct_takes_format_info(void) {
+                drm_helper_mode_fill_fb_struct(NULL, NULL, NULL, NULL);
+            }"
+
+            compile_check_conftest "$CODE" "NV_DRM_FILL_FB_STRUCT_TAKES_FORMAT_INFO" "" "types"
         ;;
 
         drm_connector_funcs_have_mode_in_name)
@@ -2477,6 +2500,7 @@ compile_test() {
             void pm_domain_conftest(void) {
                 dev_pm_genpd_suspend();
             }"
+
             compile_check_conftest "$CODE" "NV_PM_DOMAIN_AVAILABLE" "" "functions"
         ;;
 
@@ -2651,31 +2675,6 @@ compile_test() {
             }"
 
             compile_check_conftest "$CODE" "NV_MMU_NOTIFIER_OPS_HAS_ARCH_INVALIDATE_SECONDARY_TLBS" "" "types"
-        ;;
-
-        drm_format_num_planes)
-            #
-            # Determine if drm_format_num_planes() function is present.
-            #
-            # The drm_format_num_planes() function was added by commit
-            # d0d110e09629 drm: Add drm_format_num_planes() utility function in
-            # v3.3 (2011-12-20). Prototype was moved from drm_crtc.h to
-            # drm_fourcc.h by commit ae4df11a0f53 (drm: Move format-related
-            # helpers to drm_fourcc.c) in v4.8 (2016-06-09).
-            # drm_format_num_planes() has been removed by commit 05c452c115bf
-            # (drm: Remove users of drm_format_num_planes) removed v5.3
-            # (2019-05-16).
-            #
-            CODE="
-            #include <drm/drm_crtc.h>
-            #include <drm/drm_fourcc.h>
-
-            void conftest_drm_format_num_planes(void) {
-                drm_format_num_planes();
-            }
-            "
-
-            compile_check_conftest "$CODE" "NV_DRM_FORMAT_NUM_PLANES_PRESENT" "" "functions"
         ;;
 
         drm_gem_object_has_resv)
@@ -4069,6 +4068,27 @@ compile_test() {
             compile_check_conftest "$CODE" "NV_PCI_REBAR_GET_POSSIBLE_SIZES_PRESENT" "" "functions"
         ;;
 
+        pci_resize_resource_has_exclude_bars_arg)
+            #
+            # Determine if pci_resize_resource() has exclude_bars argument.
+            #
+            # exclude_bars argument was added to pci_resize_resource by commit
+            # 337b1b566db0 (11/14/2025) ("PCI: Fix restoring BARs on BAR resize rollback path")
+            # in linux-next.
+            #
+            CODE="
+            #include <linux/pci.h>
+
+            typeof(pci_resize_resource) conftest_pci_resize_resource_has_exclude_bars_arg;
+            int __must_check conftest_pci_resize_resource_has_exclude_bars_arg(struct pci_dev *dev,
+                                                                               int i, int size,
+                                                                               int exclude_bars) {
+                return 0;
+            }"
+
+            compile_check_conftest "$CODE" "NV_PCI_RESIZE_RESOURCE_HAS_EXCLUDE_BARS_ARG" "" "types"
+        ;;
+
         drm_connector_has_override_edid)
             #
             # Determine if 'struct drm_connector' has an 'override_edid' member.
@@ -4107,22 +4127,39 @@ compile_test() {
             compile_check_conftest "$CODE" "NV_IOMMU_SVA_BIND_DEVICE_HAS_DRVDATA_ARG" "" "types"
         ;;
 
-        vm_area_struct_has_const_vm_flags)
+        vm_flags_set)
             #
-            # Determine if the 'vm_area_struct' structure has
-            # const 'vm_flags'.
+            # Determine if the vm_flags_set() function is present. The
+            # presence of this function indicates that the vm_flags_clear()
+            # function is also present.
             #
-            # A union of '__vm_flags' and 'const vm_flags' was added by
+            # The functions vm_flags_set()/ vm_flags_clear() were added by
             # commit bc292ab00f6c ("mm: introduce vma->vm_flags wrapper
-            # functions") in v6.3.
+            # functions") in v6.3-rc1 (2023-02-09).
             #
             CODE="
-            #include <linux/mm_types.h>
-            int conftest_vm_area_struct_has_const_vm_flags(void) {
-                return offsetof(struct vm_area_struct, __vm_flags);
+            #include <linux/mm.h>
+            void conftest_vm_flags_set(void) {
+                vm_flags_set();
             }"
 
-            compile_check_conftest "$CODE" "NV_VM_AREA_STRUCT_HAS_CONST_VM_FLAGS" "" "types"
+            compile_check_conftest "$CODE" "NV_VM_FLAGS_SET_PRESENT" "" "functions"
+        ;;
+
+        vma_flags_set_word)
+            #
+            # Determine if the vma_flags_set_word() function is present.
+            #
+            # Added by commit c3f7c506e8f1 ("mm: introduce VMA flags bitmap type")
+            # in v6.19-rc1.
+            #
+            CODE="
+            #include <linux/mm.h>
+            void conftest_vma_flags_set_word(void) {
+                vma_flags_set_word();
+            }"
+
+            compile_check_conftest "$CODE" "NV_VMA_FLAGS_SET_WORD_PRESENT" "" "functions"
         ;;
 
         drm_driver_has_dumb_destroy)
@@ -4369,25 +4406,6 @@ compile_test() {
             }"
 
             compile_check_conftest "$CODE" "NV_DRM_APERTURE_REMOVE_CONFLICTING_PCI_FRAMEBUFFERS_HAS_DRIVER_ARG" "" "types"
-	;;
-
-        find_next_bit_wrap)
-            # Determine if 'find_next_bit_wrap' is defined.
-            #
-            # The function was added by commit 6cc18331a987 ("lib/find_bit:
-            # add find_next{,_and}_bit_wrap") in v6.1-rc1 (2022-09-19).
-            #
-            # Ideally, we would want to be able to include linux/find.h.
-            # However, linux/find.h does not allow direct inclusion. Rather
-            # it has to be included through linux/bitmap.h.
-            #
-            CODE="
-            #include <linux/bitmap.h>
-            void conftest_find_next_bit_wrap(void) {
-                  (void)find_next_bit_wrap();
-            }"
-
-            compile_check_conftest "$CODE" "NV_FIND_NEXT_BIT_WRAP_PRESENT" "" "functions"
         ;;
 
         crypto_tfm_ctx_aligned)
@@ -5065,6 +5083,78 @@ compile_test() {
             }"
 
             compile_check_conftest "$CODE" "NV_SHRINKER_ALLOC_PRESENT" "" "functions"
+        ;;
+
+        nr_kernel_misc_reclaimable)
+            #
+            # Determine if NR_KERNEL_MISC_RECLAIMABLE is present in
+            # enum node_stat_item.
+            #
+            # Added by commit a4a33ef5657a ("mm: add NR_KERNEL_MISC_RECLAIMABLE
+            # node stat for misc reclaimable kernel memory") in v5.9.
+            #
+            CODE="
+            #include <linux/mmzone.h>
+
+            void conftest_nr_kernel_misc_reclaimable(void) {
+                enum node_stat_item x = NR_KERNEL_MISC_RECLAIMABLE;
+                (void)x;
+            }"
+
+            compile_check_conftest "$CODE" "NV_NR_KERNEL_MISC_RECLAIMABLE_PRESENT" "" "types"
+        ;;
+
+        memory_device_coherent_present)
+            #
+            # Determine if MEMORY_DEVICE_COHERENT support is present or not
+            #
+            # Added by commit f25cbb7a95a2 ("mm: add zone device coherent type
+            # memory support") in v6.0.
+            #
+            CODE="
+            #include <linux/mm.h>
+            int memory_device_coherent = MEMORY_DEVICE_COHERENT;
+            "
+
+            compile_check_conftest "$CODE" "NV_MEMORY_DEVICE_COHERENT_PRESENT" "" "types"
+        ;;
+
+        drm_crtc_funcs_has_get_vblank_timestamp)
+            #
+            # Determine if the 'drm_crtc_funcs' structure has a
+            # 'get_vblank_timestamp' field.
+            #
+            # Added by commit 7fe3f0d15aac ("drm: Add get_vblank_timestamp()
+            # to struct drm_crtc_funcs.") in v5.0
+            #
+            CODE="
+            #include <drm/drm_crtc.h>
+
+            int conftest_drm_crtc_funcs_has_get_vblank_timestamp(void) {
+                return offsetof(struct drm_crtc_funcs, get_vblank_timestamp);
+            }"
+
+            compile_check_conftest "$CODE" "NV_DRM_CRTC_FUNCS_HAS_GET_VBLANK_TIMESTAMP" "" "types"
+        ;;
+
+        is_vma_write_locked_has_mm_lock_seq_arg)
+            #
+            # Determine if __is_vma_write_locked() takes only a single
+            # 'struct vm_area_struct *' argument.
+            #
+            # Commit 22f7639f2f03 ("mm/vma: improve and document
+            # __is_vma_write_locked()") removed the 'unsigned int *mm_lock_seq'
+            # parameter in v7.0-rc1.
+            #
+            CODE="
+            #include <linux/mm.h>
+            #include <linux/mmap_lock.h>
+            int conftest_is_vma_write_locked_has_mm_lock_seq_arg(struct vm_area_struct *vma) {
+                unsigned int mm_lock_seq;
+                return __is_vma_write_locked(vma, &mm_lock_seq);
+            }"
+
+            compile_check_conftest "$CODE" "NV_IS_VMA_WRITE_LOCKED_HAS_MM_LOCK_SEQ_ARG" "" "types"
         ;;
 
         # When adding a new conftest entry, please use the correct format for

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2022, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2015-2025, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -40,7 +40,7 @@
 
 #if defined(NV_DRM_AVAILABLE)
 
-#include "nvidia-drm-ioctl.h"
+#include "nv_drm_common_ioctl.h"
 
 #if defined(NV_DRM_DRMP_H_PRESENT)
 #include <drm/drmP.h>
@@ -94,10 +94,7 @@
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_gem.h>
 #include <drm/drm_auth.h>
-
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
 #include <drm/drm_atomic_helper.h>
-#endif
 
 static int nv_drm_revoke_modeset_permission(struct drm_device *dev,
                                             struct drm_file *filep,
@@ -144,8 +141,6 @@ static char* nv_get_transfer_function_name(
             return "Default";
     }
 };
-
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
 
 #if defined(NV_DRM_OUTPUT_POLL_CHANGED_PRESENT)
 static void nv_drm_output_poll_changed(struct drm_device *dev)
@@ -288,6 +283,10 @@ static int nv_drm_get_mst_display_infos
         goto done;
     }
 
+    if (!connectorInfo->dynamicDpyIdListValid) {
+        ret = -ETIMEDOUT;
+        goto done;
+    }
 
     *nDynamicDisplays = nvCountDpyIdsInDpyIdList(connectorInfo->dynamicDpyIdList);
 
@@ -449,9 +448,11 @@ static void nv_drm_enumerate_encoders_and_connectors
 
                     if (nv_drm_get_mst_display_infos(nv_dev, hDisplays[i],
                             &displayInfos, &nDynamicDisplays)) {
-                        NV_DRM_DEV_LOG_ERR(
+                        NV_DRM_DEV_LOG_INFO(
                                 nv_dev,
-                                "Failed to get dynamic displays");
+                                "Failed to get dynamic displays during device "
+                                "registration. Dynamic displays may be probed in "
+                                "non-deterministic order.");
                     } else if (nDynamicDisplays) {
                         nv_drm_sort_dynamic_displays_by_dp_addr(displayInfos, nDynamicDisplays);
 
@@ -485,8 +486,6 @@ static void nv_drm_enumerate_encoders_and_connectors
         }
     }
 }
-
-#endif /* NV_DRM_ATOMIC_MODESET_AVAILABLE */
 
 /*!
  * 'NV_DRM_OUT_FENCE_PTR' is an atomic per-plane property that clients can use
@@ -648,7 +647,6 @@ static int nv_drm_create_properties(struct nv_drm_device *nv_dev)
     return 0;
 }
 
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
 /*
  * We can't just call drm_kms_helper_hotplug_event directly because
  * fbdev_generic may attempt to set a mode from inside the hotplug event
@@ -667,16 +665,13 @@ static void nv_drm_handle_hotplug_event(struct work_struct *work)
 
     drm_kms_helper_hotplug_event(nv_dev->dev);
 }
-#endif
 
 static int nv_drm_dev_load(struct drm_device *dev)
 {
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
     struct NvKmsKapiDevice *pDevice;
 
     struct NvKmsKapiAllocateDeviceParams allocateDeviceParams;
     struct NvKmsKapiDeviceResourcesInfo resInfo;
-#endif /* defined(NV_DRM_ATOMIC_MODESET_AVAILABLE) */
     NvU64 kind;
     NvU64 gen;
     int i;
@@ -685,8 +680,6 @@ static int nv_drm_dev_load(struct drm_device *dev)
     struct nv_drm_device *nv_dev = to_nv_device(dev);
 
     NV_DRM_DEV_LOG_INFO(nv_dev, "Loading driver");
-
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
 
     if (!drm_core_check_feature(dev, DRIVER_MODESET)) {
         return 0;
@@ -705,7 +698,16 @@ static int nv_drm_dev_load(struct drm_device *dev)
     pDevice = nvKms->allocateDevice(&allocateDeviceParams);
 
     if (pDevice == NULL) {
-        NV_DRM_DEV_LOG_ERR(nv_dev, "Failed to allocate NvKmsKapiDevice");
+        if (nv_dev->gpu_info.needs_numa_setup) {
+            /*
+             * RM init from a kernel-mode driver may fail on GPUs that require
+             * NUMA setup. Just notify about that specifically rather than
+             * producing a scary-looking error.
+             */
+            NV_DRM_DEV_LOG_INFO(nv_dev, "NUMA was not set up yet; ignoring this device");
+        } else {
+            NV_DRM_DEV_LOG_ERR(nv_dev, "Failed to allocate NvKmsKapiDevice");
+        }
         return -ENODEV;
     }
 
@@ -747,6 +749,8 @@ static int nv_drm_dev_load(struct drm_device *dev)
 
     nv_dev->hasVideoMemory = resInfo.caps.hasVideoMemory;
 
+    nv_dev->contiguousPhysicalMappings = resInfo.caps.contiguousPhysicalMappings;
+
     nv_dev->genericPageKind = resInfo.caps.genericPageKind;
 
     // Fermi-Volta use generation 0, Turing+ uses generation 2.
@@ -765,8 +769,6 @@ static int nv_drm_dev_load(struct drm_device *dev)
     nv_dev->display_semaphores.count =
         resInfo.caps.numDisplaySemaphores;
     nv_dev->display_semaphores.next_index = 0;
-
-    nv_dev->requiresVrrSemaphores = resInfo.caps.requiresVrrSemaphores;
 
     nv_dev->vtFbBaseAddress = resInfo.vtFbBaseAddress;
     nv_dev->vtFbSize = resInfo.vtFbSize;
@@ -801,6 +803,7 @@ static int nv_drm_dev_load(struct drm_device *dev)
         }
 #endif
         nvKms->freeDevice(nv_dev->pDevice);
+        NV_DRM_DEV_LOG_ERR(nv_dev, "Failed to create DRM properties");
         return -ENODEV;
     }
 
@@ -840,22 +843,16 @@ static int nv_drm_dev_load(struct drm_device *dev)
 
     mutex_unlock(&nv_dev->lock);
 
-#endif /* NV_DRM_ATOMIC_MODESET_AVAILABLE */
-
     return 0;
 }
 
 static void nv_drm_dev_unload(struct drm_device *dev)
 {
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
     struct NvKmsKapiDevice *pDevice = NULL;
-#endif
 
     struct nv_drm_device *nv_dev = to_nv_device(dev);
 
     NV_DRM_DEV_LOG_INFO(nv_dev, "Unloading driver");
-
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
 
     if (!drm_core_check_feature(dev, DRIVER_MODESET)) {
         return;
@@ -899,11 +896,7 @@ static void nv_drm_dev_unload(struct drm_device *dev)
     mutex_unlock(&nv_dev->lock);
 
     nvKms->freeDevice(pDevice);
-
-#endif /* NV_DRM_ATOMIC_MODESET_AVAILABLE */
 }
-
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
 
 static int __nv_drm_master_set(struct drm_device *dev,
                                struct drm_file *file_priv, bool from_open)
@@ -1032,7 +1025,6 @@ void nv_drm_master_drop(struct drm_device *dev, struct drm_file *file_priv)
         }
     }
 }
-#endif /* NV_DRM_ATOMIC_MODESET_AVAILABLE */
 
 static int nv_drm_get_dev_info_ioctl(struct drm_device *dev,
                                      void *data, struct drm_file *filep)
@@ -1054,7 +1046,6 @@ static int nv_drm_get_dev_info_ioctl(struct drm_device *dev,
     params->supports_sync_fd = false;
     params->supports_semsurf = false;
 
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
     /* Memory allocation and semaphore surfaces are only supported
      * if the modeset = 1 parameter is set */
     if (nv_dev->pDevice != NULL) {
@@ -1068,7 +1059,6 @@ static int nv_drm_get_dev_info_ioctl(struct drm_device *dev,
             params->supports_sync_fd = true;
         }
     }
-#endif /* defined(NV_DRM_ATOMIC_MODESET_AVAILABLE) */
 
     return 0;
 }
@@ -1120,7 +1110,6 @@ int nv_drm_get_client_capability_ioctl(struct drm_device *dev,
     return 0;
 }
 
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
 static bool nv_drm_connector_is_dpy_id(struct drm_connector *connector,
                                        NvU32 dpyId)
 {
@@ -1558,7 +1547,6 @@ static void nv_drm_postclose(struct drm_device *dev, struct drm_file *filep)
         nv_drm_revoke_modeset_permission(dev, filep, 0);
     }
 }
-#endif /* NV_DRM_ATOMIC_MODESET_AVAILABLE */
 
 static int nv_drm_open(struct drm_device *dev, struct drm_file *filep)
 {
@@ -1735,6 +1723,11 @@ static long nv_drm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     return retcode;
 }
 
+static int nv_drm_load_noop(struct drm_device *dev, unsigned long flags)
+{
+    return 0;
+}
+
 static const struct file_operations nv_drm_fops = {
     .owner          = THIS_MODULE,
 
@@ -1745,9 +1738,7 @@ static const struct file_operations nv_drm_fops = {
     .compat_ioctl   = drm_compat_ioctl,
 #endif
 
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
     .mmap           = nv_drm_mmap,
-#endif
 
     .poll           = drm_poll,
     .read           = drm_read,
@@ -1760,12 +1751,9 @@ static const struct file_operations nv_drm_fops = {
 };
 
 static const struct drm_ioctl_desc nv_drm_ioctls[] = {
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
     DRM_IOCTL_DEF_DRV(NVIDIA_GEM_IMPORT_NVKMS_MEMORY,
                       nv_drm_gem_import_nvkms_memory_ioctl,
                       DRM_RENDER_ALLOW|DRM_UNLOCKED),
-#endif /* NV_DRM_ATOMIC_MODESET_AVAILABLE */
-
     DRM_IOCTL_DEF_DRV(NVIDIA_GEM_IMPORT_USERSPACE_MEMORY,
                       nv_drm_gem_import_userspace_memory_ioctl,
                       DRM_RENDER_ALLOW|DRM_UNLOCKED),
@@ -1816,7 +1804,6 @@ static const struct drm_ioctl_desc nv_drm_ioctls[] = {
                       nv_drm_get_client_capability_ioctl,
                       0),
 
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
     DRM_IOCTL_DEF_DRV(NVIDIA_GET_CRTC_CRC32,
                       nv_drm_get_crtc_crc32_ioctl,
                       DRM_RENDER_ALLOW|DRM_UNLOCKED),
@@ -1850,7 +1837,6 @@ static const struct drm_ioctl_desc nv_drm_ioctls[] = {
     DRM_IOCTL_DEF_DRV(NVIDIA_REVOKE_PERMISSIONS,
                       nv_drm_revoke_permission_ioctl,
                       DRM_UNLOCKED|DRM_MASTER),
-#endif /* NV_DRM_ATOMIC_MODESET_AVAILABLE */
 };
 
 static struct drm_driver nv_drm_driver = {
@@ -1924,9 +1910,9 @@ static struct drm_driver nv_drm_driver = {
     .gem_prime_res_obj      = nv_drm_gem_prime_res_obj,
 #endif
 
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
+    .load                   = nv_drm_load_noop,
+
     .postclose              = nv_drm_postclose,
-#endif
     .open                   = nv_drm_open,
 
     .fops                   = &nv_drm_fops,
@@ -1958,8 +1944,6 @@ static struct drm_driver nv_drm_driver = {
  */
 void nv_drm_update_drm_driver_features(void)
 {
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
-
     if (!nv_drm_modeset_module_param) {
         return;
     }
@@ -1974,7 +1958,6 @@ void nv_drm_update_drm_driver_features(void)
 #if defined(NV_DRM_DRIVER_HAS_DUMB_DESTROY)
     nv_drm_driver.dumb_destroy     = nv_drm_dumb_destroy;
 #endif /* NV_DRM_DRIVER_HAS_DUMB_DESTROY */
-#endif /* NV_DRM_ATOMIC_MODESET_AVAILABLE */
 }
 
 
@@ -2006,9 +1989,7 @@ void nv_drm_register_drm_device(const struct NvKmsKapiGpuInfo *gpu_info)
     nv_dev->gpu_info = gpu_info->gpuInfo;
     nv_dev->gpu_mig_device = gpu_info->migDevice;
 
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
     mutex_init(&nv_dev->lock);
-#endif
 
     /* Allocate DRM device */
 
@@ -2037,7 +2018,6 @@ void nv_drm_register_drm_device(const struct NvKmsKapiGpuInfo *gpu_info)
 
     /* Load DRM device before registering it */
     if (nv_drm_dev_load(dev) != 0) {
-        NV_DRM_DEV_LOG_ERR(nv_dev, "Failed to load device");
         goto failed_drm_load;
     }
 
@@ -2270,7 +2250,6 @@ void nv_drm_suspend_resume(NvBool suspend)
         }
     }
 
-#if defined(NV_DRM_ATOMIC_MODESET_AVAILABLE)
     nv_dev = dev_list;
 
     /*
@@ -2296,7 +2275,6 @@ void nv_drm_suspend_resume(NvBool suspend)
             drm_kms_helper_poll_enable(dev);
         }
     }
-#endif /* NV_DRM_ATOMIC_MODESET_AVAILABLE */
 
 done:
     mutex_unlock(&dev_list_mutex);

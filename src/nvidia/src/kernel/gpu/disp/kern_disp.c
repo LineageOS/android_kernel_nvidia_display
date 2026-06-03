@@ -49,21 +49,8 @@
 #include "nvrm_registry.h"
 #include "gpu/mem_mgr/mem_mgr.h"
 
-#include "ctrl/ctrl2080.h"
+#include "ctrl/ctrl2080/ctrl2080internal.h"
 
-#include "class/cl5070.h"
-#include "class/cl917a.h"
-#include "class/cl917b.h"
-#include "class/cl917e.h"
-#include "class/cl927c.h"
-#include "class/cl947d.h"
-#include "class/cl957d.h"
-#include "class/cl977d.h"
-#include "class/cl987d.h"
-#include "class/clc37a.h"
-#include "class/clc37b.h"
-#include "class/clc37d.h"
-#include "class/clc37e.h"
 #include "class/clc57a.h"
 #include "class/clc57b.h"
 #include "class/clc57d.h"
@@ -708,8 +695,6 @@ kdispGetIntChnClsForHwCls_IMPL
 
     switch (hwClass)
     {
-        case NV917A_CURSOR_CHANNEL_PIO:
-        case NVC37A_CURSOR_IMM_CHANNEL_PIO:
         case NVC57A_CURSOR_IMM_CHANNEL_PIO:
         case NVC67A_CURSOR_IMM_CHANNEL_PIO:
         case NVC97A_CURSOR_IMM_CHANNEL_PIO:
@@ -717,19 +702,6 @@ kdispGetIntChnClsForHwCls_IMPL
             *pDispChnClass = dispChnClass_Curs;
             break;
 
-        case NV917B_OVERLAY_IMM_CHANNEL_PIO:
-            *pDispChnClass = dispChnClass_Ovim;
-            break;
-
-        case NV927C_BASE_CHANNEL_DMA:
-            *pDispChnClass = dispChnClass_Base;
-            break;
-
-        case NV947D_CORE_CHANNEL_DMA:
-        case NV957D_CORE_CHANNEL_DMA:
-        case NV977D_CORE_CHANNEL_DMA:
-        case NV987D_CORE_CHANNEL_DMA:
-        case NVC37D_CORE_CHANNEL_DMA:
         case NVC57D_CORE_CHANNEL_DMA:
         case NVC67D_CORE_CHANNEL_DMA:
         case NVC97D_CORE_CHANNEL_DMA:
@@ -737,11 +709,6 @@ kdispGetIntChnClsForHwCls_IMPL
             *pDispChnClass = dispChnClass_Core;
             break;
 
-        case NV917E_OVERLAY_CHANNEL_DMA:
-            *pDispChnClass = dispChnClass_Ovly;
-            break;
-
-        case NVC37B_WINDOW_IMM_CHANNEL_DMA:
         case NVC57B_WINDOW_IMM_CHANNEL_DMA:
         case NVC67B_WINDOW_IMM_CHANNEL_DMA:
         case NVC97B_WINDOW_IMM_CHANNEL_DMA:
@@ -749,7 +716,6 @@ kdispGetIntChnClsForHwCls_IMPL
             *pDispChnClass = dispChnClass_Winim;
             break;
 
-        case NVC37E_WINDOW_CHANNEL_DMA:
         case NVC57E_WINDOW_CHANNEL_DMA:
         case NVC67E_WINDOW_CHANNEL_DMA:
         case NVC97E_WINDOW_CHANNEL_DMA:
@@ -935,18 +901,18 @@ kdispNotifyEvent_IMPL
     }
 }
 
-void kdispAcquireLowLatencyLock(volatile NvS32 *pLowLatencyLock)
+void kdispAcquireLowLatencyLock(PORT_ATOMIC NvS32 * pLowLatencyLock)
 {
     while (!portAtomicCompareAndSwapS32(pLowLatencyLock, 1, 0))
         osSpinLoop();
 }
 
-NvBool kdispAcquireLowLatencyLockConditional(volatile NvS32 *pLowLatencyLock)
+NvBool kdispAcquireLowLatencyLockConditional(PORT_ATOMIC NvS32 *pLowLatencyLock)
 {
     return portAtomicCompareAndSwapS32(pLowLatencyLock, 1, 0);
 }
 
-void kdispReleaseLowLatencyLock(volatile NvS32 *pLowLatencyLock)
+void kdispReleaseLowLatencyLock(PORT_ATOMIC NvS32 *pLowLatencyLock)
 {
     portAtomicCompareAndSwapS32(pLowLatencyLock, 0, 1);
 }
@@ -1043,10 +1009,7 @@ NV_STATUS kdispOptimizePerFrameOsCallbacks_IMPL
     //    
     kdispServiceAwakenIntr_HAL(pGpu, pKernelDisplay, pThreadState);
 
-    if (!IS_GSP_CLIENT(pGpu))
-    {
-        exVblankServiceHeadMask = kdispGetDeferredVblankHeadMask(pKernelDisplay);
-    }
+    exVblankServiceHeadMask = kdispGetDeferredVblankHeadMask(pKernelDisplay);
 
     for (head = 0; head < kdispGetNumHeads(pKernelDisplay); ++head)
     {
@@ -1078,11 +1041,8 @@ NV_STATUS kdispOptimizePerFrameOsCallbacks_IMPL
             VBLANKCALLBACK  *pCallback = NULL;
             NvBool dataValid = NV_FALSE;
 
-            if (!IS_GSP_CLIENT(pGpu))
-            {
-                // Keep track of which heads that we serviced
-                vblankServicedHeadMask |= NVBIT(head);
-            }
+            // Keep track of which heads that we serviced
+            vblankServicedHeadMask |= NVBIT(head);
 
             // Clear the intr if we were asked to
             if (clearIntr == NV_TRUE)
@@ -1129,7 +1089,7 @@ NV_STATUS kdispOptimizePerFrameOsCallbacks_IMPL
                 // RM callback above - aka osVblankCallback.pParm3.
                 //
 
-                if (pCallback->bIsVblankNotifyEnable && !pKernelDisplay->bIsPanelReplayEnabled)
+                if (pCallback->bIsVblankNotifyEnable)
                 {
                     osVblankCallback.pProc(osVblankCallback.pParm1, osVblankCallback.pParm2);
                 }

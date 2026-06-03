@@ -280,6 +280,7 @@ void rmapiSetDelPendingClientResourcesFromGpuMask(NvU32 gpuMask);
 void rmapiDelPendingClients(void);
 void rmapiDelPendingDevices(NvU32 gpuMask);
 void rmapiReportLeakedDevices(NvU32 gpuMask);
+void rmapiReportInternalLeakedDevices(NvU32 gpuMask);
 
 //
 // Given a value, retrieves an array of client handles corresponding to clients
@@ -299,8 +300,6 @@ NV_STATUS rmapiGetEffectiveAddrSpace(OBJGPU *pGpu, MEMORY_DESCRIPTOR *pMemDesc, 
  * Deprecated RM API interfaces. Use RM_API instead.
  */
 NV_STATUS RmUnmapMemoryDma(NvHandle, NvHandle, NvHandle, NvHandle, MEMORY_DESCRIPTOR*, NvU32, NvU64);
-NV_STATUS RmConfigGetEx   (NvHandle, NvHandle, NvU32, NvP64, NvU32, NvBool);
-NV_STATUS RmConfigSetEx   (NvHandle, NvHandle, NvU32, NvP64, NvU32, NvBool);
 
 /**
  * Control cache API.
