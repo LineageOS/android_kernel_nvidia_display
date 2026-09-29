@@ -130,10 +130,8 @@ static atomic_t nvkms_alloc_called_count;
 #define NV_SUPPORTS_PLATFORM_DEVICE_PUT NV_IS_EXPORT_SYMBOL_GPL_platform_device_put
 
 #if defined(NV_LINUX_NVHOST_H_PRESENT) && NV_SUPPORTS_PLATFORM_DEVICE_PUT
-#if defined(NV_LINUX_HOST1X_NEXT_H_PRESENT) || defined(CONFIG_TEGRA_GRHOST)
 #define NVKMS_NVHOST_SYNCPT_SUPPORTED
 struct platform_device *nvhost_platform_device = NULL;
-#endif
 #endif
 
 NvBool nvkms_test_fail_alloc_core_channel(
@@ -291,11 +289,11 @@ NvBool nvkms_syncpt_op(
     return NV_TRUE;
 }
 
-#elif defined(NVKMS_NVHOST_SYNCPT_SUPPORTED) && defined(NV_LINUX_HOST1X_NEXT_H_PRESENT)
+#elif defined(NVKMS_NVHOST_SYNCPT_SUPPORTED)
 
 #include <linux/dma-fence.h>
 #include <linux/file.h>
-#include <linux/host1x-next.h>
+#include <linux/host1x.h>
 #include <linux/sync_file.h>
 
 /*
@@ -372,7 +370,7 @@ NvBool nvkms_syncpt_op(
             f = array->fences[0];
         }
 
-        err = host1x_fence_extract(f, &id, &thresh);
+        err = host1x_fence_extract(f, NULL, &id, &thresh);
         dma_fence_put(f);
 
         if (err < 0) {

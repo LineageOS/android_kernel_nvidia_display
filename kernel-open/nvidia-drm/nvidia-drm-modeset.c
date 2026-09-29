@@ -41,8 +41,8 @@
 
 #if defined(NV_LINUX_NVHOST_H_PRESENT) && defined(CONFIG_TEGRA_GRHOST)
 #include <linux/nvhost.h>
-#elif defined(NV_LINUX_HOST1X_NEXT_H_PRESENT)            
-#include <linux/host1x-next.h>
+#else
+#include <linux/host1x.h>
 #endif
 
 #include <linux/dma-fence.h>
@@ -222,10 +222,10 @@ static int __nv_drm_convert_in_fences(
                 continue;
             }
 #endif
-#elif defined(NV_LINUX_HOST1X_NEXT_H_PRESENT)
+#else
             int ret =
                 host1x_fence_extract(
-                    plane_state->fence,
+                    plane_state->fence, NULL,
                     &plane_req_config->config.syncParams.u.syncpt.preSyncptId,
                     &plane_req_config->config.syncParams.u.syncpt.preSyncptValue);
             if (ret == 0) {

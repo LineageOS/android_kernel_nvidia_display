@@ -29,7 +29,6 @@ NV_HEADER_PRESENCE_TESTS = \
   linux/platform/tegra/dce/dce-client-ipc.h \
   linux/nvhost.h \
   linux/nvhost_t194.h \
-  linux/host1x-next.h \
   asm/set_memory.h \
   asm/pgtable_types.h \
   linux/dma-map-ops.h \
