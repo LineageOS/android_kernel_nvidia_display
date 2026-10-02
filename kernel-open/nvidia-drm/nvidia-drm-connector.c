@@ -582,7 +582,7 @@ nv_drm_connector_new(struct drm_device *dev,
     }
 
 #if defined(NV_DRM_CONNECTOR_ATTACH_HDR_OUTPUT_METADATA_PROPERTY_PRESENT)
-    if (nv_connector->type == NVKMS_CONNECTOR_TYPE_HDMI) {
+    /*if (nv_connector->type == NVKMS_CONNECTOR_TYPE_HDMI) {
 #if defined(NV_DRM_MODE_CREATE_DP_COLORSPACE_PROPERTY_HAS_SUPPORTED_COLORSPACES_ARG)
         if (drm_mode_create_hdmi_colorspace_property(
                 &nv_connector->base,
@@ -604,7 +604,7 @@ nv_drm_connector_new(struct drm_device *dev,
             drm_connector_attach_colorspace_property(&nv_connector->base);
         }
         drm_connector_attach_hdr_output_metadata_property(&nv_connector->base);
-    }
+    }*/
 #endif /* defined(NV_DRM_CONNECTOR_ATTACH_HDR_OUTPUT_METADATA_PROPERTY_PRESENT) */
 
     /* Register connector with DRM subsystem */
