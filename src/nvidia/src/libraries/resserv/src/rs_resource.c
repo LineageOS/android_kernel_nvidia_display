@@ -29,6 +29,7 @@
 #include "resserv/rs_client.h"
 #include "resserv/rs_server.h"
 
+
 #if !(RS_STANDALONE)
 #include "os/os.h"
 #endif
@@ -580,6 +581,7 @@ refRemoveMapping
 )
 {
     if ((pCpuMapping->pContextRef != NULL) &&
+        (pCpuMapping->pContextRef != pResourceRef) &&
         !refHasAncestor(pResourceRef, pCpuMapping->pContextRef))
     {
         listRemove(&pCpuMapping->pContextRef->backRefs, pCpuMapping);
@@ -786,7 +788,14 @@ refAddDependant
     if (status != NV_OK)
         return status;
 
-    return indexAdd(&pResourceRef->depRefMap, pDependantRef->internalClassId, pDependantRef);
+    status = indexAdd(&pResourceRef->depRefMap, pDependantRef->internalClassId, pDependantRef);
+    if (status != NV_OK)
+    {
+        NV_ASSERT_OK(indexRemove(&pDependantRef->depBackRefMap,
+                                 pResourceRef->internalClassId, pResourceRef));
+    }
+
+    return status;
 }
 
 void

@@ -174,7 +174,7 @@ void ConnectorImpl::applyRegkeyOverrides(const DP_REGKEY_DATABASE& dpRegkeyDatab
               "All regkeys are invalid because dpRegkeyDatabase is not initialized!");
 
     this->bSkipAssessLinkForEDP = dpRegkeyDatabase.bAssesslinkForEdpSkipped;
-    this->bSkipPanelPowerWrite  = dpRegkeyDatabase.bSkipPanelPowerWrite; 
+    this->bSkipPanelPowerWrite  = dpRegkeyDatabase.bSkipPanelPowerWrite;
 
     //
     // Default bHdcpAuthOnlyOnDemand, bMstRestoreHdcpStateAtAttach are true
@@ -2868,6 +2868,11 @@ void ConnectorImpl::fireEventsInternal()
                 }
             }
 #endif
+             // Remove device from dscEnabledDevices list before deletion to prevent dangling pointer
+             if (dscEnabledDevices.contains(dev))
+             {
+                 dscEnabledDevices.remove(dev);
+             }
             delete dev;
 
             // Now that the device is deleted, update the DP Tunnel BW allocation
@@ -7246,16 +7251,19 @@ void ConnectorImpl::disconnectDeviceList()
 {
     for (Device * d = enumDevices(0); d; d = enumDevices(d))
     {
-        ((DeviceImpl*)d)->plugged = false;
+        DeviceImpl* device = (DeviceImpl*)d;
+
+        device->plugged = false;
         // Clear the active bit (payload_allocate)
-        ((DeviceImpl*)d)->payloadAllocated = false;
+        device->payloadAllocated = false;
 
         // Deallocate object which may go stale after long pulse handling.
-        if (((DeviceImpl*)d)->isDeviceHDCPDetectionAlive)
+        if (device->isDeviceHDCPDetectionAlive)
         {
-            delete ((DeviceImpl*)d)->deviceHDCPDetection;
-            ((DeviceImpl*)d)->deviceHDCPDetection = NULL;
-            ((DeviceImpl*)d)->isHDCPCap = False;
+            device->deviceHDCPDetection->destroy();
+            device->isHDCPCap = False;
+            device->deviceHDCPDetection = NULL;
+            device->isDeviceHDCPDetectionAlive = false;
         }
     }
 }
@@ -7656,7 +7664,16 @@ void ConnectorImpl::notifyLongPulseInternal(bool statusConnected)
             else
             {
                 dev.peerDevice = DownstreamSink;
-                if (hal->isAtLeastVersion(1, 4) && !bDisableNativeDisplayId2xSupport)
+                bool bIsDpToHdmiDongle = false;
+                if (hal->getLegacyPortCount() != 0)
+                {
+                    LegacyPort * port = hal->getLegacyPort(0);
+                    bIsDpToHdmiDongle = (port->getDownstreamPortType() == HDMI);
+                }
+
+                if (hal->isAtLeastVersion(1, 4) &&
+                    !bIsDpToHdmiDongle &&
+                    !bDisableNativeDisplayId2xSupport)
                 {
                     DisplayId2ReadSST(tmpDid2x, auxBus, timer, main);
                 }
@@ -8705,7 +8722,7 @@ bool ConnectorImpl::updatePsrLinkState(bool bTurnOnLink)
         {
             bSetPanelPower = false;
         }
-        
+
         if (bSetPanelPower)
         {
             hal->setPowerState(PowerStateD0);

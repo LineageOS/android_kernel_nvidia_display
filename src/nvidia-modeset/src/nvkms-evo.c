@@ -5583,6 +5583,26 @@ static void RestoreSorAssignList(NVDispEvoRec *pDispEvo,
     }
 }
 
+static void AllocDIFRState(NVDevEvoPtr pDevEvo)
+{
+    pDevEvo->pDifrState = nvDIFRAllocate(pDevEvo);
+    if (pDevEvo->pDifrState) {
+        if (!nvRmRegisterDIFREventHandler(pDevEvo)) {
+            nvDIFRFree(pDevEvo->pDifrState);
+            pDevEvo->pDifrState = NULL;
+        }
+    }
+}
+
+static void FreeDIFRState(NVDevEvoPtr pDevEvo)
+{
+    if (pDevEvo->pDifrState) {
+        nvRmUnregisterDIFREventHandler(pDevEvo);
+        nvDIFRFree(pDevEvo->pDifrState);
+        pDevEvo->pDifrState = NULL;
+    }
+}
+
 NvBool nvResumeDevEvo(NVDevEvoRec *pDevEvo)
 {
     struct {
@@ -5637,11 +5657,14 @@ NvBool nvResumeDevEvo(NVDevEvoRec *pDevEvo)
         }
     }
 
+    AllocDIFRState(pDevEvo);
+
     return TRUE;
 }
 
 void nvSuspendDevEvo(NVDevEvoRec *pDevEvo)
 {
+    FreeDIFRState(pDevEvo);
     nvFreeCoreChannelEvo(pDevEvo);
 }
 
@@ -8794,11 +8817,7 @@ NvBool nvFreeDevEvo(NVDevEvoPtr pDevEvo)
         return FALSE;
     }
 
-    if (pDevEvo->pDifrState) {
-        nvRmUnregisterDIFREventHandler(pDevEvo);
-        nvDIFRFree(pDevEvo->pDifrState);
-        pDevEvo->pDifrState = NULL;
-    }
+    FreeDIFRState(pDevEvo);
 
     if (pDevEvo->pNvKmsOpenDev != NULL) {
         /*
@@ -8991,17 +9010,7 @@ NVDevEvoPtr nvAllocDevEvo(const struct NvKmsAllocDeviceRequest *pRequest,
 
     status = NVKMS_ALLOC_DEVICE_STATUS_SUCCESS;
 
-    /*
-     * We can't allocate DIFR state if h/w doesn't support it. Only register
-     * event handlers with DIFR state.
-     */
-    pDevEvo->pDifrState = nvDIFRAllocate(pDevEvo);
-    if (pDevEvo->pDifrState) {
-        if (!nvRmRegisterDIFREventHandler(pDevEvo)) {
-            nvDIFRFree(pDevEvo->pDifrState);
-            pDevEvo->pDifrState = NULL;
-        }
-    }
+    AllocDIFRState(pDevEvo);
 
     /* fall through */
 

@@ -2223,6 +2223,7 @@ void DPCDHALImpl::applyRegkeyOverrides(const DP_REGKEY_DATABASE& dpRegkeyDatabas
             "All regkeys are invalid because dpRegkeyDatabase is not initialized!");
     overrideDpcdRev          = dpRegkeyDatabase.dpcdRevOveride;
     bBypassILREdpRevCheck    = dpRegkeyDatabase.bBypassEDPRevCheck;
+    bSkipPanelD3InPsr        = dpRegkeyDatabase.bSkipPanelPowerdownInPsr;
 }
 
 bool DPCDHALImpl::clearPendingMsg()

@@ -644,7 +644,7 @@ NV_STATUS NV_API_CALL os_alloc_mem(
         }
         if (*address == NULL)
         {
-            *address = nv_vmalloc(alloc_size);
+            *address = nv_vmalloc(alloc_size, GFP_KERNEL);
             alloc_size |= VMALLOC_ALLOCATION_SIZE_FLAG;
         }
     }
@@ -761,8 +761,10 @@ NvU32 NV_API_CALL os_get_current_process(void)
 void NV_API_CALL os_get_current_process_name(char *buf, NvU32 len)
 {
     task_lock(current);
-    strncpy(buf, current->comm, len - 1);
-    buf[len - 1] = '\0';
+    if (strscpy(buf, current->comm, len) < 0) {
+        // strscpy() returns -E2BIG on truncation, which is acceptable here.
+    }
+
     task_unlock(current);
 }
 

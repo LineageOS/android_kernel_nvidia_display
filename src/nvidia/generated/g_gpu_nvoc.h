@@ -491,6 +491,9 @@ typedef struct
     NvU32                 Manufacturer;
     NvU32                 PCISubDeviceID;
     NvU32                 PCIRevisionID;
+    NvU32                 PCIProgrammingInterface;
+    NvU32                 PCISubClass;
+    NvU32                 PCIBaseClass;
     NvU32                 Subrevision;
 
 } GPUIDINFO;
@@ -936,7 +939,7 @@ struct OBJGPU {
     const CLASSDESCRIPTOR * (*__gpuGetEngClassDescriptorList__)(struct OBJGPU * /*this*/, NvU32 *);  // halified (3 hals)
     const NvU32 * (*__gpuGetNoEngClassList__)(struct OBJGPU * /*this*/, NvU32 *);  // halified (3 hals)
 
-    // 121 PDB properties
+    // 122 PDB properties
     NvBool PDB_PROP_GPU_IN_STANDBY;
     NvBool PDB_PROP_GPU_IN_HIBERNATE;
     NvBool PDB_PROP_GPU_IN_PM_CODEPATH;
@@ -1058,6 +1061,7 @@ struct OBJGPU {
     NvBool PDB_PROP_GPU_RUSD_DISABLE_CLK_PUBLIC_DOMAIN_INFO;
     NvBool PDB_PROP_GPU_ALLOC_ISO_SYS_MEM_FROM_CARVEOUT;
     NvBool PDB_PROP_GPU_HFRP_IS_KERNEL_OBJECT_ACTIVE_WAR;
+    NvBool PDB_PROP_GPU_WAR_5656465_SUPPORTED;
 
     // Data members
     NvU32 moduleId;
@@ -1524,6 +1528,8 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJGPU;
 #define PDB_PROP_GPU_ALLOC_ISO_SYS_MEM_FROM_CARVEOUT_BASE_NAME PDB_PROP_GPU_ALLOC_ISO_SYS_MEM_FROM_CARVEOUT
 #define PDB_PROP_GPU_HFRP_IS_KERNEL_OBJECT_ACTIVE_WAR_BASE_CAST
 #define PDB_PROP_GPU_HFRP_IS_KERNEL_OBJECT_ACTIVE_WAR_BASE_NAME PDB_PROP_GPU_HFRP_IS_KERNEL_OBJECT_ACTIVE_WAR
+#define PDB_PROP_GPU_WAR_5656465_SUPPORTED_BASE_CAST
+#define PDB_PROP_GPU_WAR_5656465_SUPPORTED_BASE_NAME PDB_PROP_GPU_WAR_5656465_SUPPORTED
 
 
 NV_STATUS __nvoc_objCreateDynamic_OBJGPU(OBJGPU**, Dynamic*, NvU32, va_list);

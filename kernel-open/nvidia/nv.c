@@ -418,7 +418,12 @@ nv_alloc_t *nvos_create_alloc(
         return NULL;
     }
 
-    at->page_table = kvzalloc(pt_size, NV_GFP_KERNEL);
+    /* kvzalloc() rejects sizes > INT_MAX; use vmalloc() for oversized tables. */
+    if (pt_size > (NvU64)INT_MAX)
+        at->page_table = nv_vmalloc(pt_size, NV_GFP_KERNEL | __GFP_ZERO);
+    else
+        at->page_table = kvzalloc(pt_size, NV_GFP_KERNEL);
+
     if (at->page_table == NULL)
     {
         nv_printf(NV_DBG_ERRORS, "NVRM: failed to allocate page table\n");
@@ -438,13 +443,20 @@ int nvos_free_alloc(
     nv_alloc_t *at
 )
 {
+    NvU64 pt_size;
+
     if (at == NULL)
         return -1;
 
     if (atomic64_read(&at->usage_count))
         return 1;
 
-    kvfree(at->page_table);
+    pt_size = (NvU64)at->num_pages * sizeof(nvidia_pte_t);
+
+    if (pt_size > (NvU64)INT_MAX)
+        nv_vfree(at->page_table, pt_size);
+    else
+        kvfree(at->page_table);
 
     NV_KFREE(at, sizeof(nv_alloc_t));
 
@@ -1052,6 +1064,10 @@ static void nv_free_file_private(nv_linux_file_private_t *nvlfp)
 
     if (nvlfp == NULL)
         return;
+
+    // Event teardown can race in-flight posts that still use nvfp.
+    while (READ_ONCE(nvlfp->nvfp.event_posting_refcount) != 0)
+        cond_resched();
 
     for (nvet = nvlfp->event_data_head; nvet != NULL; nvet = nvlfp->event_data_head)
     {
@@ -6292,6 +6308,9 @@ void NV_API_CALL nv_get_screen_info(
     NvU64       *pFbSize
 )
 {
+#if NV_CHECK_EXPORT_SYMBOL(screen_info) || NV_CHECK_EXPORT_SYMBOL(sysfb_primary_display)
+    struct screen_info *sysfb_info;
+#endif
     nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
     struct pci_dev *pci_dev = nvl->pci_dev;
     int i;
@@ -6357,9 +6376,18 @@ void NV_API_CALL nv_get_screen_info(
      *
      * After commit b8466fe82b79 ("efi: move screen_info into efi init code")
      * in v6.7, 'screen_info' is exported as GPL licensed symbol for ARM64.
+     *
+     * After commit a41e0ab394e4 ("sysfb: Replace screen_info with sysfb_primary_display")
+     * in v7.0, 'screen_info' is refactored as 'sysfb_primary_display.screen'.
      */
 
-#if NV_CHECK_EXPORT_SYMBOL(screen_info)
+#if NV_CHECK_EXPORT_SYMBOL(screen_info) || NV_CHECK_EXPORT_SYMBOL(sysfb_primary_display)
+#if NV_CHECK_EXPORT_SYMBOL(sysfb_primary_display)
+    sysfb_info = &sysfb_primary_display.screen;
+#else
+    sysfb_info = &screen_info;
+#endif
+
     /*
      * If there is not a framebuffer console, return 0 size.
      *
@@ -6367,13 +6395,13 @@ void NV_API_CALL nv_get_screen_info(
      * initialization, and then will be set to a value, such as
      * VIDEO_TYPE_VLFB or VIDEO_TYPE_EFI if an fbdev console is used.
      */
-    if (screen_info.orig_video_isVGA > 1)
+    if (sysfb_info->orig_video_isVGA > 1)
     {
-        NvU64 physAddr = screen_info.lfb_base;
+        NvU64 physAddr = sysfb_info->lfb_base;
 #if defined(VIDEO_CAPABILITY_64BIT_BASE)
-        if  (screen_info.capabilities & VIDEO_CAPABILITY_64BIT_BASE)
+        if  (sysfb_info->capabilities & VIDEO_CAPABILITY_64BIT_BASE)
         {
-            physAddr |= (NvU64)screen_info.ext_lfb_base << 32;
+            physAddr |= (NvU64)sysfb_info->ext_lfb_base << 32;
         }
 #endif
         /*
@@ -6385,10 +6413,10 @@ void NV_API_CALL nv_get_screen_info(
             NV_IS_CONSOLE_MAPPED(nv, physAddr))
         {
             *pPhysicalAddress = physAddr;
-            *pFbWidth = screen_info.lfb_width;
-            *pFbHeight = screen_info.lfb_height;
-            *pFbDepth = screen_info.lfb_depth;
-            *pFbPitch = screen_info.lfb_linelength;
+            *pFbWidth = sysfb_info->lfb_width;
+            *pFbHeight = sysfb_info->lfb_height;
+            *pFbDepth = sysfb_info->lfb_depth;
+            *pFbPitch = sysfb_info->lfb_linelength;
             *pFbSize = (NvU64)(*pFbHeight) * (NvU64)(*pFbPitch);
             return;
         }

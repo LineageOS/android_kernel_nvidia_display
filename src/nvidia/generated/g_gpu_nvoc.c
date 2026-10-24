@@ -353,6 +353,12 @@ void __nvoc_init_dataField_OBJGPU(OBJGPU *pThis) {
     }
     pThis->setProperty(pThis, PDB_PROP_GPU_HFRP_IS_KERNEL_OBJECT_ACTIVE_WAR, NV_FALSE);
 
+    // NVOC Property Hal field -- PDB_PROP_GPU_WAR_5656465_SUPPORTED
+    // default
+    {
+        pThis->setProperty(pThis, PDB_PROP_GPU_WAR_5656465_SUPPORTED, NV_FALSE);
+    }
+
     pThis->deviceInstance = 32;
 
     // Hal field -- isVirtual

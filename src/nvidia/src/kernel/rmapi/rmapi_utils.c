@@ -242,4 +242,3 @@ NvBool rmapiutilSkipErrorMessageForUnsupportedVgpuGuestControl(OBJGPU *pGpu, NvU
             return NV_FALSE;
     }
 }
-

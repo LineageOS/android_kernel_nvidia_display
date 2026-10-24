@@ -43,18 +43,18 @@
 #endif
 
 #if defined(NV_LINUX) || defined(NV_BSD) || defined(NV_SUNOS) || defined(NV_DCECORE)
-#define NV_BUILD_BRANCH_VERSION         "rel/gpu_drv/r595/r595_00-269"
-#define NV_BUILD_CHANGELIST_NUM         (38005262)
+#define NV_BUILD_BRANCH_VERSION         "rel/gpu_drv/r595/r595_00-432"
+#define NV_BUILD_CHANGELIST_NUM         (39031863)
 #define NV_BUILD_TYPE                   "Nightly"
-#define NV_BUILD_NAME                   "rel/gpu_drv/r595/r595_00-269"
-#define NV_LAST_OFFICIAL_CHANGELIST_NUM (38005068)
+#define NV_BUILD_NAME                   "rel/gpu_drv/r595/r595_00-432"
+#define NV_LAST_OFFICIAL_CHANGELIST_NUM (39029189)
 
 #else     /* Windows builds */
-#define NV_BUILD_BRANCH_VERSION         "r595_00-231"
-#define NV_BUILD_CHANGELIST_NUM         (38004493)
+#define NV_BUILD_BRANCH_VERSION         "r595_00-382"
+#define NV_BUILD_CHANGELIST_NUM         (39031805)
 #define NV_BUILD_TYPE                   "Official"
-#define NV_BUILD_NAME                   "596.56"
-#define NV_LAST_OFFICIAL_CHANGELIST_NUM (38004493)
+#define NV_BUILD_NAME                   "597.23"
+#define NV_LAST_OFFICIAL_CHANGELIST_NUM (39031805)
 #define NV_BUILD_BRANCH_BASE_VERSION    R595
 #endif
 // End buildmeister python edited section
