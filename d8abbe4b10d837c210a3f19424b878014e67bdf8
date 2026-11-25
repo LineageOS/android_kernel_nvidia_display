@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "a34bf2d4_826b69a8",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 14048
+      },
+      "writtenOn": "2026-11-25T04:49:36Z",
+      "side": 1,
+      "message": "See commit message. This needs traced down to a real solution, instead of just blanket nuking functionality.",
+      "revId": "d8abbe4b10d837c210a3f19424b878014e67bdf8",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
